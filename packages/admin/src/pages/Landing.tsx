@@ -1,33 +1,13 @@
 import { useState } from 'react';
-import { signInWithGoogle } from '../firebase';
-import { setAuthToken } from '../api';
+import { useNavigate } from 'react-router-dom';
 
 type Props = { 
   onLogin: () => void;
-  onSignUp: () => void;
 };
 
-export default function Landing({ onLogin, onSignUp }: Props) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleGoogleAuth = async (isSignUp: boolean) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const token = await signInWithGoogle();
-      setAuthToken(token);
-      if (isSignUp) {
-        onSignUp();
-      } else {
-        onLogin();
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Authentication failed');
-    } finally {
-      setLoading(false);
-    }
-  };
+export default function Landing({ onLogin }: Props) {
+  const navigate = useNavigate();
+  const [loading] = useState(false);
 
   return (
     <div
@@ -44,7 +24,7 @@ export default function Landing({ onLogin, onSignUp }: Props) {
           <h1 style={{ margin: 0, color: 'white', fontSize: 28, fontWeight: 700 }}>CareMax</h1>
           <div style={{ display: 'flex', gap: 12 }}>
             <button
-              onClick={() => handleGoogleAuth(false)}
+              onClick={() => navigate('/login')}
               disabled={loading}
               style={{
                 padding: '10px 20px',
@@ -60,7 +40,7 @@ export default function Landing({ onLogin, onSignUp }: Props) {
               Sign In
             </button>
             <button
-              onClick={() => handleGoogleAuth(true)}
+              onClick={() => navigate('/signup')}
               disabled={loading}
               style={{
                 padding: '10px 20px',
@@ -90,24 +70,9 @@ export default function Landing({ onLogin, onSignUp }: Props) {
             through an embeddable chat widget powered by Google Gemini AI.
           </p>
 
-          {error && (
-            <div
-              style={{
-                backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                color: 'white',
-                padding: '12px 24px',
-                borderRadius: 6,
-                marginBottom: 24,
-                display: 'inline-block',
-              }}
-            >
-              {error}
-            </div>
-          )}
-
           <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button
-              onClick={() => handleGoogleAuth(true)}
+              onClick={() => navigate('/signup')}
               disabled={loading}
               style={{
                 padding: '16px 32px',
@@ -128,10 +93,10 @@ export default function Landing({ onLogin, onSignUp }: Props) {
                 e.currentTarget.style.transform = 'translateY(0)';
               }}
             >
-              {loading ? 'Signing in...' : 'Get Started Free'}
+              Get Started Free
             </button>
             <button
-              onClick={() => handleGoogleAuth(false)}
+              onClick={() => navigate('/login')}
               disabled={loading}
               style={{
                 padding: '16px 32px',

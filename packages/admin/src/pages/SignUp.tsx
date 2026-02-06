@@ -1,28 +1,39 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { signInWithEmail, signInWithGoogle } from '../firebase';
+import { signUpWithEmail, signInWithGoogle } from '../firebase';
 import { setAuthToken } from '../api';
 import { getAuthErrorMessage } from '../utils/authErrors';
 
-type Props = { onSuccess: () => void };
+type Props = {
+  onSuccess: () => void;
+};
 
-export default function Login({ onSuccess }: Props) {
+export default function SignUp({ onSuccess }: Props) {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleEmailLogin = async (e: React.FormEvent) => {
+  const handleEmailSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password) {
+    if (!email.trim() || !password || !confirmPassword) {
       setError('Email and password are required');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const token = await signInWithEmail(email.trim(), password);
+      const token = await signUpWithEmail(email.trim(), password);
       setAuthToken(token);
       onSuccess();
     } catch (e) {
@@ -32,7 +43,7 @@ export default function Login({ onSuccess }: Props) {
     }
   };
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleSignUp = async () => {
     setLoading(true);
     setError(null);
     try {
@@ -54,23 +65,25 @@ export default function Login({ onSuccess }: Props) {
         alignItems: 'center',
         justifyContent: 'center',
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        padding: 24,
+        padding: '24px',
       }}
     >
       <div
         style={{
           backgroundColor: 'white',
           borderRadius: 12,
-          padding: 32,
-          maxWidth: 420,
+          padding: '40px',
+          maxWidth: 500,
           width: '100%',
           boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
         }}
       >
-        <h1 style={{ margin: '0 0 8px 0', fontSize: 28, textAlign: 'center' }}>Sign in to CareMax</h1>
-        <p style={{ color: '#666', marginBottom: 24, fontSize: 14, textAlign: 'center' }}>
-          Access your admin dashboard with email and password or Google.
-        </p>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <h1 style={{ margin: '0 0 8px 0', fontSize: 30, fontWeight: 700, color: '#333' }}>Create your account</h1>
+          <p style={{ color: '#666', fontSize: 14, margin: 0 }}>
+            Sign up with email and password or continue with Google.
+          </p>
+        </div>
 
         {error && (
           <div
@@ -92,8 +105,16 @@ export default function Login({ onSuccess }: Props) {
           </div>
         )}
 
-        <form onSubmit={handleEmailLogin} style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', marginBottom: 12, fontSize: 14, color: '#333' }}>
+        <form onSubmit={handleEmailSignUp} style={{ marginBottom: 16 }}>
+          <label
+            style={{
+              display: 'block',
+              marginBottom: 12,
+              fontSize: 14,
+              fontWeight: 600,
+              color: '#333',
+            }}
+          >
             Email
             <input
               type="email"
@@ -101,9 +122,8 @@ export default function Login({ onSuccess }: Props) {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               style={{
-                display: 'block',
                 width: '100%',
-                padding: 10,
+                padding: '10px',
                 marginTop: 6,
                 fontSize: 14,
                 borderRadius: 6,
@@ -113,17 +133,25 @@ export default function Login({ onSuccess }: Props) {
               autoFocus
             />
           </label>
-          <label style={{ display: 'block', marginBottom: 16, fontSize: 14, color: '#333' }}>
+
+          <label
+            style={{
+              display: 'block',
+              marginBottom: 12,
+              fontSize: 14,
+              fontWeight: 600,
+              color: '#333',
+            }}
+          >
             Password
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Your password"
+              placeholder="At least 6 characters"
               style={{
-                display: 'block',
                 width: '100%',
-                padding: 10,
+                padding: '10px',
                 marginTop: 6,
                 fontSize: 14,
                 borderRadius: 6,
@@ -132,6 +160,34 @@ export default function Login({ onSuccess }: Props) {
               }}
             />
           </label>
+
+          <label
+            style={{
+              display: 'block',
+              marginBottom: 16,
+              fontSize: 14,
+              fontWeight: 600,
+              color: '#333',
+            }}
+          >
+            Confirm Password
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Re-enter your password"
+              style={{
+                width: '100%',
+                padding: '10px',
+                marginTop: 6,
+                fontSize: 14,
+                borderRadius: 6,
+                border: '1px solid #ddd',
+                boxSizing: 'border-box',
+              }}
+            />
+          </label>
+
           <button
             type="submit"
             disabled={loading}
@@ -148,7 +204,7 @@ export default function Login({ onSuccess }: Props) {
               marginBottom: 12,
             }}
           >
-            {loading ? 'Signing in...' : 'Sign in'}
+            {loading ? 'Creating account...' : 'Sign up'}
           </button>
         </form>
 
@@ -156,7 +212,7 @@ export default function Login({ onSuccess }: Props) {
 
         <button
           type="button"
-          onClick={handleGoogleLogin}
+          onClick={handleGoogleSignUp}
           disabled={loading}
           style={{
             width: '100%',
@@ -174,20 +230,14 @@ export default function Login({ onSuccess }: Props) {
             gap: 8,
           }}
         >
-          {loading ? (
-            'Signing in...'
-          ) : (
-            <>
-              <span>Continue with Google</span>
-            </>
-          )}
+          {loading ? 'Signing in...' : 'Continue with Google'}
         </button>
 
         <div style={{ marginTop: 16, fontSize: 13, textAlign: 'center', color: '#666' }}>
-          Don&apos;t have an account?{' '}
+          Already have an account?{' '}
           <button
             type="button"
-            onClick={() => navigate('/signup')}
+            onClick={() => navigate('/login')}
             style={{
               background: 'none',
               border: 'none',
@@ -198,7 +248,7 @@ export default function Login({ onSuccess }: Props) {
               fontSize: 13,
             }}
           >
-            Sign up
+            Sign in
           </button>
         </div>
       </div>

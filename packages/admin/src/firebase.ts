@@ -4,6 +4,8 @@ import {
   GoogleAuthProvider,
   signInWithPopup as firebaseSignInWithPopup,
   onAuthStateChanged as firebaseOnAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
@@ -25,6 +27,20 @@ if (!config.apiKey || config.apiKey === '') {
 export const app = initializeApp(config);
 export const auth = getAuth(app);
 export const firestore = getFirestore(app);
+
+export async function signUpWithEmail(email: string, password: string): Promise<string> {
+  const { user } = await createUserWithEmailAndPassword(auth, email, password);
+  const token = await user.getIdToken();
+  if (!token) throw new Error('No token');
+  return token;
+}
+
+export async function signInWithEmail(email: string, password: string): Promise<string> {
+  const { user } = await signInWithEmailAndPassword(auth, email, password);
+  const token = await user.getIdToken();
+  if (!token) throw new Error('No token');
+  return token;
+}
 
 export async function signInWithGoogle(): Promise<string> {
   const provider = new GoogleAuthProvider();
