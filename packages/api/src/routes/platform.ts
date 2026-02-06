@@ -86,6 +86,182 @@ platformRouter.get('/tenants/:tenantId', async (req, res) => {
   }
 });
 
+// Helper function to aggregate usage events
+function aggregateUsage(
+  docs: FirebaseFirestore.QueryDocumentSnapshot[]
+): Array<{
+  tenantId: string;
+  totalTokens: number;
+  totalCostUsd: number;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  lastUsed: number | null;
+}> {
+  const totals: Record<
+    string,
+    {
+      tenantId: string;
+      totalTokens: number;
+      totalCostUsd: number;
+      calls: number;
+      inputTokens: number;
+      outputTokens: number;
+      lastUsed: number | null;
+    }
+  > = {};
+
+  for (const d of docs) {
+    const data = d.data() as {
+      tenantId?: string;
+      totalTokens?: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      costUsd?: number;
+      createdAt?: { toMillis?: () => number };
+    };
+    const tId = data.tenantId ?? 'unknown';
+    const totalTokens = typeof data.totalTokens === 'number' ? data.totalTokens : 0;
+    const inputTokens = typeof data.inputTokens === 'number' ? data.inputTokens : 0;
+    const outputTokens = typeof data.outputTokens === 'number' ? data.outputTokens : 0;
+    const costUsd = typeof data.costUsd === 'number' ? data.costUsd : 0;
+    const createdAt = data.createdAt?.toMillis?.() ?? null;
+
+    if (!totals[tId]) {
+      totals[tId] = {
+        tenantId: tId,
+        totalTokens: 0,
+        totalCostUsd: 0,
+        calls: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        lastUsed: null,
+      };
+    }
+    totals[tId].totalTokens += totalTokens;
+    totals[tId].inputTokens += inputTokens;
+    totals[tId].outputTokens += outputTokens;
+    totals[tId].totalCostUsd += costUsd;
+    totals[tId].calls += 1;
+    if (createdAt && (!totals[tId].lastUsed || createdAt > totals[tId].lastUsed)) {
+      totals[tId].lastUsed = createdAt;
+    }
+  }
+
+  return Object.values(totals).sort((a, b) => b.totalCostUsd - a.totalCostUsd);
+}
+
+// Usage summary per tenant (for billing / monitoring)
+platformRouter.get('/usage', async (req, res) => {
+  try {
+    const { from, to, tenantId } = req.query as { from?: string; to?: string; tenantId?: string };
+
+    // Build query - Firestore requires composite index for multiple where clauses with orderBy
+    // Strategy: Use the most selective filter first, then filter in memory if needed
+    let query: FirebaseFirestore.Query = db.collection('usage_events');
+
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+    if (toDate && !isNaN(toDate.getTime())) {
+      toDate.setHours(23, 59, 59, 999);
+    }
+
+    // If we have both tenantId and date filters, prioritize tenantId (more selective)
+    // and filter dates in memory to avoid composite index requirement
+    if (tenantId && (fromDate || toDate)) {
+      query = query.where('tenantId', '==', tenantId);
+      const snap = await query.limit(10000).get();
+      
+      // Filter in memory by date
+      const filteredDocs = snap.docs.filter((d) => {
+        const data = d.data();
+        const createdAt = data.createdAt?.toMillis?.() ?? null;
+        if (!createdAt) return false;
+        if (fromDate && !isNaN(fromDate.getTime()) && createdAt < fromDate.getTime()) return false;
+        if (toDate && !isNaN(toDate.getTime()) && createdAt > toDate.getTime()) return false;
+        return true;
+      });
+
+      const usageArray = aggregateUsage(filteredDocs);
+      return res.json({ usage: usageArray });
+    }
+
+    // Simpler cases: single filter or no filters
+    if (tenantId) {
+      query = query.where('tenantId', '==', tenantId);
+    }
+    if (fromDate && !isNaN(fromDate.getTime())) {
+      query = query.where('createdAt', '>=', fromDate);
+    }
+    if (toDate && !isNaN(toDate.getTime())) {
+      query = query.where('createdAt', '<=', toDate);
+    }
+
+    // Only add orderBy if we don't have multiple where clauses (to avoid index requirement)
+    if (!((tenantId && fromDate) || (tenantId && toDate) || (fromDate && toDate))) {
+      query = query.orderBy('createdAt', 'desc');
+    }
+
+    const snap = await query.limit(10000).get();
+    const usageArray = aggregateUsage(snap.docs);
+    res.json({ usage: usageArray });
+  } catch (e) {
+    console.error('Failed to load usage summary:', e);
+    res.status(500).json({ error: 'Failed to load usage summary' });
+  }
+});
+
+// Get detailed usage for a specific tenant
+platformRouter.get('/usage/:tenantId', async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const { from, to, limit = '100' } = req.query as { from?: string; to?: string; limit?: string };
+
+    let query: FirebaseFirestore.Query = db
+      .collection('usage_events')
+      .where('tenantId', '==', tenantId)
+      .orderBy('createdAt', 'desc');
+
+    if (from) {
+      const fromDate = new Date(from);
+      if (!isNaN(fromDate.getTime())) {
+        query = query.where('createdAt', '>=', fromDate);
+      }
+    }
+    if (to) {
+      const toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999);
+      if (!isNaN(toDate.getTime())) {
+        query = query.where('createdAt', '<=', toDate);
+      }
+    }
+
+    const limitNum = parseInt(limit, 10) || 100;
+    const snap = await query.limit(Math.min(limitNum, 1000)).get();
+
+    const events = snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        eventId: d.id,
+        tenantId: data.tenantId ?? null,
+        userId: data.userId ?? null,
+        conversationId: data.conversationId ?? null,
+        model: data.model ?? null,
+        inputTokens: data.inputTokens ?? 0,
+        outputTokens: data.outputTokens ?? 0,
+        totalTokens: data.totalTokens ?? 0,
+        costUsd: data.costUsd ?? 0,
+        createdAt: data.createdAt?.toMillis?.() ?? null,
+      };
+    });
+
+    res.json({ events });
+  } catch (e) {
+    console.error('Failed to load tenant usage:', e);
+    res.status(500).json({ error: 'Failed to load tenant usage' });
+  }
+});
+
 platformRouter.delete('/tenants/:tenantId', async (req, res) => {
   try {
     const { tenantId } = req.params;

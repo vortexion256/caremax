@@ -13,6 +13,7 @@ export default function PlatformLayout() {
   const nav = [
     { path: '/platform', label: 'Platform dashboard' },
     { path: '/platform/tenants', label: 'All tenants' },
+    { path: '/platform/usage', label: 'Usage & Billing' },
   ];
 
   return (

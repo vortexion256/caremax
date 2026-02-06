@@ -17,6 +17,7 @@ import Conversations from './pages/Conversations';
 import ConversationView from './pages/ConversationView';
 import PlatformTenants from './pages/PlatformTenants';
 import PlatformDashboard from './pages/PlatformDashboard';
+import PlatformUsage from './pages/PlatformUsage';
 import RAG from './pages/RAG';
 import Embed from './pages/Embed';
 
@@ -175,6 +176,7 @@ export default function App() {
         <Route path="/platform" element={<PlatformLayout />}>
           <Route index element={<PlatformDashboard />} />
           <Route path="tenants" element={<PlatformTenants />} />
+          <Route path="usage" element={<PlatformUsage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

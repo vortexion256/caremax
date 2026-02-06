@@ -144,7 +144,12 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
 
   let agentResponse: { text: string; requestHandoff?: boolean };
   try {
-    agentResponse = await runAgent(tenantId, history);
+    const convData = conv.data();
+    const userId = (convData?.userId as string | undefined) ?? undefined;
+    agentResponse = await runAgent(tenantId, history, {
+      userId,
+      conversationId,
+    });
   } catch (err) {
     console.error('Agent error:', err);
     const message = err instanceof Error ? err.message : 'Agent failed';

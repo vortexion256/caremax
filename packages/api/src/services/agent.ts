@@ -16,6 +16,58 @@ function defaultPromptForName(agentName: string): string {
 You help users understand possible next steps based on their symptoms. Suggest when to see a doctor or seek care. Be clear you are not a doctor and cannot diagnose. For contact info, hours, or phone numbers, use the knowledge base if provided.`;
 }
 
+type UsageContext = {
+  tenantId: string;
+  userId?: string;
+  conversationId?: string;
+};
+
+type UsageMetadata = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
+
+// Simple pricing table – adjust these to match your actual Gemini pricing
+const GEMINI_PRICING_USD: Record<
+  string,
+  {
+    inputPer1K: number;
+    outputPer1K: number;
+  }
+> = {
+  'gemini-3-flash-preview': { inputPer1K: 0.000075, outputPer1K: 0.0003 },
+  'gemini-1.5-pro': { inputPer1K: 0.0035, outputPer1K: 0.0105 },
+};
+
+function computeCostUsd(model: string, usage: UsageMetadata): number {
+  const pricing = GEMINI_PRICING_USD[model] ?? GEMINI_PRICING_USD['gemini-3-flash-preview'];
+  const inputCost = (usage.inputTokens / 1000) * pricing.inputPer1K;
+  const outputCost = (usage.outputTokens / 1000) * pricing.outputPer1K;
+  // Round to 6 decimals to avoid tiny floating point noise
+  return Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000;
+}
+
+async function recordUsage(modelName: string, usage: UsageMetadata, ctx: UsageContext): Promise<void> {
+  try {
+    const costUsd = computeCostUsd(modelName, usage);
+    await db.collection('usage_events').add({
+      tenantId: ctx.tenantId,
+      userId: ctx.userId ?? null,
+      conversationId: ctx.conversationId ?? null,
+      model: modelName,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      totalTokens: usage.totalTokens,
+      costUsd,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    // Usage tracking should never break the main flow
+    console.error('Failed to record usage event:', e);
+  }
+}
+
 export async function getAgentConfig(tenantId: string): Promise<{
   agentName: string;
   systemPrompt: string;
@@ -86,7 +138,8 @@ function toLangChainMessages(
 
 export async function runAgent(
   tenantId: string,
-  history: { role: string; content: string; imageUrls?: string[] }[]
+  history: { role: string; content: string; imageUrls?: string[] }[],
+  options?: { userId?: string; conversationId?: string }
 ): Promise<AgentResult> {
   const config = await getAgentConfig(tenantId);
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
@@ -140,6 +193,71 @@ export async function runAgent(
   const requestHandoff =
     /speak with (a )?(care )?(coordinator|team|human|agent)/i.test(text) ||
     /recommend.*(speaking|talking) to/i.test(text);
+
+  // Extract token usage metadata from LangChain / Gemini response
+  // LangChain ChatGoogleGenerativeAI returns usage in response_metadata.tokenUsage
+  try {
+    const responseAny = response as any;
+    const responseMetadata = responseAny.response_metadata ?? {};
+    
+    // Try tokenUsage first (most common format in LangChain)
+    const tokenUsage = responseMetadata.tokenUsage ?? {};
+    
+    // Also check for usageMetadata/usage_metadata (alternative formats)
+    const usageMetadata = responseMetadata.usageMetadata ?? responseMetadata.usage_metadata ?? {};
+    
+    // Extract token counts - try tokenUsage format first, then usageMetadata format
+    const inputTokens: number =
+      tokenUsage.promptTokens ??
+      tokenUsage.inputTokens ??
+      usageMetadata.promptTokenCount ??
+      usageMetadata.promptTokens ??
+      (typeof usageMetadata.input_tokens === 'number' ? usageMetadata.input_tokens : 0);
+    
+    const outputTokens: number =
+      tokenUsage.completionTokens ??
+      tokenUsage.outputTokens ??
+      usageMetadata.candidatesTokenCount ??
+      usageMetadata.candidatesTokens ??
+      (typeof usageMetadata.output_tokens === 'number' ? usageMetadata.output_tokens : 0);
+    
+    const totalTokens: number =
+      tokenUsage.totalTokens ??
+      usageMetadata.totalTokenCount ??
+      usageMetadata.totalTokens ??
+      (typeof usageMetadata.total_tokens === 'number' ? usageMetadata.total_tokens : inputTokens + outputTokens);
+
+    // Only record if we have valid token counts
+    if (totalTokens > 0 || (inputTokens > 0 && outputTokens >= 0)) {
+      await recordUsage(
+        config.model,
+        {
+          inputTokens: inputTokens || 0,
+          outputTokens: outputTokens || 0,
+          totalTokens: totalTokens || inputTokens + outputTokens,
+        },
+        {
+          tenantId,
+          userId: options?.userId,
+          conversationId: options?.conversationId,
+        }
+      );
+      // Temporary debug log to confirm usage is being recorded
+      console.log(`✅ Recorded usage: ${inputTokens} input + ${outputTokens} output = ${totalTokens} total tokens ($${computeCostUsd(config.model, { inputTokens, outputTokens, totalTokens }).toFixed(6)})`);
+    } else {
+      // Log when we can't extract usage (for debugging)
+      console.warn('Could not extract usage metadata from response:', {
+        hasResponseMetadata: !!responseAny.response_metadata,
+        responseMetadataKeys: Object.keys(responseMetadata),
+        tokenUsageKeys: tokenUsage ? Object.keys(tokenUsage) : [],
+        tokenUsageValue: tokenUsage,
+        usageMetadataValue: usageMetadata,
+      });
+    }
+  } catch (e) {
+    // Usage tracking should never break the main flow
+    console.error('Failed to extract or record usage metadata:', e);
+  }
 
   return { text: finalText, requestHandoff };
 }
