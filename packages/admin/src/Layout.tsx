@@ -1,9 +1,10 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useTenant } from './TenantContext';
+import { auth } from './firebase';
 
 export default function Layout() {
   const location = useLocation();
-  const { tenantId } = useTenant();
+  const { tenantId, isPlatformAdmin } = useTenant();
 
   const nav = [
     { path: '/', label: 'Dashboard' },
@@ -43,7 +44,32 @@ export default function Layout() {
             </Link>
           ))}
         </nav>
-        <p style={{ marginTop: 24, fontSize: 12, color: '#666' }}>Tenant: {tenantId}</p>
+        <p style={{ marginTop: 24, fontSize: 12, color: '#666' }}>
+          Tenant: {tenantId}
+          {isPlatformAdmin && ' · Platform admin'}
+        </p>
+        {isPlatformAdmin && (
+          <p style={{ marginTop: 4, fontSize: 12 }}>
+            <Link to="/platform" style={{ color: '#0d47a1', textDecoration: 'none' }}>
+              Open platform console
+            </Link>
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={() => auth.signOut().catch(() => {})}
+          style={{
+            marginTop: 12,
+            padding: '6px 10px',
+            fontSize: 12,
+            borderRadius: 6,
+            border: '1px solid #ddd',
+            background: '#fff',
+            cursor: 'pointer',
+          }}
+        >
+          Logout
+        </button>
       </aside>
       <main style={{ flex: 1, padding: 24 }}>
         <Outlet />

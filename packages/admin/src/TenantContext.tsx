@@ -3,6 +3,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 export type TenantProfile = {
   tenantId: string;
   isAdmin: boolean;
+  isPlatformAdmin?: boolean;
   name?: string;
   uid?: string;
   email?: string;

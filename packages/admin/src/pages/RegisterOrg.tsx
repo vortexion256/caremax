@@ -35,7 +35,16 @@ export default function RegisterOrg({ onRegistered }: Props) {
         isAdmin: true,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Registration failed');
+      if (e instanceof Error) {
+        // Handle "Already registered" error specifically
+        if (e.message.includes('Already registered') || e.message.includes('already registered')) {
+          setError('This Google account is already registered to a tenant. Please sign in instead.');
+        } else {
+          setError(e.message);
+        }
+      } else {
+        setError('Registration failed');
+      }
     } finally {
       setSubmitting(false);
     }

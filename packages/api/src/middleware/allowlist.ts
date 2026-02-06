@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 
 const fromEnv = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ?? [];
-const devOrigins = ['http://localhost:3002', 'http://localhost:5173', 'http://127.0.0.1:3002', 'http://127.0.0.1:5173'];
+const devOrigins = ['http://localhost:3002', 'http://localhost:3010', 'http://localhost:5173', 'http://localhost:5177', 'http://127.0.0.1:3002', 'http://127.0.0.1:3010', 'http://127.0.0.1:5173', 'http://127.0.0.1:5177'];
 const allowedOrigins = fromEnv.length ? [...new Set([...fromEnv, ...devOrigins])] : [];
 
 function isDevOrigin(origin: string): boolean {

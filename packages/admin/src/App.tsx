@@ -4,6 +4,8 @@ import { onAuthStateChanged } from './firebase';
 import { setAuthToken, clearAuthToken, api } from './api';
 import { TenantProvider, type TenantProfile } from './TenantContext';
 import Layout from './Layout';
+import PlatformLayout from './PlatformLayout';
+import Landing from './pages/Landing';
 import Login from './pages/Login';
 import RegisterOrg from './pages/RegisterOrg';
 import Dashboard from './pages/Dashboard';
@@ -12,10 +14,12 @@ import HandoffQueue from './pages/HandoffQueue';
 import HandoffChat from './pages/HandoffChat';
 import Conversations from './pages/Conversations';
 import ConversationView from './pages/ConversationView';
+import PlatformTenants from './pages/PlatformTenants';
+import PlatformDashboard from './pages/PlatformDashboard';
 import RAG from './pages/RAG';
 import Embed from './pages/Embed';
 
-type MeResponse = { uid: string; email?: string; tenantId?: string; isAdmin?: boolean };
+type MeResponse = { uid: string; email?: string; tenantId?: string; isAdmin?: boolean; isPlatformAdmin?: boolean };
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -45,6 +49,16 @@ export default function App() {
           setUserProfile({
             tenantId: me.tenantId,
             isAdmin: true,
+            isPlatformAdmin: me.isPlatformAdmin === true,
+            uid: me.uid,
+            email: me.email,
+          });
+        } else if (me.isPlatformAdmin) {
+          // Platform admin without a specific tenant – can still use platform views.
+          setUserProfile({
+            tenantId: 'platform',
+            isAdmin: false,
+            isPlatformAdmin: true,
             uid: me.uid,
             email: me.email,
           });
@@ -56,8 +70,21 @@ export default function App() {
   }, [authenticated]);
 
   if (!ready) return <div style={{ padding: 24 }}>Loading...</div>;
-  if (!authenticated) return <Login onSuccess={() => setAuthenticated(true)} />;
+  
+  // Show landing page when not authenticated
+  if (!authenticated) {
+    return (
+      <Landing
+        onLogin={() => setAuthenticated(true)}
+        onSignUp={() => setAuthenticated(true)}
+      />
+    );
+  }
+  
+  // After authentication, check user profile
   if (userProfile === 'loading') return <div style={{ padding: 24 }}>Loading...</div>;
+  
+  // If authenticated but no tenant profile, show registration
   if (!userProfile) {
     return <RegisterOrg onRegistered={(profile) => setUserProfile(profile)} />;
   }
@@ -74,6 +101,10 @@ export default function App() {
           <Route path="handoffs/:conversationId" element={<HandoffChat />} />
           <Route path="rag" element={<RAG />} />
           <Route path="embed" element={<Embed />} />
+        </Route>
+        <Route path="/platform" element={<PlatformLayout />}>
+          <Route index element={<PlatformDashboard />} />
+          <Route path="tenants" element={<PlatformTenants />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

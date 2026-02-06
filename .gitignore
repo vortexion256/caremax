@@ -1,9 +1,17 @@
 node_modules
 dist
 .next
+# Environment files
 .env
+.env.*
 .env.local
+.env.dev
+.env.production
+.env.test
+packages/*/.env
+packages/*/.env.local
+# Service account credentials
+service-account.json
 *.log
 .DS_Store
-service-account.json
 *.tsbuildinfo
