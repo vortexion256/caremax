@@ -1,0 +1,21 @@
+{
+  "name": "caremax",
+  "private": true,
+  "workspaces": [
+    "packages/api",
+    "packages/widget",
+    "packages/admin"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w @caremax/api",
+    "dev:widget": "npm run dev -w @caremax/widget",
+    "dev:admin": "npm run dev -w @caremax/admin",
+    "build": "npm run build -w @caremax/api && npm run build -w @caremax/widget && npm run build -w @caremax/admin",
+    "build:api": "npm run build -w @caremax/api",
+    "build:widget": "npm run build -w @caremax/widget",
+    "build:admin": "npm run build -w @caremax/admin"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

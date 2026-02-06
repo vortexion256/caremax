@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isTenantMember(tenantId) {
+      return request.auth != null && request.auth.token.tenantId == tenantId;
+    }
+    function isAdmin(tenantId) {
+      return request.auth != null && request.auth.token.tenantId == tenantId && request.auth.token.isAdmin == true;
+    }
+    match /tenants/{tenantId} {
+      allow read: if isTenantMember(tenantId);
+      allow write: if isAdmin(tenantId);
+    }
+    match /agent_config/{tenantId} {
+      allow read: if request.auth != null || true;
+      allow write: if isAdmin(tenantId);
+    }
+    match /conversations/{convId} {
+      allow read: if request.auth != null && (
+        resource.data.tenantId == request.auth.token.tenantId
+        || resource.data.userId == request.auth.uid
+      );
+      allow create: if false;
+      allow update: if request.auth != null && resource.data.tenantId == request.auth.token.tenantId;
+      allow delete: if false;
+    }
+    function canReadMessageAsWidgetUser() {
+      let conv = get(/databases/$(database)/documents/conversations/$(resource.data.conversationId));
+      return conv != null && conv.data.userId == request.auth.uid;
+    }
+    match /messages/{msgId} {
+      allow read: if request.auth != null && (
+        resource.data.tenantId == request.auth.token.tenantId
+        || canReadMessageAsWidgetUser()
+      );
+      allow create: if false;
+      allow update, delete: if request.auth != null && resource.data.tenantId == request.auth.token.tenantId;
+    }
+    match /rag_documents/{docId} {
+      allow read: if isTenantMember(resource.data.tenantId);
+      allow write: if isAdmin(resource.data.tenantId);
+    }
+    match /rag_chunks/{chunkId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
