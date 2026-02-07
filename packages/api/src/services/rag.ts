@@ -32,11 +32,24 @@ export async function getRagContext(tenantId: string, query: string, limit = 8):
     .where('tenantId', '==', tenantId)
     .limit(100)
     .get();
-  if (snap.empty) return '';
+
+  if (snap.empty) {
+    if (process.env.NODE_ENV !== 'test') {
+      console.log('RAG: no chunks found for tenant', tenantId, '- add RAG documents in Admin → RAG documents and ensure "Use RAG" is on in Agent settings.');
+    }
+    return '';
+  }
+
   const queryTerms = tokenize(query);
   const chunksWithText = snap.docs
     .map((d) => ({ id: d.id, text: d.data().text as string }))
     .filter((c) => c.text?.trim());
+
+  if (chunksWithText.length === 0) {
+    if (process.env.NODE_ENV !== 'test') console.log('RAG: tenant', tenantId, 'has chunks but none have text.');
+    return '';
+  }
+
   let chosen: string[];
   if (queryTerms.length > 0) {
     const scored = chunksWithText
@@ -54,7 +67,12 @@ export async function getRagContext(tenantId: string, query: string, limit = 8):
   } else {
     chosen = chunksWithText.slice(0, limit).map((c) => c.text);
   }
-  return chosen.join('\n\n');
+
+  const result = chosen.join('\n\n');
+  if (process.env.NODE_ENV !== 'test') {
+    console.log('RAG: tenant', tenantId, 'query length', query.length, 'chunks used', chosen.length, 'of', chunksWithText.length);
+  }
+  return result;
 }
 
 export async function indexDocument(

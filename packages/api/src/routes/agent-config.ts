@@ -10,11 +10,23 @@ agentConfigRouter.use(requireTenantParam);
 
 const updateBody = z.object({
   agentName: z.string().optional(),
+  chatTitle: z.string().optional(),
   systemPrompt: z.string().optional(),
   thinkingInstructions: z.string().optional(),
   model: z.string().optional(),
   temperature: z.number().min(0).max(2).optional(),
   ragEnabled: z.boolean().optional(),
+});
+
+/** Public endpoint for the chat widget: returns only title and agent name (no system prompt etc.). */
+agentConfigRouter.get('/widget', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const doc = await db.collection('agent_config').doc(tenantId).get();
+  const data = doc.data() ?? {};
+  res.json({
+    chatTitle: (data.chatTitle ?? '').trim(),
+    agentName: data.agentName ?? 'CareMax Assistant',
+  });
 });
 
 agentConfigRouter.get('/', async (req, res) => {
@@ -24,6 +36,7 @@ agentConfigRouter.get('/', async (req, res) => {
     res.json({
       tenantId,
       agentName: 'CareMax Assistant',
+      chatTitle: '',
       systemPrompt: '',
       thinkingInstructions: '',
       model: 'gemini-3-flash-preview',

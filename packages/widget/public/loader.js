@@ -8,42 +8,32 @@
  */
 (function () {
   'use strict';
-  const script = document.currentScript as HTMLScriptElement | null;
+  var script = document.currentScript;
   if (!script || !script.parentNode) return;
 
-  const tenant = script.getAttribute('data-tenant') || 'demo';
-  const theme = script.getAttribute('data-theme') || 'light';
-  const base = script.src.replace(/\/(loader\.js)?(\?.*)?$/, '');
+  var tenant = script.getAttribute('data-tenant') || 'demo';
+  var theme = script.getAttribute('data-theme') || 'light';
+  var base = script.src.replace(/\/(loader\.js)?(\?.*)?$/, '');
 
-  const iframeSrc =
-    base + '/embed.html?tenant=' + encodeURIComponent(tenant) + '&theme=' + encodeURIComponent(theme);
+  var iframeSrc = base + '/embed.html?tenant=' + encodeURIComponent(tenant) + '&theme=' + encodeURIComponent(theme);
 
-  const BUTTON_SIZE = 56;
-  const IFRAME_WIDTH = 360;
-  const IFRAME_HEIGHT = 480;
-  const OFFSET = 20;
-  const Z = 2147483647;
-  const MOBILE_BREAK = 480;
+  var BUTTON_SIZE = 56;
+  var IFRAME_WIDTH = 360;
+  var IFRAME_HEIGHT = 480;
+  var OFFSET = 20;
+  var Z = 2147483647;
+  var MOBILE_BREAK = 480;
 
-  const container = document.createElement('div');
+  var container = document.createElement('div');
   container.id = 'caremax-embed-root';
-  container.style.cssText =
-    'position:fixed;bottom:0;right:0;width:0;height:0;z-index:' +
-    Z +
-    ';font-family:system-ui,-apple-system,sans-serif;';
+  container.style.cssText = 'position:fixed;bottom:0;right:0;width:0;height:0;z-index:' + Z + ';font-family:system-ui,-apple-system,sans-serif;';
 
-  const button = document.createElement('button');
+  var button = document.createElement('button');
   button.type = 'button';
   button.setAttribute('aria-label', 'Open chat');
   button.title = 'Chat';
-  button.style.cssText =
-    'width:' +
-    BUTTON_SIZE +
-    'px;height:' +
-    BUTTON_SIZE +
-    'px;border-radius:50%;border:none;cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;background:#1976d2;color:#fff;transition:transform 0.2s, box-shadow 0.2s;-webkit-tap-highlight-color:transparent;touch-action:manipulation;';
-  button.innerHTML =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
+  button.style.cssText = 'width:' + BUTTON_SIZE + 'px;height:' + BUTTON_SIZE + 'px;border-radius:50%;border:none;cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;background:#1976d2;color:#fff;transition:transform 0.2s, box-shadow 0.2s;-webkit-tap-highlight-color:transparent;touch-action:manipulation;';
+  button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
   button.addEventListener('mouseenter', function () {
     button.style.transform = 'scale(1.05)';
     button.style.boxShadow = '0 4px 16px rgba(0,0,0,0.25)';
@@ -53,18 +43,17 @@
     button.style.boxShadow = '0 2px 12px rgba(0,0,0,0.2)';
   });
 
-  const iframe = document.createElement('iframe');
+  var iframe = document.createElement('iframe');
   iframe.src = iframeSrc;
   iframe.title = 'CareMax Chat';
 
-  function isMobile(): boolean {
-    return typeof window !== 'undefined' && window.matchMedia?.('(max-width: ' + MOBILE_BREAK + 'px)').matches;
+  function isMobile() {
+    return typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: ' + MOBILE_BREAK + 'px)').matches;
   }
 
-  let open = false;
-  function applyIframeStyles(): void {
-    const mobile = isMobile();
-    const bottom = (OFFSET + BUTTON_SIZE + 2) + 'px';
+  function applyIframeStyles() {
+    var mobile = isMobile();
+    var bottom = (OFFSET + BUTTON_SIZE + 2) + 'px';
     if (mobile) {
       iframe.style.left = '0';
       iframe.style.right = '0';
@@ -87,11 +76,12 @@
     iframe.style.position = 'fixed';
     iframe.style.border = 'none';
     iframe.style.boxShadow = mobile ? 'none' : '0 4px 24px rgba(0,0,0,0.2)';
-    iframe.style.zIndex = String(Z);
+    iframe.style.zIndex = Z;
     iframe.style.display = open ? 'block' : 'none';
   }
 
-  function toggle(): void {
+  var open = false;
+  function toggle() {
     open = !open;
     iframe.style.display = open ? 'block' : 'none';
     applyIframeStyles();
@@ -107,15 +97,15 @@
   button.style.position = 'fixed';
   button.style.bottom = OFFSET + 'px';
   button.style.right = OFFSET + 'px';
-  button.style.zIndex = String(Z + 1);
+  button.style.zIndex = Z + 1;
 
   applyIframeStyles();
   iframe.style.display = 'none';
 
   if (typeof window !== 'undefined') {
-    const mql = window.matchMedia?.('(max-width: ' + MOBILE_BREAK + 'px)');
-    if (mql?.addListener) mql.addListener(applyIframeStyles);
-    if (mql?.addEventListener) mql.addEventListener('change', applyIframeStyles);
+    var mql = window.matchMedia && window.matchMedia('(max-width: ' + MOBILE_BREAK + 'px)');
+    if (mql && mql.addListener) mql.addListener(applyIframeStyles);
+    if (mql && mql.addEventListener) mql.addEventListener('change', applyIframeStyles);
     window.addEventListener('resize', applyIframeStyles);
   }
 })();

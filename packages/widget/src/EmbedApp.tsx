@@ -13,6 +13,8 @@ type Message = {
 
 type EmbedAppProps = { tenantId: string; theme: string };
 
+type WidgetConfig = { chatTitle: string; agentName: string };
+
 export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -21,6 +23,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   const [humanJoined, setHumanJoined] = useState(false);
   const [images, setImages] = useState<File[]>([]);
   const [firestoreReady, setFirestoreReady] = useState(false);
+  const [widgetConfig, setWidgetConfig] = useState<WidgetConfig | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,6 +33,13 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   useEffect(() => {
     ensureAnonymousAuth().then(() => setFirestoreReady(true)).catch(() => setFirestoreReady(true));
   }, []);
+
+  useEffect(() => {
+    fetch(`${API_URL}/tenants/${tenantId}/agent-config/widget`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to load'))))
+      .then((data: WidgetConfig) => setWidgetConfig({ chatTitle: data.chatTitle ?? '', agentName: data.agentName ?? 'CareMax Assistant' }))
+      .catch(() => setWidgetConfig({ chatTitle: '', agentName: 'CareMax Assistant' }));
+  }, [tenantId]);
 
   const createConversation = async () => {
     const uid = await ensureAnonymousAuth();
@@ -159,10 +169,12 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: 400,
-        maxHeight: '80vh',
-        width: 360,
-        maxWidth: '100%',
+        height: '100%',
+        minHeight: 300,
+        maxHeight: '100vh',
+        width: '100%',
+        maxWidth: 360,
+        margin: '0 auto',
         backgroundColor: card,
         borderRadius: 12,
         boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
@@ -173,12 +185,29 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
       <div
         style={{
           padding: '12px 16px',
+          minHeight: 44,
+          display: 'flex',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 4,
+          flexShrink: 0,
           borderBottom: `1px solid ${border}`,
           backgroundColor: isDark ? '#252525' : '#fafafa',
           fontWeight: 600,
         }}
       >
-        CareMax
+        <span style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 4 }}>
+          <span>{widgetConfig?.chatTitle?.trim() || 'CareMax'}</span>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 400,
+              color: isDark ? '#888' : '#6b7280',
+            }}
+          >
+            — powered by CareMAX
+          </span>
+        </span>
         {humanJoined && (
           <span style={{ marginLeft: 8, fontSize: 12, color: '#0a7c42', fontWeight: 500 }}>
             Care team joined
@@ -190,10 +219,12 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
         style={{
           flex: 1,
           overflow: 'auto',
+          WebkitOverflowScrolling: 'touch',
           padding: 12,
           display: 'flex',
           flexDirection: 'column',
           gap: 8,
+          minHeight: 0,
         }}
       >
         {messages.length === 0 && !loading && (
@@ -248,7 +279,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           </div>
         )}
       </div>
-      <div style={{ padding: 12, borderTop: `1px solid ${border}` }}>
+      <div style={{ padding: 12, borderTop: `1px solid ${border}`, flexShrink: 0 }}>
         {images.length > 0 && (
           <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
             {images.map((f, i) => (
@@ -268,7 +299,8 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
                 <button
                   type="button"
                   onClick={() => setImages((p) => p.filter((_, j) => j !== i))}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, minWidth: 32, minHeight: 32 }}
+                  aria-label="Remove image"
                 >
                   ×
                 </button>
@@ -288,11 +320,17 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           <label
             htmlFor="caremax-file"
             style={{
-              padding: '8px 12px',
+              padding: '12px 14px',
+              minHeight: 44,
+              minWidth: 44,
+              boxSizing: 'border-box',
               background: border,
               borderRadius: 8,
               cursor: 'pointer',
               fontSize: 14,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             Image
@@ -304,10 +342,12 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             placeholder="Type your message..."
             style={{
               flex: 1,
-              padding: '10px 12px',
+              minWidth: 0,
+              padding: '12px 14px',
+              minHeight: 44,
               border: `1px solid ${border}`,
               borderRadius: 8,
-              fontSize: 14,
+              fontSize: 16,
               background: isDark ? '#2d2d2d' : '#fff',
               color: text,
             }}
@@ -317,13 +357,16 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             onClick={sendMessage}
             disabled={loading}
             style={{
-              padding: '10px 16px',
+              padding: '12px 16px',
+              minHeight: 44,
+              minWidth: 56,
               background: '#0d47a1',
               color: '#fff',
               border: 'none',
               borderRadius: 8,
               cursor: loading ? 'not-allowed' : 'pointer',
               fontWeight: 600,
+              flexShrink: 0,
             }}
           >
             Send

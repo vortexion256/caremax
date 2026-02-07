@@ -24,6 +24,7 @@ export default function AgentSettings() {
         method: 'PUT',
         body: JSON.stringify({
           agentName: config.agentName,
+          chatTitle: config.chatTitle ?? '',
           systemPrompt: config.systemPrompt,
           thinkingInstructions: config.thinkingInstructions,
           model: config.model,
@@ -53,6 +54,18 @@ export default function AgentSettings() {
             onChange={(e) => setConfig((c) => (c ? { ...c, agentName: e.target.value } : c))}
             style={{ display: 'block', width: '100%', padding: 8, marginTop: 4 }}
           />
+        </label>
+        <label>
+          Chat bot title (shown in widget header)
+          <input
+            value={config?.chatTitle ?? ''}
+            onChange={(e) => setConfig((c) => (c ? { ...c, chatTitle: e.target.value } : c))}
+            style={{ display: 'block', width: '100%', padding: 8, marginTop: 4 }}
+            placeholder="e.g. ABC Health Chat"
+          />
+          <span style={{ fontSize: 12, color: '#666', marginTop: 4, display: 'block' }}>
+            Displayed as “Title — powered by CareMAX” in the chat widget. Leave empty to show “CareMax”.
+          </span>
         </label>
         <label>
           System prompt

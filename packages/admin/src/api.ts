@@ -34,6 +34,7 @@ export function clearAuthToken() {
 export type AgentConfig = {
   tenantId: string;
   agentName: string;
+  chatTitle?: string;
   systemPrompt: string;
   thinkingInstructions: string;
   model: string;

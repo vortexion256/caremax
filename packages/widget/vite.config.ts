@@ -24,7 +24,6 @@ export default defineConfig(({ mode }) => {
       input: {
         embed: 'embed.html',
         widget: 'index.html',
-        loader: 'src/loader.ts',
       },
       output: {
         entryFileNames: '[name].js',
