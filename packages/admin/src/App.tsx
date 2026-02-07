@@ -19,6 +19,7 @@ import PlatformTenants from './pages/PlatformTenants';
 import PlatformDashboard from './pages/PlatformDashboard';
 import PlatformUsage from './pages/PlatformUsage';
 import RAG from './pages/RAG';
+import AutoAgentBrain from './pages/AutoAgentBrain';
 import Embed from './pages/Embed';
 
 type MeResponse = { uid: string; email?: string; tenantId?: string; isAdmin?: boolean; isPlatformAdmin?: boolean };
@@ -171,6 +172,7 @@ export default function App() {
           <Route path="handoffs" element={<HandoffQueue />} />
           <Route path="handoffs/:conversationId" element={<HandoffChat />} />
           <Route path="rag" element={<RAG />} />
+          <Route path="agent-brain" element={<AutoAgentBrain />} />
           <Route path="embed" element={<Embed />} />
         </Route>
         <Route path="/platform" element={<PlatformLayout />}>

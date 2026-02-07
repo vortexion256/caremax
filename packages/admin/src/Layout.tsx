@@ -12,6 +12,7 @@ export default function Layout() {
     { path: '/conversations', label: 'All conversations' },
     { path: '/handoffs', label: 'Handoff queue' },
     { path: '/rag', label: 'RAG documents' },
+    { path: '/agent-brain', label: 'Auto Agent Brain' },
     { path: '/embed', label: 'Embed' },
   ];
 

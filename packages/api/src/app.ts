@@ -8,6 +8,7 @@ import { uploadRouter } from './routes/upload.js';
 import { agentConfigRouter } from './routes/agent-config.js';
 import { handoffRouter } from './routes/handoff.js';
 import { ragRouter } from './routes/rag.js';
+import { agentRecordsRouter } from './routes/agent-records.js';
 import { registerRouter } from './routes/register.js';
 import { platformRouter } from './routes/platform.js';
 import { rateLimit } from './middleware/rateLimit.js';
@@ -45,6 +46,7 @@ app.use('/tenants/:tenantId/upload', uploadRouter);
 app.use('/tenants/:tenantId/agent-config', agentConfigRouter);
 app.use('/tenants/:tenantId/handoffs', handoffRouter);
 app.use('/tenants/:tenantId/rag', ragRouter);
+app.use('/tenants/:tenantId/agent-records', agentRecordsRouter);
 app.use('/tenants', tenantRouter);
 
 export function startApp() {

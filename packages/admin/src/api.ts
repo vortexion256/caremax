@@ -61,3 +61,11 @@ export type RagDoc = {
 };
 
 export type RagDocDetail = RagDoc & { content: string };
+
+export type AgentRecord = {
+  recordId: string;
+  title: string;
+  content: string;
+  createdAt: number | null;
+  updatedAt?: number | null;
+};

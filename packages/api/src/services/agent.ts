@@ -1,8 +1,11 @@
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
-import { HumanMessage, AIMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
+import { HumanMessage, AIMessage, SystemMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
+import { DynamicStructuredTool } from '@langchain/core/tools';
+import { z } from 'zod';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
 import { getRagContext } from './rag.js';
+import { createRecord } from './auto-agent-brain.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
@@ -264,6 +267,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     } else if (lastUser && process.env.NODE_ENV !== 'test') {
       console.log('RAG: enabled but no context returned for tenant', tenantId, '- check Agent settings "Use RAG" and that RAG documents exist and are indexed.');
     }
+    systemContent += `\n\nWhen the user or care team has provided information that you did not previously know and that would help answer similar questions in the future (e.g. an email address, phone number, or policy detail), use the record_learned_knowledge tool to save it. Use a short, clear title and the key facts as content. Only call when you have learned something new and useful to remember.`;
   }
 
   const langChainHistory = await toLangChainMessages(history);
@@ -285,7 +289,46 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     return { text: handoffMessage, requestHandoff: true };
   }
 
-  const response = await model.invoke(messages);
+  const recordTool = new DynamicStructuredTool({
+    name: 'record_learned_knowledge',
+    description:
+      'Save a new fact or piece of information that you did not know before, so you can use it in future answers. Use when the user or care team has provided contact details, policy info, or other org-specific facts.',
+    schema: z.object({
+      title: z.string().describe('Short title for the record (e.g. "Support email address")'),
+      content: z.string().describe('The key information to remember'),
+    }),
+    func: async ({ title, content }) => {
+      await createRecord(tenantId, title.trim(), content.trim());
+      return 'Record saved.';
+    },
+  });
+
+  const modelWithTools = config.ragEnabled ? model.bindTools([recordTool]) : model;
+  let currentMessages: BaseMessage[] = messages;
+  const maxToolRounds = 3;
+  let response: BaseMessage = await modelWithTools.invoke(currentMessages);
+
+  for (let round = 0; round < maxToolRounds; round++) {
+    const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
+    if (!toolCalls?.length) break;
+    const toolMessages: ToolMessage[] = [];
+    for (const tc of toolCalls) {
+      if (tc.name === 'record_learned_knowledge' && tc.args && typeof tc.args.title === 'string' && typeof tc.args.content === 'string') {
+        try {
+          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim());
+          toolMessages.push(new ToolMessage({ content: 'Record saved.', tool_call_id: tc.id }));
+        } catch (e) {
+          console.error('AutoAgentBrain createRecord error:', e);
+          toolMessages.push(new ToolMessage({ content: 'Failed to save record.', tool_call_id: tc.id }));
+        }
+      } else {
+        toolMessages.push(new ToolMessage({ content: 'Invalid arguments.', tool_call_id: tc.id }));
+      }
+    }
+    currentMessages = [...currentMessages, response, ...toolMessages];
+    response = await modelWithTools.invoke(currentMessages);
+  }
+
   let text = '';
   if (typeof response.content === 'string') text = response.content;
   else if (Array.isArray(response.content))
