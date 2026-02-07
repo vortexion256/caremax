@@ -92,3 +92,15 @@ export async function indexDocument(
   }
   await batch.commit();
 }
+
+/** Delete all chunks for a document (so it can be re-indexed with new content). */
+export async function deleteChunksForDocument(tenantId: string, documentId: string): Promise<void> {
+  const snap = await db
+    .collection(RAG_CHUNKS)
+    .where('tenantId', '==', tenantId)
+    .where('documentId', '==', documentId)
+    .get();
+  const batch = db.batch();
+  snap.docs.forEach((d) => batch.delete(d.ref));
+  if (snap.docs.length > 0) await batch.commit();
+}

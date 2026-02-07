@@ -20,6 +20,9 @@ export async function api<T>(
     const errorMessage = (err as { error?: string }).error ?? res.statusText;
     throw new Error(errorMessage);
   }
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as T;
+  }
   return res.json();
 }
 
@@ -56,3 +59,5 @@ export type RagDoc = {
   status: string;
   createdAt: number | null;
 };
+
+export type RagDocDetail = RagDoc & { content: string };
