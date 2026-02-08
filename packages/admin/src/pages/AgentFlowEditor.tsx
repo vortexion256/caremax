@@ -197,7 +197,7 @@ export default function AgentFlowEditor() {
         setFlow((f) => {
           if (!f) return f;
           const nextIds = new Set(next.map((e) => e.id));
-          const stillPresent = f.edges.filter((e) => nextIds.has(e.id));
+          const stillPresent = f.edges.filter((e: Edge) => nextIds.has(e.id));
           if (stillPresent.length === f.edges.length) return f;
           return { ...f, edges: stillPresent };
         });
