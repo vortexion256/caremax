@@ -10,7 +10,7 @@ const repoRoot = resolve(__dirname, '../../../../');
 function initFirebase(): admin.app.App {
   if (admin.apps.length > 0) return admin.app() as admin.app.App;
 
-  let credential: admin.credential.Credential;
+  let credential: admin.credential.Credential | undefined;
   let projectId: string | undefined;
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
@@ -23,15 +23,19 @@ function initFirebase(): admin.app.App {
       resolve(process.cwd(), '..', name),
       resolve(process.cwd(), '..', '..', name),
     ].filter(Boolean) as string[];
-    const jsonPath = candidates.find((p) => existsSync(p)) ?? credPath;
-    credential = admin.credential.cert(jsonPath);
-    try {
-      const key = JSON.parse(readFileSync(jsonPath, 'utf8')) as { project_id?: string };
-      projectId = key.project_id;
-    } catch {
-      // ignore
+    const jsonPath = candidates.find((p) => existsSync(p));
+    if (jsonPath) {
+      credential = admin.credential.cert(jsonPath);
+      try {
+        const key = JSON.parse(readFileSync(jsonPath, 'utf8')) as { project_id?: string };
+        projectId = key.project_id;
+      } catch {
+        // ignore
+      }
     }
-  } else {
+  }
+
+  if (!credential) {
     projectId =
       process.env.FIREBASE_PROJECT_ID ??
       process.env.GOOGLE_PROJECT_ID ??
@@ -40,10 +44,16 @@ function initFirebase(): admin.app.App {
     const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
     if (!projectId || !clientEmail || !privateKey) {
       throw new Error(
-        'Firebase: In .env set either GOOGLE_APPLICATION_CREDENTIALS (path to service account JSON) or all of FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY. Use the repo root .env (e:\\caremax\\.env).'
+        'Firebase: Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY in env (required on Vercel/serverless when the credentials file is not available).'
       );
     }
     credential = admin.credential.cert({ projectId, clientEmail, privateKey });
+  }
+
+  if (!credential) {
+    throw new Error(
+      'Firebase: Set GOOGLE_APPLICATION_CREDENTIALS (path to JSON file) or, for serverless (e.g. Vercel), set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY in env.'
+    );
   }
 
   const storageBucket =
