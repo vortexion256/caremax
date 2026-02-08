@@ -409,10 +409,10 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     },
   });
 
-  const tools: InstanceType<typeof DynamicStructuredTool>[] = [];
+  const tools: unknown[] = [];
   if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
   if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
-  const modelWithTools = tools.length ? model.bindTools(tools) : model;
+  const modelWithTools = tools.length ? model.bindTools(tools as Parameters<typeof model.bindTools>[0]) : model;
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
   let response: BaseMessage = await modelWithTools.invoke(currentMessages);
