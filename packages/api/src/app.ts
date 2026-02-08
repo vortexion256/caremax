@@ -52,6 +52,8 @@ app.use('/tenants/:tenantId/rag', ragRouter);
 app.use('/tenants/:tenantId/agent-records', agentRecordsRouter);
 app.use('/tenants', tenantRouter);
 
+export default app;
+
 export function startApp() {
   const server = app.listen(PORT, () => {
     console.log(`CareMax API listening on http://localhost:${PORT}`);
