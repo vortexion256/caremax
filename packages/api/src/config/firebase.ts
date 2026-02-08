@@ -1,4 +1,5 @@
 import admin from 'firebase-admin';
+import type { Auth } from 'firebase-admin/auth';
 import { resolve, dirname } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -56,7 +57,7 @@ function initFirebase(): admin.app.App {
 }
 
 export const app = initFirebase();
-export const auth = admin.auth();
+export const auth: Auth = admin.auth();
 export const db = admin.firestore();
 export const bucket: ReturnType<admin.storage.Storage['bucket']> | null = app.options.storageBucket
   ? admin.storage().bucket(app.options.storageBucket)

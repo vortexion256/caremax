@@ -409,7 +409,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     },
   });
 
-  const tools: ReturnType<typeof recordTool>[] = [];
+  const tools: InstanceType<typeof DynamicStructuredTool>[] = [];
   if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
   if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
   const modelWithTools = tools.length ? model.bindTools(tools) : model;
@@ -474,7 +474,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   let text = '';
   if (typeof response.content === 'string') text = response.content;
   else if (Array.isArray(response.content))
-    text = response.content.map((c: { text?: string }) => c?.text ?? '').join('');
+    text = (response.content as { text?: string }[]).map((c) => c?.text ?? '').join('');
   const markerPresent = text.includes(HANDOFF_MARKER);
   const textWithoutMarker = markerPresent
     ? text.replace(new RegExp(`\\s*${HANDOFF_MARKER.replace(/[\]\[]/g, '\\$&')}\\s*$`, 'i'), '').trim()
