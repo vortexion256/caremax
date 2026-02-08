@@ -16,6 +16,9 @@ const updateBody = z.object({
   model: z.string().optional(),
   temperature: z.number().min(0).max(2).optional(),
   ragEnabled: z.boolean().optional(),
+  googleSheetsEnabled: z.boolean().optional(),
+  googleSheetsSpreadsheetId: z.string().optional(),
+  googleSheetsRange: z.string().optional(),
 });
 
 /** Public endpoint for the chat widget: returns only title and agent name (no system prompt etc.). */

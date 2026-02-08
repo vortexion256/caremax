@@ -43,6 +43,9 @@ export type AgentConfig = {
   model: string;
   temperature: number;
   ragEnabled: boolean;
+  googleSheetsEnabled?: boolean;
+  googleSheetsSpreadsheetId?: string;
+  googleSheetsRange?: string;
 };
 
 export type HandoffItem = {

@@ -1,13 +1,14 @@
 node_modules
 dist
 .next
-# Environment files
+# Environment files (never commit secrets or env templates with real-looking values)
 .env
 .env.*
 .env.local
 .env.dev
 .env.production
 .env.test
+.env.example
 packages/*/.env
 packages/*/.env.local
 # Service account credentials

@@ -6,6 +6,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
 import { getRagContext } from './rag.js';
 import { createRecord, createModificationRequest, getRecord, listRecords } from './auto-agent-brain.js';
+import { isGoogleConnected, fetchSheetData } from './google-sheets.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
@@ -94,6 +95,9 @@ export async function getAgentConfig(tenantId: string): Promise<{
   model: string;
   temperature: number;
   ragEnabled: boolean;
+  googleSheetsEnabled: boolean;
+  googleSheetsSpreadsheetId: string | null;
+  googleSheetsRange: string | null;
 }> {
   const configRef = db.collection('agent_config').doc(tenantId);
   const configDoc = await configRef.get();
@@ -108,6 +112,9 @@ export async function getAgentConfig(tenantId: string): Promise<{
       model: data?.model ?? 'gemini-3-flash-preview',
       temperature: data?.temperature ?? 0.7,
       ragEnabled: data?.ragEnabled === true,
+      googleSheetsEnabled: data?.googleSheetsEnabled === true,
+      googleSheetsSpreadsheetId: (data?.googleSheetsSpreadsheetId as string)?.trim() || null,
+      googleSheetsRange: (data?.googleSheetsRange as string)?.trim() || null,
     };
   }
 
@@ -136,6 +143,9 @@ export async function getAgentConfig(tenantId: string): Promise<{
     model: data?.model ?? 'gemini-3-flash-preview',
     temperature: data?.temperature ?? 0.7,
     ragEnabled: data?.ragEnabled === true,
+    googleSheetsEnabled: data?.googleSheetsEnabled === true,
+    googleSheetsSpreadsheetId: (data?.googleSheetsSpreadsheetId as string)?.trim() || null,
+    googleSheetsRange: (data?.googleSheetsRange as string)?.trim() || null,
   };
 }
 
@@ -285,6 +295,18 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     systemContent += `\n\nWhen the user or care team provides information to remember, you MUST decide based on the existing records above:\n1) If it UPDATES or CORRECTS an existing record (e.g. new phone number for the same branch, changed hours, corrected detail)—use request_edit_record with that record's recordId; do NOT add a new record (that causes duplicates).\n2) If a record is obsolete or should be removed—use request_delete_record with that recordId.\n3) Only use record_learned_knowledge for genuinely NEW information that does not overlap any existing record (no similar title/topic).\nUse short, clear titles and key facts. To edit or delete you must use the recordId from the list above; an admin will approve before the change is applied.`;
   }
 
+  let sheetsEnabled = false;
+  if (config.googleSheetsEnabled && config.googleSheetsSpreadsheetId) {
+    try {
+      sheetsEnabled = await isGoogleConnected(tenantId);
+      if (sheetsEnabled) {
+        systemContent += `\n\nThis organization has connected a Google Sheet (e.g. for bookings or data). When the user asks about bookings, appointments, or data that might be in the sheet, use the query_google_sheet tool to fetch the current data and answer from it. Use an optional range (e.g. "Sheet1" or "Bookings!A:F") if you need a specific sheet or range.`;
+      }
+    } catch {
+      // not connected
+    }
+  }
+
   const langChainHistory = await toLangChainMessages(history);
   const messages: BaseMessage[] = [
     new SystemMessage(systemContent),
@@ -352,7 +374,32 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     },
   });
 
-  const tools = config.ragEnabled ? [recordTool, requestEditTool, requestDeleteTool] : [];
+  const spreadsheetIdForSheets = config.googleSheetsSpreadsheetId ?? '';
+  const defaultRange = config.googleSheetsRange ?? undefined;
+  const queryGoogleSheetTool = new DynamicStructuredTool({
+    name: 'query_google_sheet',
+    description:
+      'Fetch current data from the organization\'s connected Google Sheet (e.g. bookings, appointments). Use when the user asks about bookings, availability, or data that may be in the sheet. Returns a markdown table.',
+    schema: z.object({
+      range: z
+        .string()
+        .optional()
+        .describe('Optional A1 notation range, e.g. "Sheet1", "Bookings!A:F", or "Sheet1!A1:Z100". Omit to use default sheet/range.'),
+    }),
+    func: async ({ range }) => {
+      try {
+        const rangeToUse = range?.trim() || defaultRange;
+        return await fetchSheetData(tenantId, spreadsheetIdForSheets, rangeToUse ?? undefined);
+      } catch (e) {
+        console.error('query_google_sheet error:', e);
+        return e instanceof Error ? e.message : 'Failed to fetch sheet data.';
+      }
+    },
+  });
+
+  const tools: ReturnType<typeof recordTool>[] = [];
+  if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
+  if (sheetsEnabled && spreadsheetIdForSheets) tools.push(queryGoogleSheetTool);
   const modelWithTools = tools.length ? model.bindTools(tools) : model;
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
@@ -393,6 +440,14 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
         } catch (e) {
           console.error('request_delete_record error:', e);
           content = e instanceof Error ? e.message : 'Failed to submit delete request.';
+        }
+      } else if (tc.name === 'query_google_sheet' && sheetsEnabled && spreadsheetIdForSheets) {
+        try {
+          const range = typeof tc.args?.range === 'string' ? tc.args.range : undefined;
+          content = await queryGoogleSheetTool.invoke({ range });
+        } catch (e) {
+          console.error('query_google_sheet error:', e);
+          content = e instanceof Error ? e.message : 'Failed to fetch sheet.';
         }
       } else {
         content = 'Invalid arguments.';

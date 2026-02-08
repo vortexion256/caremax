@@ -13,6 +13,7 @@ export default function Layout() {
     { path: '/handoffs', label: 'Handoff queue' },
     { path: '/rag', label: 'RAG documents' },
     { path: '/agent-brain', label: 'Auto Agent Brain' },
+    { path: '/integrations', label: 'Integrations' },
     { path: '/embed', label: 'Embed' },
   ];
 
