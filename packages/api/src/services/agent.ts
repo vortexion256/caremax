@@ -5,9 +5,22 @@ import { z } from 'zod';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
 import { getRagContext } from './rag.js';
-import { createRecord } from './auto-agent-brain.js';
+import { createRecord, createModificationRequest, getRecord, listRecords } from './auto-agent-brain.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
+
+/** Format existing Auto Agent Brain records for the system prompt so the agent can decide add vs edit vs delete. */
+const CONTENT_SNIPPET_LENGTH = 120;
+
+function formatExistingRecordsForPrompt(records: { recordId: string; title: string; content: string }[]): string {
+  if (records.length === 0) return 'No existing records yet.';
+  return records
+    .map((r) => {
+      const snippet = r.content.length <= CONTENT_SNIPPET_LENGTH ? r.content : r.content.slice(0, CONTENT_SNIPPET_LENGTH) + '…';
+      return `- recordId: ${r.recordId}\n  title: ${r.title}\n  content: ${snippet}`;
+    })
+    .join('\n\n');
+}
 
 /** When the model includes this at the end of its reply, we escalate to a human. Enables indirect "I want a person" and "couldn't help after repeat" detection. */
 const HANDOFF_MARKER = '[HANDOFF]';
@@ -267,7 +280,9 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     } else if (lastUser && process.env.NODE_ENV !== 'test') {
       console.log('RAG: enabled but no context returned for tenant', tenantId, '- check Agent settings "Use RAG" and that RAG documents exist and are indexed.');
     }
-    systemContent += `\n\nWhen the user or care team has provided information that you did not previously know and that would help answer similar questions in the future (e.g. an email address, phone number, or policy detail), use the record_learned_knowledge tool to save it. Use a short, clear title and the key facts as content. Only call when you have learned something new and useful to remember.`;
+    const existingRecords = await listRecords(tenantId);
+    systemContent += `\n\n--- Current Auto Agent Brain records (check these before adding anything) ---\n${formatExistingRecordsForPrompt(existingRecords)}\n--- End of existing records ---`;
+    systemContent += `\n\nWhen the user or care team provides information to remember, you MUST decide based on the existing records above:\n1) If it UPDATES or CORRECTS an existing record (e.g. new phone number for the same branch, changed hours, corrected detail)—use request_edit_record with that record's recordId; do NOT add a new record (that causes duplicates).\n2) If a record is obsolete or should be removed—use request_delete_record with that recordId.\n3) Only use record_learned_knowledge for genuinely NEW information that does not overlap any existing record (no similar title/topic).\nUse short, clear titles and key facts. To edit or delete you must use the recordId from the list above; an admin will approve before the change is applied.`;
   }
 
   const langChainHistory = await toLangChainMessages(history);
@@ -303,7 +318,42 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     },
   });
 
-  const modelWithTools = config.ragEnabled ? model.bindTools([recordTool]) : model;
+  const requestEditTool = new DynamicStructuredTool({
+    name: 'request_edit_record',
+    description:
+      'Request that an existing memory record be edited. The change will not be applied until an admin approves it (prevents manipulation). Use when information in a record is wrong or outdated.',
+    schema: z.object({
+      recordId: z.string().describe('The ID of the record to edit'),
+      title: z.string().optional().describe('New title (omit to keep current)'),
+      content: z.string().optional().describe('New content (omit to keep current)'),
+      reason: z.string().optional().describe('Brief reason for the edit'),
+    }),
+    func: async ({ recordId, title, content, reason }) => {
+      const record = await getRecord(tenantId, recordId);
+      if (!record) return 'Record not found. Cannot submit edit request.';
+      await createModificationRequest(tenantId, 'edit', recordId, { title, content, reason });
+      return 'Edit request submitted. An admin must approve it before the change is applied.';
+    },
+  });
+
+  const requestDeleteTool = new DynamicStructuredTool({
+    name: 'request_delete_record',
+    description:
+      'Request that a memory record be deleted. The deletion will not happen until an admin approves it (prevents users from manipulating you into deleting important information).',
+    schema: z.object({
+      recordId: z.string().describe('The ID of the record to delete'),
+      reason: z.string().optional().describe('Brief reason for the deletion'),
+    }),
+    func: async ({ recordId, reason }) => {
+      const record = await getRecord(tenantId, recordId);
+      if (!record) return 'Record not found. Cannot submit delete request.';
+      await createModificationRequest(tenantId, 'delete', recordId, { reason });
+      return 'Delete request submitted. An admin must approve it before the record is removed.';
+    },
+  });
+
+  const tools = config.ragEnabled ? [recordTool, requestEditTool, requestDeleteTool] : [];
+  const modelWithTools = tools.length ? model.bindTools(tools) : model;
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
   let response: BaseMessage = await modelWithTools.invoke(currentMessages);
@@ -313,17 +363,41 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     if (!toolCalls?.length) break;
     const toolMessages: ToolMessage[] = [];
     for (const tc of toolCalls) {
+      let content: string;
       if (tc.name === 'record_learned_knowledge' && tc.args && typeof tc.args.title === 'string' && typeof tc.args.content === 'string') {
         try {
           await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim());
-          toolMessages.push(new ToolMessage({ content: 'Record saved.', tool_call_id: tc.id }));
+          content = 'Record saved.';
         } catch (e) {
           console.error('AutoAgentBrain createRecord error:', e);
-          toolMessages.push(new ToolMessage({ content: 'Failed to save record.', tool_call_id: tc.id }));
+          content = 'Failed to save record.';
+        }
+      } else if (tc.name === 'request_edit_record' && tc.args && typeof tc.args.recordId === 'string') {
+        try {
+          content = await requestEditTool.invoke({
+            recordId: tc.args.recordId,
+            title: typeof tc.args.title === 'string' ? tc.args.title : undefined,
+            content: typeof tc.args.content === 'string' ? tc.args.content : undefined,
+            reason: typeof tc.args.reason === 'string' ? tc.args.reason : undefined,
+          });
+        } catch (e) {
+          console.error('request_edit_record error:', e);
+          content = e instanceof Error ? e.message : 'Failed to submit edit request.';
+        }
+      } else if (tc.name === 'request_delete_record' && tc.args && typeof tc.args.recordId === 'string') {
+        try {
+          content = await requestDeleteTool.invoke({
+            recordId: tc.args.recordId,
+            reason: typeof tc.args.reason === 'string' ? tc.args.reason : undefined,
+          });
+        } catch (e) {
+          console.error('request_delete_record error:', e);
+          content = e instanceof Error ? e.message : 'Failed to submit delete request.';
         }
       } else {
-        toolMessages.push(new ToolMessage({ content: 'Invalid arguments.', tool_call_id: tc.id }));
+        content = 'Invalid arguments.';
       }
+      toolMessages.push(new ToolMessage({ content, tool_call_id: tc.id }));
     }
     currentMessages = [...currentMessages, response, ...toolMessages];
     response = await modelWithTools.invoke(currentMessages);
@@ -409,4 +483,279 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   }
 
   return { text: finalText, requestHandoff };
+}
+
+/**
+ * Run the agent in learning-only mode on an existing conversation (e.g. after "Return to AI").
+ * Reviews the full history and calls record_learned_knowledge for any new info from the care team or user.
+ * Does not return a reply; only processes tool calls to create records.
+ */
+export async function extractAndRecordLearningFromHistory(
+  tenantId: string,
+  history: { role: string; content: string; imageUrls?: string[] }[]
+): Promise<void> {
+  const config = await getAgentConfig(tenantId);
+  if (!config.ragEnabled) return;
+
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) return;
+
+  const model = new ChatGoogleGenerativeAI({
+    model: config.model,
+    temperature: config.temperature,
+    apiKey,
+  });
+
+  const existingRecords = await listRecords(tenantId);
+  const existingBlock = formatExistingRecordsForPrompt(existingRecords);
+  const learningOnlySystem = `You are reviewing a conversation after a human care team member has finished helping the user. Your only job is to identify information from this conversation (by the user or care team in messages labeled "[Care team said to the user]: ...") that should be reflected in the Auto Agent Brain—e.g. contact details, phone numbers, policy info, or corrections.
+
+--- Current Auto Agent Brain records (check these first) ---
+${existingBlock}
+--- End of existing records ---
+
+You MUST decide for each piece of information:
+1) If it UPDATES or CORRECTS an existing record (e.g. new phone number for same branch, changed hours)—use request_edit_record with that record's recordId; do NOT add a new record.
+2) If a record is obsolete or wrong and should be removed—use request_delete_record with that recordId.
+3) Only use record_learned_knowledge for genuinely NEW information that does not overlap any existing record (no similar title/topic).
+If there is nothing new or nothing to update/remove, do not call any tool.`;
+
+  const recordTool = new DynamicStructuredTool({
+    name: 'record_learned_knowledge',
+    description: 'Save a new fact (only when no existing record covers this topic).',
+    schema: z.object({
+      title: z.string().describe('Short title for the record'),
+      content: z.string().describe('The key information to remember'),
+    }),
+    func: async ({ title, content }) => {
+      await createRecord(tenantId, title.trim(), content.trim());
+      return 'Record saved.';
+    },
+  });
+
+  const requestEditTool = new DynamicStructuredTool({
+    name: 'request_edit_record',
+    description: 'Request an edit to an existing record (admin must approve). Use when information updates or corrects an existing record.',
+    schema: z.object({
+      recordId: z.string().describe('The record ID from the list above'),
+      title: z.string().optional().describe('New title (omit to keep current)'),
+      content: z.string().optional().describe('New content (omit to keep current)'),
+      reason: z.string().optional().describe('Brief reason for the edit'),
+    }),
+    func: async ({ recordId, title, content, reason }) => {
+      const record = await getRecord(tenantId, recordId);
+      if (!record) return 'Record not found. Cannot submit edit request.';
+      await createModificationRequest(tenantId, 'edit', recordId, { title, content, reason });
+      return 'Edit request submitted. An admin must approve it before the change is applied.';
+    },
+  });
+
+  const requestDeleteTool = new DynamicStructuredTool({
+    name: 'request_delete_record',
+    description: 'Request deletion of an existing record (admin must approve). Use when a record is obsolete or wrong.',
+    schema: z.object({
+      recordId: z.string().describe('The record ID from the list above'),
+      reason: z.string().optional().describe('Brief reason for the deletion'),
+    }),
+    func: async ({ recordId, reason }) => {
+      const record = await getRecord(tenantId, recordId);
+      if (!record) return 'Record not found. Cannot submit delete request.';
+      await createModificationRequest(tenantId, 'delete', recordId, { reason });
+      return 'Delete request submitted. An admin must approve it before the record is removed.';
+    },
+  });
+
+  const langChainHistory = await toLangChainMessages(history);
+  const messages: BaseMessage[] = [
+    new SystemMessage(learningOnlySystem),
+    ...langChainHistory,
+  ];
+
+  const modelWithTools = model.bindTools([recordTool, requestEditTool, requestDeleteTool]);
+  let currentMessages: BaseMessage[] = messages;
+  const maxToolRounds = 3;
+  let response: BaseMessage = await modelWithTools.invoke(currentMessages);
+
+  for (let round = 0; round < maxToolRounds; round++) {
+    const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
+    if (!toolCalls?.length) break;
+    const toolMessages: ToolMessage[] = [];
+    for (const tc of toolCalls) {
+      let content: string;
+      if (tc.name === 'record_learned_knowledge' && tc.args && typeof tc.args.title === 'string' && typeof tc.args.content === 'string') {
+        try {
+          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim());
+          content = 'Record saved.';
+        } catch (e) {
+          console.error('extractAndRecordLearningFromHistory createRecord error:', e);
+          content = 'Failed to save record.';
+        }
+      } else if (tc.name === 'request_edit_record' && tc.args && typeof tc.args.recordId === 'string') {
+        try {
+          content = await requestEditTool.invoke({
+            recordId: tc.args.recordId,
+            title: typeof tc.args.title === 'string' ? tc.args.title : undefined,
+            content: typeof tc.args.content === 'string' ? tc.args.content : undefined,
+            reason: typeof tc.args.reason === 'string' ? tc.args.reason : undefined,
+          });
+        } catch (e) {
+          console.error('extractAndRecordLearningFromHistory request_edit_record error:', e);
+          content = e instanceof Error ? e.message : 'Failed to submit edit request.';
+        }
+      } else if (tc.name === 'request_delete_record' && tc.args && typeof tc.args.recordId === 'string') {
+        try {
+          content = await requestDeleteTool.invoke({
+            recordId: tc.args.recordId,
+            reason: typeof tc.args.reason === 'string' ? tc.args.reason : undefined,
+          });
+        } catch (e) {
+          console.error('extractAndRecordLearningFromHistory request_delete_record error:', e);
+          content = e instanceof Error ? e.message : 'Failed to submit delete request.';
+        }
+      } else {
+        content = 'Invalid arguments.';
+      }
+      toolMessages.push(new ToolMessage({ content, tool_call_id: tc.id }));
+    }
+    currentMessages = [...currentMessages, response, ...toolMessages];
+    response = await modelWithTools.invoke(currentMessages);
+  }
+}
+
+/** Max records and content length per record when building consolidation prompt to avoid token overflow. */
+const CONSOLIDATE_MAX_RECORDS = 80;
+const CONSOLIDATE_CONTENT_LENGTH = 400;
+
+function formatRecordsForConsolidation(records: { recordId: string; title: string; content: string }[]): string {
+  if (records.length === 0) return 'No records.';
+  const limited = records.slice(0, CONSOLIDATE_MAX_RECORDS);
+  return limited
+    .map((r) => {
+      const content = r.content.length <= CONSOLIDATE_CONTENT_LENGTH ? r.content : r.content.slice(0, CONSOLIDATE_CONTENT_LENGTH) + '…';
+      return `- recordId: ${r.recordId}\n  title: ${r.title}\n  content: ${content}`;
+    })
+    .join('\n\n');
+}
+
+/**
+ * Run the agent in consolidation-only mode: review all Auto Agent Brain records and propose
+ * edits/deletes to merge scattered or duplicate related data. Proposals go to modification requests for admin approval.
+ */
+export async function runConsolidation(tenantId: string): Promise<{ modificationRequestsCreated: number }> {
+  const config = await getAgentConfig(tenantId);
+  if (!config.ragEnabled) return { modificationRequestsCreated: 0 };
+
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) return { modificationRequestsCreated: 0 };
+
+  const records = await listRecords(tenantId);
+  if (records.length === 0) return { modificationRequestsCreated: 0 };
+
+  const model = new ChatGoogleGenerativeAI({
+    model: config.model,
+    temperature: 0.3,
+    apiKey,
+  });
+
+  const recordsBlock = formatRecordsForConsolidation(records);
+  const systemContent = `You are consolidating the Auto Agent Brain: a knowledge base of records. Your task is to find records that are about the SAME topic or are duplicates/scattered (e.g. multiple "Ntinda Branch" or "Kampala Kololo" entries with overlapping or updated info).
+
+Below are the current records (recordId, title, content).
+
+Instructions:
+1) Identify groups of records that cover the same topic or are clearly related (e.g. same branch, same location, same policy).
+2) For each group: choose ONE record to keep as the single source of truth. Use request_edit_record to update that record's title and content with consolidated, merged information (combine the facts, remove redundancy, keep the most up-to-date details). Use request_delete_record on the OTHER records in the group so they are removed (redundant).
+3) Do not add new records. Only use request_edit_record and request_delete_record.
+4) If a record has no duplicates or related records, leave it unchanged (do not call any tool for it).
+5) Be conservative: only consolidate when records are clearly about the same thing. When in doubt, leave as is.
+
+--- Current records ---
+${recordsBlock}
+--- End of records ---
+
+Review the list above and submit edit/delete requests to consolidate scattered or duplicate data.`;
+
+  const requestEditTool = new DynamicStructuredTool({
+    name: 'request_edit_record',
+    description: 'Propose an edit to consolidate content into this record (admin must approve).',
+    schema: z.object({
+      recordId: z.string(),
+      title: z.string().optional(),
+      content: z.string().optional(),
+      reason: z.string().optional(),
+    }),
+    func: async ({ recordId, title, content, reason }) => {
+      const record = await getRecord(tenantId, recordId);
+      if (!record) return 'Record not found.';
+      await createModificationRequest(tenantId, 'edit', recordId, { title, content, reason });
+      return 'Edit request submitted.';
+    },
+  });
+
+  const requestDeleteTool = new DynamicStructuredTool({
+    name: 'request_delete_record',
+    description: 'Propose deletion of a redundant record (admin must approve).',
+    schema: z.object({
+      recordId: z.string(),
+      reason: z.string().optional(),
+    }),
+    func: async ({ recordId, reason }) => {
+      const record = await getRecord(tenantId, recordId);
+      if (!record) return 'Record not found.';
+      await createModificationRequest(tenantId, 'delete', recordId, { reason });
+      return 'Delete request submitted.';
+    },
+  });
+
+  const messages: BaseMessage[] = [
+    new SystemMessage(systemContent),
+    new HumanMessage({ content: 'Please check the records and consolidate any that are duplicates or scattered (same topic). Submit edit and delete requests as needed.' }),
+  ];
+
+  const modelWithTools = model.bindTools([requestEditTool, requestDeleteTool]);
+  let currentMessages: BaseMessage[] = messages;
+  const maxToolRounds = 5;
+  let requestCount = 0;
+  let response: BaseMessage = await modelWithTools.invoke(currentMessages);
+
+  for (let round = 0; round < maxToolRounds; round++) {
+    const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
+    if (!toolCalls?.length) break;
+    const toolMessages: ToolMessage[] = [];
+    for (const tc of toolCalls) {
+      let content: string;
+      if (tc.name === 'request_edit_record' && tc.args && typeof tc.args.recordId === 'string') {
+        try {
+          content = await requestEditTool.invoke({
+            recordId: tc.args.recordId,
+            title: typeof tc.args.title === 'string' ? tc.args.title : undefined,
+            content: typeof tc.args.content === 'string' ? tc.args.content : undefined,
+            reason: typeof tc.args.reason === 'string' ? tc.args.reason : undefined,
+          });
+          requestCount += 1;
+        } catch (e) {
+          console.error('runConsolidation request_edit_record error:', e);
+          content = e instanceof Error ? e.message : 'Failed to submit.';
+        }
+      } else if (tc.name === 'request_delete_record' && tc.args && typeof tc.args.recordId === 'string') {
+        try {
+          content = await requestDeleteTool.invoke({
+            recordId: tc.args.recordId,
+            reason: typeof tc.args.reason === 'string' ? tc.args.reason : undefined,
+          });
+          requestCount += 1;
+        } catch (e) {
+          console.error('runConsolidation request_delete_record error:', e);
+          content = e instanceof Error ? e.message : 'Failed to submit.';
+        }
+      } else {
+        content = 'Invalid arguments.';
+      }
+      toolMessages.push(new ToolMessage({ content, tool_call_id: tc.id }));
+    }
+    currentMessages = [...currentMessages, response, ...toolMessages];
+    response = await modelWithTools.invoke(currentMessages);
+  }
+
+  return { modificationRequestsCreated: requestCount };
 }

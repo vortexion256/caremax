@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../config/firebase.js';
 import { requireAuth, requireTenantParam, requireAdmin, type AuthLocals } from '../middleware/auth.js';
-import { runAgent } from '../services/agent.js';
+import { runAgent, extractAndRecordLearningFromHistory } from '../services/agent.js';
 import type { ConversationStatus } from '../types/index.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -214,6 +214,22 @@ conversationRouter.post('/:conversationId/return-to-agent', requireAuth, require
     updatedAt: FieldValue.serverTimestamp(),
     joinedBy: FieldValue.delete(),
   });
+
+  // Record what was learned from the human-handoff conversation so the agent doesn't miss it
+  // when the user never sends another message after "Return to AI"
+  const messagesSnap = await db.collection(MESSAGES).where('conversationId', '==', conversationId).orderBy('createdAt', 'asc').get();
+  const history = messagesSnap.docs.map((d) => {
+    const data = d.data();
+    return {
+      role: data.role as string,
+      content: data.content ?? '',
+      imageUrls: data.imageUrls as string[] | undefined,
+    };
+  });
+  void extractAndRecordLearningFromHistory(tenantId, history).catch((e) => {
+    console.error('extractAndRecordLearningFromHistory on return-to-agent failed:', e);
+  });
+
   res.json({ conversationId, status: 'open' });
 });
 

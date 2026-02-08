@@ -69,3 +69,18 @@ export type AgentRecord = {
   createdAt: number | null;
   updatedAt?: number | null;
 };
+
+export type AgentBrainModificationRequest = {
+  requestId: string;
+  tenantId: string;
+  type: 'edit' | 'delete';
+  recordId: string;
+  title?: string;
+  content?: string;
+  reason?: string;
+  status: string;
+  createdAt: number | null;
+  updatedAt?: number | null;
+  reviewedBy?: string | null;
+  reviewedAt?: number | null;
+};
