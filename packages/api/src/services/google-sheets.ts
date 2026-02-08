@@ -107,7 +107,11 @@ export async function fetchSheetData(
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
   const sheets = google.sheets({ version: 'v4', auth });
-  const rangeToUse = range && range.trim() ? range.trim() : 'Sheet1';
+  let rangeToUse = range && range.trim() ? range.trim() : 'Sheet1';
+  // Sheets API requires A1 notation (e.g. "Sheet1!A:Z"). If only a sheet name is given, append range.
+  if (!rangeToUse.includes('!')) {
+    rangeToUse = `${rangeToUse}!A:Z`;
+  }
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: rangeToUse,

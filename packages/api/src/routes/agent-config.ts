@@ -8,6 +8,12 @@ export const agentConfigRouter = Router({ mergeParams: true });
 
 agentConfigRouter.use(requireTenantParam);
 
+const googleSheetEntry = z.object({
+  spreadsheetId: z.string().min(1),
+  range: z.string().optional(),
+  useWhen: z.string().min(1),
+});
+
 const updateBody = z.object({
   agentName: z.string().optional(),
   chatTitle: z.string().optional(),
@@ -19,6 +25,7 @@ const updateBody = z.object({
   googleSheetsEnabled: z.boolean().optional(),
   googleSheetsSpreadsheetId: z.string().optional(),
   googleSheetsRange: z.string().optional(),
+  googleSheets: z.array(googleSheetEntry).optional(),
 });
 
 /** Public endpoint for the chat widget: returns only title and agent name (no system prompt etc.). */

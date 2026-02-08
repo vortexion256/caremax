@@ -46,6 +46,8 @@ export type AgentConfig = {
   googleSheetsEnabled?: boolean;
   googleSheetsSpreadsheetId?: string;
   googleSheetsRange?: string;
+  /** Multiple sheets; each has spreadsheetId, optional range, and useWhen (when the agent should query this sheet). */
+  googleSheets?: { spreadsheetId: string; range?: string; useWhen: string }[];
 };
 
 export type HandoffItem = {

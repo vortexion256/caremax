@@ -64,20 +64,53 @@ export default function Integrations() {
     }
   };
 
+  type SheetEntry = { spreadsheetId: string; range?: string; useWhen: string };
+
+  const sheetsList: SheetEntry[] = Array.isArray(config?.googleSheets) && config.googleSheets.length > 0
+    ? config.googleSheets
+    : config?.googleSheetsSpreadsheetId?.trim()
+      ? [{ spreadsheetId: config.googleSheetsSpreadsheetId.trim(), range: config.googleSheetsRange?.trim() || undefined, useWhen: 'general' }]
+      : [];
+
+  const addSheet = () => {
+    setConfig((c) => (c ? { ...c, googleSheets: [...(c.googleSheets ?? sheetsList), { spreadsheetId: '', useWhen: '' }] } : c));
+  };
+
+  const updateSheet = (index: number, field: keyof SheetEntry, value: string) => {
+    setConfig((c) => {
+      if (!c) return c;
+      const list = c.googleSheets ?? sheetsList;
+      const next = [...list];
+      if (!next[index]) return c;
+      next[index] = { ...next[index], [field]: value };
+      return { ...c, googleSheets: next };
+    });
+  };
+
+  const removeSheet = (index: number) => {
+    setConfig((c) => {
+      if (!c) return c;
+      const list = c.googleSheets ?? sheetsList;
+      const next = list.filter((_, i) => i !== index);
+      return { ...c, googleSheets: next };
+    });
+  };
+
   const saveSheetsConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!config) return;
+    const list = config.googleSheets ?? sheetsList;
+    const valid = list
+      .filter((s) => (s.spreadsheetId ?? '').trim() && (s.useWhen ?? '').trim())
+      .map((s) => ({ spreadsheetId: s.spreadsheetId.trim(), range: s.range?.trim() || undefined, useWhen: s.useWhen.trim() }));
     setSaving(true);
     setError(null);
     try {
       await api(`/tenants/${tenantId}/agent-config`, {
         method: 'PUT',
-        body: JSON.stringify({
-          googleSheetsEnabled: config.googleSheetsEnabled ?? false,
-          googleSheetsSpreadsheetId: (config.googleSheetsSpreadsheetId ?? '').trim() || undefined,
-          googleSheetsRange: (config.googleSheetsRange ?? '').trim() || undefined,
-        }),
+        body: JSON.stringify({ googleSheets: valid }),
       });
+      setConfig((c) => (c ? { ...c, googleSheets: valid } : c));
       setMessage('Settings saved.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save');
@@ -127,42 +160,79 @@ export default function Integrations() {
 
       {connected && config && (
         <section>
-          <h2 style={{ fontSize: 18, marginBottom: 12 }}>Google Sheet for the agent</h2>
+          <h2 style={{ fontSize: 18, marginBottom: 12 }}>Google Sheets for the agent</h2>
           <p style={{ color: '#666', marginBottom: 16 }}>
-            Enter the spreadsheet ID (from the sheet URL: <code>https://docs.google.com/spreadsheets/d/<strong>SPREADSHEET_ID</strong>/edit</code>) and optionally a range. Enable to let the agent query this sheet when users ask (e.g. about bookings).
+            Add one or more spreadsheets. For each, set <strong>Use when</strong> (e.g. &quot;bookings&quot;, &quot;appointments&quot;, &quot;inventory&quot;) so the agent only queries that sheet when the user&apos;s question matches. This avoids calling every sheet on every request.
           </p>
-          <form onSubmit={saveSheetsConfig} style={{ maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={config.googleSheetsEnabled ?? false}
-                onChange={(e) => setConfig((c) => (c ? { ...c, googleSheetsEnabled: e.target.checked } : c))}
-              />
-              Enable Google Sheets (agent can query the sheet when needed)
-            </label>
-            <label>
-              Spreadsheet ID
-              <input
-                type="text"
-                value={config.googleSheetsSpreadsheetId ?? ''}
-                onChange={(e) => setConfig((c) => (c ? { ...c, googleSheetsSpreadsheetId: e.target.value } : c))}
-                placeholder="e.g. 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
-                style={{ display: 'block', width: '100%', padding: 8, marginTop: 4 }}
-              />
-            </label>
-            <label>
-              Optional range (e.g. <code>Sheet1</code> or <code>Bookings!A:F</code>)
-              <input
-                type="text"
-                value={config.googleSheetsRange ?? ''}
-                onChange={(e) => setConfig((c) => (c ? { ...c, googleSheetsRange: e.target.value } : c))}
-                placeholder="Leave empty for default (first sheet)"
-                style={{ display: 'block', width: '100%', padding: 8, marginTop: 4 }}
-              />
-            </label>
-            <button type="submit" disabled={saving} style={{ padding: '8px 16px', fontSize: 14, alignSelf: 'flex-start', cursor: saving ? 'not-allowed' : 'pointer' }}>
-              {saving ? 'Saving…' : 'Save'}
-            </button>
+          <form onSubmit={saveSheetsConfig} style={{ maxWidth: 640, display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {(config.googleSheets ?? sheetsList).map((sheet, index) => (
+              <div
+                key={index}
+                style={{
+                  padding: 16,
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  background: '#fafafa',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <strong style={{ fontSize: 14 }}>Sheet {index + 1}</strong>
+                  <button
+                    type="button"
+                    onClick={() => removeSheet(index)}
+                    style={{ padding: '4px 8px', fontSize: 12, color: '#c62828', border: '1px solid #c62828', background: '#fff', borderRadius: 6, cursor: 'pointer' }}
+                  >
+                    Remove
+                  </button>
+                </div>
+                <label>
+                  Use when (when should the agent query this sheet?)
+                  <input
+                    type="text"
+                    value={sheet.useWhen}
+                    onChange={(e) => updateSheet(index, 'useWhen', e.target.value)}
+                    placeholder="e.g. bookings, appointments, inventory"
+                    style={{ display: 'block', width: '100%', padding: 8, marginTop: 4 }}
+                  />
+                  <span style={{ fontSize: 12, color: '#666', marginTop: 4, display: 'block' }}>Short label; the agent will only call this sheet when the user&apos;s question fits this topic.</span>
+                </label>
+                <label>
+                  Spreadsheet ID
+                  <input
+                    type="text"
+                    value={sheet.spreadsheetId}
+                    onChange={(e) => updateSheet(index, 'spreadsheetId', e.target.value)}
+                    placeholder="From URL: .../d/SPREADSHEET_ID/edit"
+                    style={{ display: 'block', width: '100%', padding: 8, marginTop: 4 }}
+                  />
+                </label>
+                <label>
+                  Optional range (e.g. Sheet1 or Bookings!A:F)
+                  <input
+                    type="text"
+                    value={sheet.range ?? ''}
+                    onChange={(e) => updateSheet(index, 'range', e.target.value)}
+                    placeholder="Leave empty for default"
+                    style={{ display: 'block', width: '100%', padding: 8, marginTop: 4 }}
+                  />
+                </label>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={addSheet}
+                style={{ padding: '8px 16px', fontSize: 14, border: '1px dashed #0d47a1', color: '#0d47a1', background: '#fff', borderRadius: 6, cursor: 'pointer' }}
+              >
+                Add sheet
+              </button>
+              <button type="submit" disabled={saving} style={{ padding: '8px 16px', fontSize: 14, background: '#0d47a1', color: '#fff', border: 'none', borderRadius: 6, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
           </form>
         </section>
       )}

@@ -88,6 +88,27 @@ async function recordUsage(modelName: string, usage: UsageMetadata, ctx: UsageCo
   }
 }
 
+export type GoogleSheetEntry = { spreadsheetId: string; range?: string; useWhen: string };
+
+function normalizeGoogleSheets(data: Record<string, unknown> | undefined): GoogleSheetEntry[] {
+  const arr = data?.googleSheets;
+  if (Array.isArray(arr) && arr.length > 0) {
+    return arr
+      .filter((e) => e && typeof e.spreadsheetId === 'string' && (e.spreadsheetId as string).trim() && typeof e.useWhen === 'string' && (e.useWhen as string).trim())
+      .map((e) => ({
+        spreadsheetId: (e as { spreadsheetId: string }).spreadsheetId.trim(),
+        range: typeof (e as { range?: string }).range === 'string' ? (e as { range: string }).range.trim() || undefined : undefined,
+        useWhen: (e as { useWhen: string }).useWhen.trim(),
+      }));
+  }
+  const legacyId = (data?.googleSheetsSpreadsheetId as string)?.trim();
+  if (legacyId) {
+    const range = (data?.googleSheetsRange as string)?.trim() || undefined;
+    return [{ spreadsheetId: legacyId, range, useWhen: 'general' }];
+  }
+  return [];
+}
+
 export async function getAgentConfig(tenantId: string): Promise<{
   agentName: string;
   systemPrompt: string;
@@ -95,9 +116,7 @@ export async function getAgentConfig(tenantId: string): Promise<{
   model: string;
   temperature: number;
   ragEnabled: boolean;
-  googleSheetsEnabled: boolean;
-  googleSheetsSpreadsheetId: string | null;
-  googleSheetsRange: string | null;
+  googleSheets: GoogleSheetEntry[];
 }> {
   const configRef = db.collection('agent_config').doc(tenantId);
   const configDoc = await configRef.get();
@@ -112,9 +131,7 @@ export async function getAgentConfig(tenantId: string): Promise<{
       model: data?.model ?? 'gemini-3-flash-preview',
       temperature: data?.temperature ?? 0.7,
       ragEnabled: data?.ragEnabled === true,
-      googleSheetsEnabled: data?.googleSheetsEnabled === true,
-      googleSheetsSpreadsheetId: (data?.googleSheetsSpreadsheetId as string)?.trim() || null,
-      googleSheetsRange: (data?.googleSheetsRange as string)?.trim() || null,
+      googleSheets: normalizeGoogleSheets(data),
     };
   }
 
@@ -143,9 +160,7 @@ export async function getAgentConfig(tenantId: string): Promise<{
     model: data?.model ?? 'gemini-3-flash-preview',
     temperature: data?.temperature ?? 0.7,
     ragEnabled: data?.ragEnabled === true,
-    googleSheetsEnabled: data?.googleSheetsEnabled === true,
-    googleSheetsSpreadsheetId: (data?.googleSheetsSpreadsheetId as string)?.trim() || null,
-    googleSheetsRange: (data?.googleSheetsRange as string)?.trim() || null,
+    googleSheets: normalizeGoogleSheets(data),
   };
 }
 
@@ -295,12 +310,13 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     systemContent += `\n\nWhen the user or care team provides information to remember, you MUST decide based on the existing records above:\n1) If it UPDATES or CORRECTS an existing record (e.g. new phone number for the same branch, changed hours, corrected detail)—use request_edit_record with that record's recordId; do NOT add a new record (that causes duplicates).\n2) If a record is obsolete or should be removed—use request_delete_record with that recordId.\n3) Only use record_learned_knowledge for genuinely NEW information that does not overlap any existing record (no similar title/topic).\nUse short, clear titles and key facts. To edit or delete you must use the recordId from the list above; an admin will approve before the change is applied.`;
   }
 
+  const googleSheetsList = config.googleSheets ?? [];
   let sheetsEnabled = false;
-  if (config.googleSheetsEnabled && config.googleSheetsSpreadsheetId) {
+  if (googleSheetsList.length > 0) {
     try {
       sheetsEnabled = await isGoogleConnected(tenantId);
       if (sheetsEnabled) {
-        systemContent += `\n\nThis organization has connected a Google Sheet (e.g. for bookings or data). When the user asks about bookings, appointments, or data that might be in the sheet, use the query_google_sheet tool to fetch the current data and answer from it. Use an optional range (e.g. "Sheet1" or "Bookings!A:F") if you need a specific sheet or range.`;
+        systemContent += `\n\nThis organization has connected Google Sheets. Only query the sheet that matches the user's question:\n${googleSheetsList.map((s, i) => `- useWhen "${s.useWhen}" → use query_google_sheet with useWhen "${s.useWhen}" when the user asks about: ${s.useWhen}`).join('\n')}\nDo not call query_google_sheet for more than one sheet per turn; pick the single most relevant sheet by useWhen.`;
       }
     } catch {
       // not connected
@@ -374,22 +390,18 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     },
   });
 
-  const spreadsheetIdForSheets = config.googleSheetsSpreadsheetId ?? '';
-  const defaultRange = config.googleSheetsRange ?? undefined;
   const queryGoogleSheetTool = new DynamicStructuredTool({
     name: 'query_google_sheet',
-    description:
-      'Fetch current data from the organization\'s connected Google Sheet (e.g. bookings, appointments). Use when the user asks about bookings, availability, or data that may be in the sheet. Returns a markdown table.',
+    description: `Fetch data from one of the organization's connected sheets. Pass useWhen to pick which sheet (only query the sheet that matches the user's question). Available: ${googleSheetsList.map((s) => s.useWhen).join(', ')}.`,
     schema: z.object({
-      range: z
-        .string()
-        .optional()
-        .describe('Optional A1 notation range, e.g. "Sheet1", "Bookings!A:F", or "Sheet1!A1:Z100". Omit to use default sheet/range.'),
+      useWhen: z.string().describe(`Which sheet to query: one of ${googleSheetsList.map((s) => `"${s.useWhen}"`).join(', ')}. Must match exactly.`),
+      range: z.string().optional().describe('Optional A1 range, e.g. "Sheet1" or "Bookings!A:F". Omit to use the sheet\'s default range.'),
     }),
-    func: async ({ range }) => {
+    func: async ({ useWhen, range }) => {
+      const entry = googleSheetsList.find((s) => s.useWhen.toLowerCase() === (useWhen ?? '').toLowerCase()) ?? googleSheetsList[0];
       try {
-        const rangeToUse = range?.trim() || defaultRange;
-        return await fetchSheetData(tenantId, spreadsheetIdForSheets, rangeToUse ?? undefined);
+        const rangeToUse = range?.trim() || entry.range;
+        return await fetchSheetData(tenantId, entry.spreadsheetId, rangeToUse ?? undefined);
       } catch (e) {
         console.error('query_google_sheet error:', e);
         return e instanceof Error ? e.message : 'Failed to fetch sheet data.';
@@ -399,7 +411,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
 
   const tools: ReturnType<typeof recordTool>[] = [];
   if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
-  if (sheetsEnabled && spreadsheetIdForSheets) tools.push(queryGoogleSheetTool);
+  if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
   const modelWithTools = tools.length ? model.bindTools(tools) : model;
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
@@ -441,10 +453,11 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
           console.error('request_delete_record error:', e);
           content = e instanceof Error ? e.message : 'Failed to submit delete request.';
         }
-      } else if (tc.name === 'query_google_sheet' && sheetsEnabled && spreadsheetIdForSheets) {
+      } else if (tc.name === 'query_google_sheet' && sheetsEnabled && googleSheetsList.length > 0) {
         try {
+          const useWhen = typeof tc.args?.useWhen === 'string' ? tc.args.useWhen : googleSheetsList[0].useWhen;
           const range = typeof tc.args?.range === 'string' ? tc.args.range : undefined;
-          content = await queryGoogleSheetTool.invoke({ range });
+          content = await queryGoogleSheetTool.invoke({ useWhen, range });
         } catch (e) {
           console.error('query_google_sheet error:', e);
           content = e instanceof Error ? e.message : 'Failed to fetch sheet.';
