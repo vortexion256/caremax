@@ -25,6 +25,8 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   const [firestoreReady, setFirestoreReady] = useState(false);
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const inputContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     listRef.current?.scrollTo(0, listRef.current.scrollHeight);
@@ -164,32 +166,34 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   const text = isDark ? '#e0e0e0' : '#111';
   const border = isDark ? '#444' : '#ddd';
 
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 480;
+  
   return (
     <div
       style={{
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        minHeight: 300,
+        minHeight: isMobile ? '50vh' : 300,
         maxHeight: '100vh',
         width: '100%',
-        maxWidth: 360,
+        maxWidth: isMobile ? '100%' : 360,
         margin: '0 auto',
         backgroundColor: card,
-        borderRadius: 12,
-        boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+        borderRadius: isMobile ? 0 : 12,
+        boxShadow: isMobile ? 'none' : '0 4px 20px rgba(0,0,0,0.15)',
         overflow: 'hidden',
         color: text,
       }}
     >
       <div
         style={{
-          padding: '12px 16px',
-          minHeight: 44,
+          padding: isMobile ? '3% 4%' : '12px 16px',
+          minHeight: isMobile ? '8vh' : 44,
           display: 'flex',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: 4,
+          gap: isMobile ? '1%' : 4,
           flexShrink: 0,
           borderBottom: `1px solid ${border}`,
           backgroundColor: isDark ? '#252525' : '#fafafa',
@@ -209,7 +213,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           </span>
         </span>
         {humanJoined && (
-          <span style={{ marginLeft: 8, fontSize: 12, color: '#0a7c42', fontWeight: 500 }}>
+          <span style={{ marginLeft: isMobile ? '2%' : 8, fontSize: isMobile ? '0.75rem' : 12, color: '#0a7c42', fontWeight: 500 }}>
             Care team joined
           </span>
         )}
@@ -220,15 +224,15 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           flex: 1,
           overflow: 'auto',
           WebkitOverflowScrolling: 'touch',
-          padding: 12,
+          padding: isMobile ? '3%' : 12,
           display: 'flex',
           flexDirection: 'column',
-          gap: 8,
+          gap: isMobile ? '2%' : 8,
           minHeight: 0,
         }}
       >
         {messages.length === 0 && !loading && (
-          <div style={{ color: text, opacity: 0.8, fontSize: 14 }}>
+          <div style={{ color: text, opacity: 0.8, fontSize: isMobile ? '0.875rem' : 14 }}>
             Describe your symptoms or ask a question. You can attach images if needed.
           </div>
         )}
@@ -238,8 +242,8 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             style={{
               alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
               maxWidth: '85%',
-              padding: '8px 12px',
-              borderRadius: 12,
+              padding: isMobile ? '2% 3%' : '8px 12px',
+              borderRadius: isMobile ? '3vw' : 12,
               backgroundColor:
                 m.role === 'user'
                   ? '#0d47a1'
@@ -249,24 +253,24 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
                       ? '#3d3d3d'
                       : '#e8e8e8',
               color: m.role === 'user' ? '#fff' : text,
-              fontSize: 14,
+              fontSize: isMobile ? '0.875rem' : 14,
               whiteSpace: 'pre-wrap',
             }}
           >
             {m.role === 'human_agent' && (
-              <span style={{ fontSize: 11, opacity: 0.9, display: 'block', marginBottom: 4 }}>
+              <span style={{ fontSize: isMobile ? '0.6875rem' : 11, opacity: 0.9, display: 'block', marginBottom: isMobile ? '1%' : 4 }}>
                 Care team
               </span>
             )}
             {m.content}
             {m.imageUrls?.length ? (
-              <div style={{ marginTop: 8 }}>
+              <div style={{ marginTop: isMobile ? '2%' : 8 }}>
                 {m.imageUrls.map((url) => (
                   <img
                     key={url}
                     src={url}
                     alt=""
-                    style={{ maxWidth: '100%', borderRadius: 8, maxHeight: 120 }}
+                    style={{ maxWidth: '100%', borderRadius: isMobile ? '2vw' : 8, maxHeight: isMobile ? '30vh' : 120 }}
                   />
                 ))}
               </div>
@@ -274,32 +278,41 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           </div>
         ))}
         {loading && (
-          <div style={{ alignSelf: 'flex-start', padding: '8px 12px', color: text, fontSize: 14 }}>
+          <div style={{ alignSelf: 'flex-start', padding: isMobile ? '2% 3%' : '8px 12px', color: text, fontSize: isMobile ? '0.875rem' : 14 }}>
             ...
           </div>
         )}
       </div>
-      <div style={{ padding: 12, borderTop: `1px solid ${border}`, flexShrink: 0 }}>
+      <div
+        ref={inputContainerRef}
+        className="caremax-input-container"
+        style={{
+          padding: isMobile ? '3%' : 12,
+          borderTop: `1px solid ${border}`,
+          flexShrink: 0,
+          backgroundColor: card,
+        }}
+      >
         {images.length > 0 && (
-          <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: isMobile ? '1%' : 4, marginBottom: isMobile ? '2%' : 8, flexWrap: 'wrap' }}>
             {images.map((f, i) => (
               <span
                 key={i}
                 style={{
-                  fontSize: 12,
-                  padding: '4px 8px',
+                  fontSize: isMobile ? '0.75rem' : 12,
+                  padding: isMobile ? '1% 2%' : '4px 8px',
                   background: border,
-                  borderRadius: 8,
+                  borderRadius: isMobile ? '2vw' : 8,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 4,
+                  gap: isMobile ? '1%' : 4,
                 }}
               >
                 {f.name}
                 <button
                   type="button"
                   onClick={() => setImages((p) => p.filter((_, j) => j !== i))}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, minWidth: 32, minHeight: 32 }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: isMobile ? '1%' : 4, minWidth: isMobile ? '8vw' : 32, minHeight: isMobile ? '8vw' : 32 }}
                   aria-label="Remove image"
                 >
                   ×
@@ -308,7 +321,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             ))}
           </div>
         )}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: isMobile ? '2%' : 8, alignItems: 'flex-end' }}>
           <input
             type="file"
             accept="image/*"
@@ -320,14 +333,14 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           <label
             htmlFor="caremax-file"
             style={{
-              padding: '12px 14px',
-              minHeight: 44,
-              minWidth: 44,
+              padding: isMobile ? '3% 3.5%' : '12px 14px',
+              minHeight: isMobile ? '10vh' : 44,
+              minWidth: isMobile ? '10vh' : 44,
               boxSizing: 'border-box',
               background: border,
-              borderRadius: 8,
+              borderRadius: isMobile ? '2vw' : 8,
               cursor: 'pointer',
-              fontSize: 14,
+              fontSize: isMobile ? '0.875rem' : 14,
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -336,20 +349,31 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             Image
           </label>
           <input
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+            onFocus={() => {
+              // On mobile, scroll input container into view when keyboard appears
+              if (window.innerWidth <= 480 && inputContainerRef.current) {
+                setTimeout(() => {
+                  inputContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                }, 300); // Delay to allow keyboard animation
+              }
+            }}
             placeholder="Type your message..."
             style={{
               flex: 1,
               minWidth: 0,
-              padding: '12px 14px',
-              minHeight: 44,
+              padding: isMobile ? '3% 3.5%' : '12px 14px',
+              minHeight: isMobile ? '10vh' : 44,
               border: `1px solid ${border}`,
-              borderRadius: 8,
-              fontSize: 16,
+              borderRadius: isMobile ? '2vw' : 8,
+              fontSize: 16, // 16px prevents iOS zoom on focus
               background: isDark ? '#2d2d2d' : '#fff',
               color: text,
+              WebkitAppearance: 'none',
+              appearance: 'none',
             }}
           />
           <button
@@ -357,16 +381,17 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             onClick={sendMessage}
             disabled={loading}
             style={{
-              padding: '12px 16px',
-              minHeight: 44,
-              minWidth: 56,
+              padding: isMobile ? '3% 4%' : '12px 16px',
+              minHeight: isMobile ? '10vh' : 44,
+              minWidth: isMobile ? '14vw' : 56,
               background: '#0d47a1',
               color: '#fff',
               border: 'none',
-              borderRadius: 8,
+              borderRadius: isMobile ? '2vw' : 8,
               cursor: loading ? 'not-allowed' : 'pointer',
               fontWeight: 600,
               flexShrink: 0,
+              fontSize: isMobile ? '0.875rem' : 'inherit',
             }}
           >
             Send

@@ -18,10 +18,12 @@
   const iframeSrc =
     base + '/embed.html?tenant=' + encodeURIComponent(tenant) + '&theme=' + encodeURIComponent(theme);
 
-  const BUTTON_SIZE = 56;
+  const BUTTON_SIZE = 56; // Desktop fixed size
+  const BUTTON_SIZE_MOBILE = '12vw'; // Mobile: 12% of viewport width
   const IFRAME_WIDTH = 360;
   const IFRAME_HEIGHT = 480;
-  const OFFSET = 20;
+  const OFFSET = 20; // Desktop fixed offset
+  const OFFSET_MOBILE = '2vw'; // Mobile: 2% of viewport width
   const Z = 2147483647;
   const MOBILE_BREAK = 480;
 
@@ -36,14 +38,43 @@
   button.type = 'button';
   button.setAttribute('aria-label', 'Open chat');
   button.title = 'Chat';
-  button.style.cssText =
-    'width:' +
-    BUTTON_SIZE +
-    'px;height:' +
-    BUTTON_SIZE +
-    'px;border-radius:50%;border:none;cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;background:#1976d2;color:#fff;transition:transform 0.2s, box-shadow 0.2s;-webkit-tap-highlight-color:transparent;touch-action:manipulation;';
-  button.innerHTML =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
+  
+  function isMobile(): boolean {
+    return typeof window !== 'undefined' && window.matchMedia?.('(max-width: ' + MOBILE_BREAK + 'px)').matches;
+  }
+  
+  function applyButtonStyles(): void {
+    const mobile = isMobile();
+    const size = mobile ? BUTTON_SIZE_MOBILE : BUTTON_SIZE + 'px';
+    const offset = mobile ? OFFSET_MOBILE : OFFSET + 'px';
+    
+    // Set base styles
+    button.style.borderRadius = '50%';
+    button.style.border = 'none';
+    button.style.cursor = 'pointer';
+    button.style.boxShadow = '0 2px 12px rgba(0,0,0,0.2)';
+    button.style.display = 'flex';
+    button.style.alignItems = 'center';
+    button.style.justifyContent = 'center';
+    button.style.background = '#1976d2';
+    button.style.color = '#fff';
+    button.style.transition = 'transform 0.2s, box-shadow 0.2s';
+    button.style.webkitTapHighlightColor = 'transparent';
+    button.style.touchAction = 'manipulation';
+    
+    // Set dynamic size and position
+    button.style.width = size;
+    button.style.height = size;
+    button.style.bottom = offset;
+    button.style.right = offset;
+    
+    // Update SVG size based on mobile state
+    const svgSize = mobile ? '60%' : '28';
+    button.innerHTML =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${svgSize}" height="${svgSize}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>`;
+  }
+  
+  applyButtonStyles();
   button.addEventListener('mouseenter', function () {
     button.style.transform = 'scale(1.05)';
     button.style.boxShadow = '0 4px 16px rgba(0,0,0,0.25)';
@@ -57,14 +88,13 @@
   iframe.src = iframeSrc;
   iframe.title = 'CareMax Chat';
 
-  function isMobile(): boolean {
-    return typeof window !== 'undefined' && window.matchMedia?.('(max-width: ' + MOBILE_BREAK + 'px)').matches;
-  }
-
   let open = false;
   function applyIframeStyles(): void {
     const mobile = isMobile();
-    const bottom = (OFFSET + BUTTON_SIZE + 2) + 'px';
+    const offset = mobile ? OFFSET_MOBILE : OFFSET + 'px';
+    const buttonSize = mobile ? '12vw' : (BUTTON_SIZE + 2) + 'px';
+    const bottom = mobile ? '0' : `calc(${offset} + ${buttonSize})`;
+    
     if (mobile) {
       iframe.style.left = '0';
       iframe.style.right = '0';
@@ -77,7 +107,7 @@
     } else {
       iframe.style.top = '';
       iframe.style.left = '';
-      iframe.style.right = OFFSET + 'px';
+      iframe.style.right = offset;
       iframe.style.bottom = bottom;
       iframe.style.width = IFRAME_WIDTH + 'px';
       iframe.style.height = IFRAME_HEIGHT + 'px';
@@ -105,17 +135,20 @@
   document.body.appendChild(container);
 
   button.style.position = 'fixed';
-  button.style.bottom = OFFSET + 'px';
-  button.style.right = OFFSET + 'px';
   button.style.zIndex = String(Z + 1);
+  applyButtonStyles(); // Apply initial button styles
 
   applyIframeStyles();
   iframe.style.display = 'none';
 
   if (typeof window !== 'undefined') {
     const mql = window.matchMedia?.('(max-width: ' + MOBILE_BREAK + 'px)');
-    if (mql?.addListener) mql.addListener(applyIframeStyles);
-    if (mql?.addEventListener) mql.addEventListener('change', applyIframeStyles);
-    window.addEventListener('resize', applyIframeStyles);
+    const handleResize = () => {
+      applyButtonStyles();
+      applyIframeStyles();
+    };
+    if (mql?.addListener) mql.addListener(handleResize);
+    if (mql?.addEventListener) mql.addEventListener('change', handleResize);
+    window.addEventListener('resize', handleResize);
   }
 })();

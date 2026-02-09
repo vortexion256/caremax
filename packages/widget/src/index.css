@@ -9,3 +9,31 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* Mobile safe area support for input container */
+.caremax-input-container {
+  padding-bottom: calc(12px + env(safe-area-inset-bottom)) !important;
+}
+
+/* Ensure input area is accessible on mobile when keyboard appears */
+@media (max-width: 480px) {
+  .caremax-input-container {
+    position: relative;
+    z-index: 10;
+    /* Add extra padding on mobile to account for keyboard - use percentage */
+    padding-bottom: calc(3% + env(safe-area-inset-bottom) + 1vh) !important;
+  }
+  
+  /* Prevent iOS zoom on input focus */
+  input[type="text"],
+  input[type="file"] {
+    font-size: 16px !important;
+  }
+  
+  /* Use relative units for mobile spacing */
+  .caremax-input-container {
+    padding-left: 3% !important;
+    padding-right: 3% !important;
+    padding-top: 3% !important;
+  }
+}
