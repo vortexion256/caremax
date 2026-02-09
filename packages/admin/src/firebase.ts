@@ -44,10 +44,31 @@ export async function signInWithEmail(email: string, password: string): Promise<
 
 export async function signInWithGoogle(): Promise<string> {
   const provider = new GoogleAuthProvider();
-  const { user } = await firebaseSignInWithPopup(auth, provider);
-  const token = await user?.getIdToken();
-  if (!token) throw new Error('No token');
-  return token;
+  
+  // Debug: Log current URL and Firebase config
+  console.log('Firebase Auth Debug:', {
+    currentUrl: typeof window !== 'undefined' ? window.location.href : 'N/A',
+    origin: typeof window !== 'undefined' ? window.location.origin : 'N/A',
+    authDomain: config.authDomain,
+    projectId: config.projectId,
+  });
+  
+  try {
+    const { user } = await firebaseSignInWithPopup(auth, provider);
+    const token = await user?.getIdToken();
+    if (!token) throw new Error('No token');
+    return token;
+  } catch (error: any) {
+    // Enhanced error logging
+    console.error('Google Sign-In Error:', {
+      code: error?.code,
+      message: error?.message,
+      email: error?.email,
+      credential: error?.credential,
+      currentUrl: typeof window !== 'undefined' ? window.location.href : 'N/A',
+    });
+    throw error;
+  }
 }
 
 export function onAuthStateChanged(cb: (token: string | null) => void) {
