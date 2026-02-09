@@ -26,6 +26,8 @@ const updateBody = z.object({
   googleSheetsSpreadsheetId: z.string().optional(),
   googleSheetsRange: z.string().optional(),
   googleSheets: z.array(googleSheetEntry).optional(),
+  learningOnlyPrompt: z.string().optional(),
+  consolidationPrompt: z.string().optional(),
 });
 
 /** Public endpoint for the chat widget: returns only title and agent name (no system prompt etc.). */

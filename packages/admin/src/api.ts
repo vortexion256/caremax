@@ -48,6 +48,10 @@ export type AgentConfig = {
   googleSheetsRange?: string;
   /** Multiple sheets; each has spreadsheetId, optional range, and useWhen (when the agent should query this sheet). */
   googleSheets?: { spreadsheetId: string; range?: string; useWhen: string }[];
+  /** Advanced prompt for learning-only mode (extracting knowledge from conversations) */
+  learningOnlyPrompt?: string;
+  /** Advanced prompt for consolidation mode (merging duplicate records) */
+  consolidationPrompt?: string;
 };
 
 export type HandoffItem = {

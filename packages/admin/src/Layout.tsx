@@ -9,8 +9,10 @@ export default function Layout() {
   const nav = [
     { path: '/', label: 'Dashboard' },
     { path: '/agent', label: 'Agent settings' },
+    { path: '/advanced-prompts', label: 'Advanced Prompts' },
     { path: '/conversations', label: 'All conversations' },
     { path: '/handoffs', label: 'Handoff queue' },
+    { path: '/agent-notes', label: 'Notes' },
     { path: '/rag', label: 'RAG documents' },
     { path: '/agent-brain', label: 'Auto Agent Brain' },
     { path: '/integrations', label: 'Integrations' },

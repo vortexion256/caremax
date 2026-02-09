@@ -11,8 +11,10 @@ import SignUp from './pages/SignUp';
 import RegisterOrg from './pages/RegisterOrg';
 import Dashboard from './pages/Dashboard';
 import AgentSettings from './pages/AgentSettings';
+import AdvancedPromptSettings from './pages/AdvancedPromptSettings';
 import HandoffQueue from './pages/HandoffQueue';
 import HandoffChat from './pages/HandoffChat';
+import AgentNotes from './pages/AgentNotes';
 import Conversations from './pages/Conversations';
 import ConversationView from './pages/ConversationView';
 import PlatformTenants from './pages/PlatformTenants';
@@ -168,10 +170,12 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="agent" element={<AgentSettings />} />
+          <Route path="advanced-prompts" element={<AdvancedPromptSettings />} />
           <Route path="conversations" element={<Conversations />} />
           <Route path="conversations/:conversationId" element={<ConversationView />} />
           <Route path="handoffs" element={<HandoffQueue />} />
           <Route path="handoffs/:conversationId" element={<HandoffChat />} />
+          <Route path="agent-notes" element={<AgentNotes />} />
           <Route path="rag" element={<RAG />} />
           <Route path="agent-brain" element={<AutoAgentBrain />} />
           <Route path="integrations" element={<Integrations />} />

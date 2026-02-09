@@ -7,6 +7,7 @@ import { db } from '../config/firebase.js';
 import { getRagContext } from './rag.js';
 import { createRecord, createModificationRequest, getRecord, listRecords } from './auto-agent-brain.js';
 import { isGoogleConnected, fetchSheetData } from './google-sheets.js';
+import { createNote, listNotes as listAgentNotes } from './agent-notes.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
@@ -161,6 +162,8 @@ export async function getAgentConfig(tenantId: string): Promise<{
   temperature: number;
   ragEnabled: boolean;
   googleSheets: GoogleSheetEntry[];
+  learningOnlyPrompt?: string;
+  consolidationPrompt?: string;
 }> {
   const configRef = db.collection('agent_config').doc(tenantId);
   const configDoc = await configRef.get();
@@ -176,6 +179,8 @@ export async function getAgentConfig(tenantId: string): Promise<{
       temperature: data?.temperature ?? 0.7,
       ragEnabled: data?.ragEnabled === true,
       googleSheets: normalizeGoogleSheets(data),
+      learningOnlyPrompt: data?.learningOnlyPrompt?.trim() || undefined,
+      consolidationPrompt: data?.consolidationPrompt?.trim() || undefined,
     };
   }
 
@@ -205,6 +210,8 @@ export async function getAgentConfig(tenantId: string): Promise<{
     temperature: data?.temperature ?? 0.7,
     ragEnabled: data?.ragEnabled === true,
     googleSheets: normalizeGoogleSheets(data),
+    learningOnlyPrompt: data?.learningOnlyPrompt?.trim() || undefined,
+    consolidationPrompt: data?.consolidationPrompt?.trim() || undefined,
   };
 }
 
@@ -340,7 +347,20 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       ? ` The user has sent another message after you previously could not fully help. You MUST end your reply with "${HANDOFF_MARKER}" to escalate to a human.`
       : '';
 
-  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}`;
+  // Get existing notes for this conversation to prevent duplicates
+  let existingNotesContext = '';
+  if (options?.conversationId) {
+    try {
+      const existingNotes = await listAgentNotes(tenantId, { conversationId: options.conversationId, limit: 10 });
+      if (existingNotes.length > 0) {
+        existingNotesContext = `\n\n--- Existing notes in this conversation (do NOT create duplicates) ---\n${existingNotes.map((n, i) => `${i + 1}. [${n.category}] ${n.content}${n.patientName ? ` (User: ${n.patientName})` : ''}`).join('\n')}\n--- End of existing notes ---\n\nBefore creating a note, check the list above. If a note about the same topic already exists (same question pattern, same keyword, same insight), do NOT create a duplicate. Only create a note if it's genuinely new information not already covered above.`;
+      }
+    } catch (e) {
+      console.warn('Failed to load existing notes for deduplication:', e);
+    }
+  }
+
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notes: As you interact with users, observe patterns and create notes for admin review. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. Create notes periodically when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points). These notes help admins understand user needs and improve the service.${existingNotesContext}`;
   if (config.ragEnabled) {
     const lastUser = history.filter((m) => m.role === 'user').pop();
     const ragContext = lastUser ? await getRagContext(tenantId, lastUser.content) : '';
@@ -453,7 +473,35 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     },
   });
 
+  const createNoteTool = new DynamicStructuredTool({
+    name: 'create_note',
+    description: 'Create a note for admin review about analytics, insights, or patterns observed during conversations. Use this to track: most common questions by users, frequently asked about items/topics, important keywords or trends, user behavior patterns, or any insights that would help improve the service. Create notes when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points).',
+    schema: z.object({
+      content: z.string().describe('The note content describing the insight or pattern (e.g. "Common question: Many users asking about appointment booking process" or "Keyword trend: Users frequently mention \'insurance coverage\'" or "Most asked about: Ntinda branch location and hours")'),
+      patientName: z.string().optional().describe('Optional: Patient or user name if relevant to the note (usually omit for analytics notes)'),
+      category: z.enum(['common_questions', 'keywords', 'analytics', 'insights', 'other']).optional().describe('Category: "common_questions" for frequently asked questions, "keywords" for trending keywords/phrases, "analytics" for usage patterns/metrics, "insights" for general observations, "other" for anything else'),
+    }),
+    func: async ({ content, patientName, category }) => {
+      if (!options?.conversationId) {
+        return 'Cannot create note: conversation ID not available.';
+      }
+      try {
+        await createNote(tenantId, options.conversationId, content.trim(), {
+          userId: options?.userId,
+          patientName: patientName?.trim(),
+          category: category ?? 'other',
+        });
+        return 'Note created successfully.';
+      } catch (e) {
+        console.error('create_doctor_note error:', e);
+        return e instanceof Error ? e.message : 'Failed to create note.';
+      }
+    },
+  });
+
   const tools: unknown[] = [];
+  // Always include note tool - it's essential for tracking analytics, insights, and patterns
+  tools.push(createNoteTool);
   if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
   if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
   const modelWithTools = tools.length ? model.bindTools(tools as Parameters<typeof model.bindTools>[0]) : model;
@@ -513,6 +561,21 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
         } catch (e) {
           console.error('query_google_sheet error:', e);
           content = e instanceof Error ? e.message : 'Failed to fetch sheet.';
+        }
+      } else if (tc.name === 'create_note' && tc.args && typeof tc.args.content === 'string') {
+        try {
+          const patientName = typeof tc.args.patientName === 'string' ? tc.args.patientName : undefined;
+          const category = typeof tc.args.category === 'string' && ['common_questions', 'keywords', 'analytics', 'insights', 'other'].includes(tc.args.category)
+            ? (tc.args.category as 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'other')
+            : undefined;
+          content = await createNoteTool.invoke({
+            content: tc.args.content,
+            patientName,
+            category,
+          });
+        } catch (e) {
+          console.error('create_note error:', e);
+          content = e instanceof Error ? e.message : 'Failed to create note.';
         }
       } else {
         content = 'Invalid arguments.';
@@ -602,7 +665,7 @@ export async function extractAndRecordLearningFromHistory(
 
   const existingRecords = await listRecords(tenantId);
   const existingBlock = formatExistingRecordsForPrompt(existingRecords);
-  const learningOnlySystem = `You are reviewing a conversation after a human care team member has finished helping the user. Your only job is to identify information from this conversation (by the user or care team in messages labeled "[Care team said to the user]: ...") that should be reflected in the Auto Agent Brain—e.g. contact details, phone numbers, policy info, or corrections.
+  const defaultLearningPrompt = `You are reviewing a conversation after a human care team member has finished helping the user. Your only job is to identify information from this conversation (by the user or care team in messages labeled "[Care team said to the user]: ...") that should be reflected in the Auto Agent Brain—e.g. contact details, phone numbers, policy info, or corrections.
 
 --- Current Auto Agent Brain records (check these first) ---
 ${existingBlock}
@@ -613,6 +676,18 @@ You MUST decide for each piece of information:
 2) If a record is obsolete or wrong and should be removed—use request_delete_record with that recordId.
 3) Only use record_learned_knowledge for genuinely NEW information that does not overlap any existing record (no similar title/topic).
 If there is nothing new or nothing to update/remove, do not call any tool.`;
+  let learningOnlySystem: string;
+  if (config.learningOnlyPrompt?.trim()) {
+    const customPrompt = config.learningOnlyPrompt.trim();
+    // Replace placeholder if present, otherwise append records block
+    if (customPrompt.includes('{existingRecords}')) {
+      learningOnlySystem = customPrompt.replace('{existingRecords}', existingBlock);
+    } else {
+      learningOnlySystem = `${customPrompt}\n\n--- Current Auto Agent Brain records (check these first) ---\n${existingBlock}\n--- End of existing records ---`;
+    }
+  } else {
+    learningOnlySystem = defaultLearningPrompt;
+  }
 
   const recordTool = new DynamicStructuredTool({
     name: 'record_learned_knowledge',
@@ -793,7 +868,7 @@ export async function runConsolidation(tenantId: string): Promise<{ modification
   });
 
   const recordsBlock = formatRecordsForConsolidation(records);
-  const systemContent = `You are consolidating the Auto Agent Brain: a knowledge base of records. Your task is to find records that are about the SAME topic or are duplicates/scattered (e.g. multiple "Ntinda Branch" or "Kampala Kololo" entries with overlapping or updated info).
+  const defaultConsolidationPrompt = `You are consolidating the Auto Agent Brain: a knowledge base of records. Your task is to find records that are about the SAME topic or are duplicates/scattered (e.g. multiple "Ntinda Branch" or "Kampala Kololo" entries with overlapping or updated info).
 
 Below are the current records (recordId, title, content).
 
@@ -809,6 +884,18 @@ ${recordsBlock}
 --- End of records ---
 
 Review the list above and submit edit/delete requests to consolidate scattered or duplicate data.`;
+  let systemContent: string;
+  if (config.consolidationPrompt?.trim()) {
+    const customPrompt = config.consolidationPrompt.trim();
+    // Replace placeholder if present, otherwise append records block
+    if (customPrompt.includes('{recordsBlock}')) {
+      systemContent = customPrompt.replace('{recordsBlock}', recordsBlock);
+    } else {
+      systemContent = `${customPrompt}\n\n--- Current records ---\n${recordsBlock}\n--- End of records ---`;
+    }
+  } else {
+    systemContent = defaultConsolidationPrompt;
+  }
 
   const requestEditTool = new DynamicStructuredTool({
     name: 'request_edit_record',
