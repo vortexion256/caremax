@@ -262,6 +262,55 @@ platformRouter.get('/usage/:tenantId', async (req, res) => {
   }
 });
 
+// Reset/delete all usage events for a tenant
+platformRouter.delete('/usage/:tenantId', async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    
+    // Verify tenant exists
+    const tenantDoc = await db.collection('tenants').doc(tenantId).get();
+    if (!tenantDoc.exists) {
+      res.status(404).json({ error: 'Tenant not found' });
+      return;
+    }
+
+    // Delete all usage events for this tenant
+    const usageSnap = await db.collection('usage_events').where('tenantId', '==', tenantId).get();
+    
+    if (usageSnap.empty) {
+      res.json({ success: true, deletedCount: 0, message: 'No usage events found for this tenant' });
+      return;
+    }
+
+    // Batch delete (Firestore limit is 500 operations per batch)
+    let batch = db.batch();
+    let batchCount = 0;
+    let totalDeleted = 0;
+
+    for (const doc of usageSnap.docs) {
+      batch.delete(doc.ref);
+      batchCount++;
+      totalDeleted++;
+      
+      if (batchCount >= 500) {
+        await batch.commit();
+        batch = db.batch();
+        batchCount = 0;
+      }
+    }
+
+    // Commit final batch if there are remaining deletions
+    if (batchCount > 0) {
+      await batch.commit();
+    }
+
+    res.json({ success: true, deletedCount: totalDeleted, message: `Deleted ${totalDeleted} usage event(s) for tenant ${tenantId}` });
+  } catch (e) {
+    console.error('Failed to reset tenant usage:', e);
+    res.status(500).json({ error: 'Failed to reset tenant usage' });
+  }
+});
+
 platformRouter.delete('/tenants/:tenantId', async (req, res) => {
   try {
     const { tenantId } = req.params;

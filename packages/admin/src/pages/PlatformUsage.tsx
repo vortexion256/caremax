@@ -33,6 +33,9 @@ export default function PlatformUsage() {
   const [selectedTenant, setSelectedTenant] = useState<string | null>(null);
   const [tenantEvents, setTenantEvents] = useState<UsageEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [resetting, setResetting] = useState<string | null>(null);
+  const [confirmResetTenant, setConfirmResetTenant] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
     d.setDate(1); // First day of current month
@@ -93,6 +96,36 @@ export default function PlatformUsage() {
       setTenantEvents([]);
     }
   }, [selectedTenant, dateFrom, dateTo]);
+
+  const handleResetClick = (tenantId: string) => {
+    setConfirmResetTenant(tenantId);
+  };
+
+  const resetTenantTokens = async () => {
+    if (!confirmResetTenant) return;
+    
+    const tenantId = confirmResetTenant;
+    setConfirmResetTenant(null);
+    setResetting(tenantId);
+    
+    try {
+      await api(`/platform/usage/${tenantId}`, { method: 'DELETE' });
+      // Reload usage summary and tenant events
+      await loadUsage();
+      if (selectedTenant === tenantId) {
+        await loadTenantEvents(tenantId);
+      }
+      // Show success message
+      setError(null);
+      setSuccessMessage(`Successfully reset usage data for tenant ${tenantId}`);
+      setTimeout(() => setSuccessMessage(null), 5000); // Auto-hide after 5 seconds
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to reset usage data');
+      setSuccessMessage(null);
+    } finally {
+      setResetting(null);
+    }
+  };
 
   if (!isPlatformAdmin) {
     return <p style={{ color: '#c62828' }}>Platform admin access required.</p>;
@@ -201,7 +234,36 @@ export default function PlatformUsage() {
         </div>
       </div>
 
-      {error && <p style={{ color: '#c62828', marginBottom: 16 }}>{error}</p>}
+      {error && (
+        <div style={{ 
+          padding: '12px 16px', 
+          backgroundColor: '#ffebee', 
+          border: '1px solid #ef5350', 
+          borderRadius: 6, 
+          marginBottom: 16,
+          color: '#c62828',
+          fontSize: 14
+        }}>
+          {error}
+        </div>
+      )}
+      {successMessage && (
+        <div style={{ 
+          padding: '12px 16px', 
+          backgroundColor: '#e8f5e9', 
+          border: '1px solid #4caf50', 
+          borderRadius: 6, 
+          marginBottom: 16,
+          color: '#2e7d32',
+          fontSize: 14,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8
+        }}>
+          <span style={{ fontSize: 18 }}>✓</span>
+          <span>{successMessage}</span>
+        </div>
+      )}
       {loading && <p>Loading usage data...</p>}
 
       {!loading && summary.length === 0 && (
@@ -221,6 +283,7 @@ export default function PlatformUsage() {
                   <th style={{ textAlign: 'right', padding: 12, fontSize: 13, fontWeight: 600 }}>Tokens</th>
                   <th style={{ textAlign: 'right', padding: 12, fontSize: 13, fontWeight: 600 }}>Cost</th>
                   <th style={{ textAlign: 'left', padding: 12, fontSize: 13, fontWeight: 600 }}>Last Used</th>
+                  <th style={{ textAlign: 'center', padding: 12, fontSize: 13, fontWeight: 600 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -244,6 +307,28 @@ export default function PlatformUsage() {
                     </td>
                     <td style={{ padding: 12, fontSize: 13, color: '#666' }}>
                       {u.lastUsed ? new Date(u.lastUsed).toLocaleDateString() : '—'}
+                    </td>
+                    <td style={{ padding: 12, textAlign: 'center' }}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleResetClick(u.tenantId);
+                        }}
+                        disabled={resetting === u.tenantId}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: 12,
+                          backgroundColor: resetting === u.tenantId ? '#ccc' : '#dc3545',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: 4,
+                          cursor: resetting === u.tenantId ? 'not-allowed' : 'pointer',
+                          fontWeight: 500,
+                        }}
+                        title="Reset all usage/token data for this tenant"
+                      >
+                        {resetting === u.tenantId ? 'Resetting...' : 'Reset'}
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -300,6 +385,94 @@ export default function PlatformUsage() {
                 </table>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmResetTenant && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setConfirmResetTenant(null)}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: 12,
+              padding: 24,
+              maxWidth: 480,
+              width: '90%',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ marginBottom: 20 }}>
+              <h2 style={{ margin: '0 0 8px 0', fontSize: 20, fontWeight: 600, color: '#1a1a1a' }}>
+                Reset Usage Data
+              </h2>
+              <p style={{ margin: 0, fontSize: 14, color: '#666', lineHeight: 1.5 }}>
+                Are you sure you want to reset all usage/token data for tenant{' '}
+                <strong style={{ fontFamily: 'monospace', color: '#1a1a1a' }}>{confirmResetTenant}</strong>?
+              </p>
+            </div>
+            
+            <div style={{ 
+              padding: 12, 
+              backgroundColor: '#fff3cd', 
+              borderRadius: 6, 
+              marginBottom: 20,
+              border: '1px solid #ffc107'
+            }}>
+              <p style={{ margin: 0, fontSize: 13, color: '#856404', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <span style={{ fontSize: 16 }}>⚠️</span>
+                <span>This action cannot be undone. All token usage, cost tracking, and call history for this tenant will be permanently deleted.</span>
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setConfirmResetTenant(null)}
+                style={{
+                  padding: '10px 20px',
+                  fontSize: 14,
+                  backgroundColor: '#f5f5f5',
+                  color: '#333',
+                  border: '1px solid #ddd',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={resetTenantTokens}
+                disabled={resetting === confirmResetTenant}
+                style={{
+                  padding: '10px 20px',
+                  fontSize: 14,
+                  backgroundColor: resetting === confirmResetTenant ? '#ccc' : '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: resetting === confirmResetTenant ? 'not-allowed' : 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                {resetting === confirmResetTenant ? 'Resetting...' : 'Reset Usage Data'}
+              </button>
+            </div>
           </div>
         </div>
       )}

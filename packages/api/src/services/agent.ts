@@ -68,6 +68,50 @@ function computeCostUsd(model: string, usage: UsageMetadata): number {
   return Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000;
 }
 
+/** Extract token usage from a LangChain/Gemini response. Returns zeros if not found. */
+function extractTokenUsage(response: BaseMessage): UsageMetadata {
+  try {
+    const responseAny = response as any;
+    const responseMetadata = responseAny.response_metadata ?? {};
+    
+    // Try tokenUsage first (most common format in LangChain)
+    const tokenUsage = responseMetadata.tokenUsage ?? {};
+    
+    // Also check for usageMetadata/usage_metadata (alternative formats)
+    const usageMetadata = responseMetadata.usageMetadata ?? responseMetadata.usage_metadata ?? {};
+    
+    // Extract token counts - try tokenUsage format first, then usageMetadata format
+    const inputTokens: number =
+      tokenUsage.promptTokens ??
+      tokenUsage.inputTokens ??
+      usageMetadata.promptTokenCount ??
+      usageMetadata.promptTokens ??
+      (typeof usageMetadata.input_tokens === 'number' ? usageMetadata.input_tokens : 0);
+    
+    const outputTokens: number =
+      tokenUsage.completionTokens ??
+      tokenUsage.outputTokens ??
+      usageMetadata.candidatesTokenCount ??
+      usageMetadata.candidatesTokens ??
+      (typeof usageMetadata.output_tokens === 'number' ? usageMetadata.output_tokens : 0);
+    
+    const totalTokens: number =
+      tokenUsage.totalTokens ??
+      usageMetadata.totalTokenCount ??
+      usageMetadata.totalTokens ??
+      (typeof usageMetadata.total_tokens === 'number' ? usageMetadata.total_tokens : inputTokens + outputTokens);
+    
+    return {
+      inputTokens: inputTokens || 0,
+      outputTokens: outputTokens || 0,
+      totalTokens: totalTokens || inputTokens + outputTokens,
+    };
+  } catch (e) {
+    console.error('Failed to extract token usage:', e);
+    return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  }
+}
+
 async function recordUsage(modelName: string, usage: UsageMetadata, ctx: UsageContext): Promise<void> {
   try {
     const costUsd = computeCostUsd(modelName, usage);
@@ -415,7 +459,15 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   const modelWithTools = tools.length ? model.bindTools(tools as Parameters<typeof model.bindTools>[0]) : model;
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
+  
+  // Accumulate tokens from all invocations (initial + tool call rounds)
+  let accumulatedUsage: UsageMetadata = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  
   let response: BaseMessage = await modelWithTools.invoke(currentMessages);
+  const initialUsage = extractTokenUsage(response);
+  accumulatedUsage.inputTokens += initialUsage.inputTokens;
+  accumulatedUsage.outputTokens += initialUsage.outputTokens;
+  accumulatedUsage.totalTokens += initialUsage.totalTokens;
 
   for (let round = 0; round < maxToolRounds; round++) {
     const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
@@ -469,6 +521,12 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     }
     currentMessages = [...currentMessages, response, ...toolMessages];
     response = await modelWithTools.invoke(currentMessages);
+    
+    // Accumulate tokens from this tool call round
+    const roundUsage = extractTokenUsage(response);
+    accumulatedUsage.inputTokens += roundUsage.inputTokens;
+    accumulatedUsage.outputTokens += roundUsage.outputTokens;
+    accumulatedUsage.totalTokens += roundUsage.totalTokens;
   }
 
   let text = '';
@@ -485,47 +543,22 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     /speak with (a )?(care )?(coordinator|team|human|agent)/i.test(text) ||
     /recommend.*(speaking|talking) to/i.test(text);
 
-  // Extract token usage metadata from LangChain / Gemini response
-  // LangChain ChatGoogleGenerativeAI returns usage in response_metadata.tokenUsage
+  // Record accumulated token usage from all invocations (initial + tool call rounds)
   try {
-    const responseAny = response as any;
-    const responseMetadata = responseAny.response_metadata ?? {};
-    
-    // Try tokenUsage first (most common format in LangChain)
-    const tokenUsage = responseMetadata.tokenUsage ?? {};
-    
-    // Also check for usageMetadata/usage_metadata (alternative formats)
-    const usageMetadata = responseMetadata.usageMetadata ?? responseMetadata.usage_metadata ?? {};
-    
-    // Extract token counts - try tokenUsage format first, then usageMetadata format
-    const inputTokens: number =
-      tokenUsage.promptTokens ??
-      tokenUsage.inputTokens ??
-      usageMetadata.promptTokenCount ??
-      usageMetadata.promptTokens ??
-      (typeof usageMetadata.input_tokens === 'number' ? usageMetadata.input_tokens : 0);
-    
-    const outputTokens: number =
-      tokenUsage.completionTokens ??
-      tokenUsage.outputTokens ??
-      usageMetadata.candidatesTokenCount ??
-      usageMetadata.candidatesTokens ??
-      (typeof usageMetadata.output_tokens === 'number' ? usageMetadata.output_tokens : 0);
-    
-    const totalTokens: number =
-      tokenUsage.totalTokens ??
-      usageMetadata.totalTokenCount ??
-      usageMetadata.totalTokens ??
-      (typeof usageMetadata.total_tokens === 'number' ? usageMetadata.total_tokens : inputTokens + outputTokens);
+    // Use accumulated usage if we have any tokens, otherwise try to extract from final response as fallback
+    const finalUsage = extractTokenUsage(response);
+    const totalInputTokens = accumulatedUsage.inputTokens > 0 ? accumulatedUsage.inputTokens : finalUsage.inputTokens;
+    const totalOutputTokens = accumulatedUsage.outputTokens > 0 ? accumulatedUsage.outputTokens : finalUsage.outputTokens;
+    const totalTokens = accumulatedUsage.totalTokens > 0 ? accumulatedUsage.totalTokens : (finalUsage.totalTokens || totalInputTokens + totalOutputTokens);
 
     // Only record if we have valid token counts
-    if (totalTokens > 0 || (inputTokens > 0 && outputTokens >= 0)) {
+    if (totalTokens > 0 || (totalInputTokens > 0 && totalOutputTokens >= 0)) {
       await recordUsage(
         config.model,
         {
-          inputTokens: inputTokens || 0,
-          outputTokens: outputTokens || 0,
-          totalTokens: totalTokens || inputTokens + outputTokens,
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          totalTokens: totalTokens,
         },
         {
           tenantId,
@@ -533,17 +566,9 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
           conversationId: options?.conversationId,
         }
       );
-      // Temporary debug log to confirm usage is being recorded
-      console.log(`✅ Recorded usage: ${inputTokens} input + ${outputTokens} output = ${totalTokens} total tokens ($${computeCostUsd(config.model, { inputTokens, outputTokens, totalTokens }).toFixed(6)})`);
+      console.log(`✅ Recorded usage: ${totalInputTokens} input + ${totalOutputTokens} output = ${totalTokens} total tokens ($${computeCostUsd(config.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, totalTokens }).toFixed(6)})`);
     } else {
-      // Log when we can't extract usage (for debugging)
-      console.warn('Could not extract usage metadata from response:', {
-        hasResponseMetadata: !!responseAny.response_metadata,
-        responseMetadataKeys: Object.keys(responseMetadata),
-        tokenUsageKeys: tokenUsage ? Object.keys(tokenUsage) : [],
-        tokenUsageValue: tokenUsage,
-        usageMetadataValue: usageMetadata,
-      });
+      console.warn('Could not extract usage metadata - no tokens found in any response');
     }
   } catch (e) {
     // Usage tracking should never break the main flow
@@ -560,7 +585,8 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
  */
 export async function extractAndRecordLearningFromHistory(
   tenantId: string,
-  history: { role: string; content: string; imageUrls?: string[] }[]
+  history: { role: string; content: string; imageUrls?: string[] }[],
+  options?: { userId?: string; conversationId?: string }
 ): Promise<void> {
   const config = await getAgentConfig(tenantId);
   if (!config.ragEnabled) return;
@@ -642,7 +668,15 @@ If there is nothing new or nothing to update/remove, do not call any tool.`;
   const modelWithTools = model.bindTools([recordTool, requestEditTool, requestDeleteTool]);
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
+  
+  // Accumulate tokens from all invocations
+  let accumulatedUsage: UsageMetadata = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  
   let response: BaseMessage = await modelWithTools.invoke(currentMessages);
+  const initialUsage = extractTokenUsage(response);
+  accumulatedUsage.inputTokens += initialUsage.inputTokens;
+  accumulatedUsage.outputTokens += initialUsage.outputTokens;
+  accumulatedUsage.totalTokens += initialUsage.totalTokens;
 
   for (let round = 0; round < maxToolRounds; round++) {
     const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
@@ -687,6 +721,39 @@ If there is nothing new or nothing to update/remove, do not call any tool.`;
     }
     currentMessages = [...currentMessages, response, ...toolMessages];
     response = await modelWithTools.invoke(currentMessages);
+    
+    // Accumulate tokens from this tool call round
+    const roundUsage = extractTokenUsage(response);
+    accumulatedUsage.inputTokens += roundUsage.inputTokens;
+    accumulatedUsage.outputTokens += roundUsage.outputTokens;
+    accumulatedUsage.totalTokens += roundUsage.totalTokens;
+  }
+  
+  // Record token usage for learning extraction
+  try {
+    const finalUsage = extractTokenUsage(response);
+    const totalInputTokens = accumulatedUsage.inputTokens > 0 ? accumulatedUsage.inputTokens : finalUsage.inputTokens;
+    const totalOutputTokens = accumulatedUsage.outputTokens > 0 ? accumulatedUsage.outputTokens : finalUsage.outputTokens;
+    const totalTokens = accumulatedUsage.totalTokens > 0 ? accumulatedUsage.totalTokens : (finalUsage.totalTokens || totalInputTokens + totalOutputTokens);
+
+    if (totalTokens > 0 || (totalInputTokens > 0 && totalOutputTokens >= 0)) {
+      await recordUsage(
+        config.model,
+        {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          totalTokens: totalTokens,
+        },
+        {
+          tenantId,
+          userId: options?.userId,
+          conversationId: options?.conversationId,
+        }
+      );
+      console.log(`✅ Recorded learning extraction usage: ${totalInputTokens} input + ${totalOutputTokens} output = ${totalTokens} total tokens`);
+    }
+  } catch (e) {
+    console.error('Failed to record learning extraction usage:', e);
   }
 }
 

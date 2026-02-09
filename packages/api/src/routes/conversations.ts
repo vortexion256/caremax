@@ -226,7 +226,9 @@ conversationRouter.post('/:conversationId/return-to-agent', requireAuth, require
       imageUrls: data.imageUrls as string[] | undefined,
     };
   });
-  void extractAndRecordLearningFromHistory(tenantId, history).catch((e) => {
+  const convData = conv.data();
+  const userId = (convData?.userId as string | undefined) ?? undefined;
+  void extractAndRecordLearningFromHistory(tenantId, history, { userId, conversationId }).catch((e) => {
     console.error('extractAndRecordLearningFromHistory on return-to-agent failed:', e);
   });
 
