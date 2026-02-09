@@ -188,16 +188,19 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
     >
       <div
         style={{
-          padding: isMobile ? '3% 4%' : '12px 16px',
-          minHeight: isMobile ? '8vh' : 44,
+          padding: isMobile ? '12px 16px' : '12px 16px',
+          height: isMobile ? '56px' : 'auto',
+          minHeight: isMobile ? '56px' : 44,
           display: 'flex',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: isMobile ? '1%' : 4,
+          gap: isMobile ? '8px' : 4,
           flexShrink: 0,
           borderBottom: `1px solid ${border}`,
           backgroundColor: isDark ? '#252525' : '#fafafa',
           fontWeight: 600,
+          position: 'relative',
+          zIndex: 10,
         }}
       >
         <span style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 4 }}>
@@ -213,7 +216,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           </span>
         </span>
         {humanJoined && (
-          <span style={{ marginLeft: isMobile ? '2%' : 8, fontSize: isMobile ? '0.75rem' : 12, color: '#0a7c42', fontWeight: 500 }}>
+          <span style={{ marginLeft: isMobile ? '8px' : 8, fontSize: isMobile ? '0.75rem' : 12, color: '#0a7c42', fontWeight: 500 }}>
             Care team joined
           </span>
         )}
@@ -224,11 +227,13 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           flex: 1,
           overflow: 'auto',
           WebkitOverflowScrolling: 'touch',
-          padding: isMobile ? '3%' : 12,
+          padding: isMobile ? '12px' : 12,
           display: 'flex',
           flexDirection: 'column',
-          gap: isMobile ? '2%' : 8,
+          gap: isMobile ? '8px' : 8,
           minHeight: 0,
+          overflowY: 'auto',
+          overflowX: 'hidden',
         }}
       >
         {messages.length === 0 && !loading && (
@@ -287,32 +292,34 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
         ref={inputContainerRef}
         className="caremax-input-container"
         style={{
-          padding: isMobile ? '3%' : 12,
+          padding: isMobile ? '12px' : 12,
           borderTop: `1px solid ${border}`,
           flexShrink: 0,
           backgroundColor: card,
+          position: 'relative',
+          zIndex: 10,
         }}
       >
         {images.length > 0 && (
-          <div style={{ display: 'flex', gap: isMobile ? '1%' : 4, marginBottom: isMobile ? '2%' : 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: isMobile ? '4px' : 4, marginBottom: isMobile ? '8px' : 8, flexWrap: 'wrap' }}>
             {images.map((f, i) => (
               <span
                 key={i}
                 style={{
                   fontSize: isMobile ? '0.75rem' : 12,
-                  padding: isMobile ? '1% 2%' : '4px 8px',
+                  padding: isMobile ? '4px 8px' : '4px 8px',
                   background: border,
-                  borderRadius: isMobile ? '2vw' : 8,
+                  borderRadius: isMobile ? '8px' : 8,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: isMobile ? '1%' : 4,
+                  gap: isMobile ? '4px' : 4,
                 }}
               >
                 {f.name}
                 <button
                   type="button"
                   onClick={() => setImages((p) => p.filter((_, j) => j !== i))}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: isMobile ? '1%' : 4, minWidth: isMobile ? '8vw' : 32, minHeight: isMobile ? '8vw' : 32 }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: isMobile ? '4px' : 4, minWidth: isMobile ? '32px' : 32, minHeight: isMobile ? '32px' : 32 }}
                   aria-label="Remove image"
                 >
                   ×
@@ -321,7 +328,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             ))}
           </div>
         )}
-        <div style={{ display: 'flex', gap: isMobile ? '2%' : 8, alignItems: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: isMobile ? '8px' : 8, alignItems: 'center' }}>
           <input
             type="file"
             accept="image/*"
@@ -333,17 +340,19 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           <label
             htmlFor="caremax-file"
             style={{
-              padding: isMobile ? '3% 3.5%' : '12px 14px',
-              minHeight: isMobile ? '10vh' : 44,
-              minWidth: isMobile ? '10vh' : 44,
+              padding: isMobile ? '10px 12px' : '12px 14px',
+              height: isMobile ? '44px' : 44,
+              minHeight: isMobile ? '44px' : 44,
+              minWidth: isMobile ? '44px' : 44,
               boxSizing: 'border-box',
               background: border,
-              borderRadius: isMobile ? '2vw' : 8,
+              borderRadius: isMobile ? '8px' : 8,
               cursor: 'pointer',
               fontSize: isMobile ? '0.875rem' : 14,
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
+              flexShrink: 0,
             }}
           >
             Image
@@ -354,10 +363,10 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
             onFocus={() => {
-              // On mobile, scroll input container into view when keyboard appears
-              if (window.innerWidth <= 480 && inputContainerRef.current) {
+              // On mobile, scroll messages to bottom when input is focused
+              if (window.innerWidth <= 480 && listRef.current) {
                 setTimeout(() => {
-                  inputContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                  listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
                 }, 300); // Delay to allow keyboard animation
               }
             }}
@@ -365,10 +374,11 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             style={{
               flex: 1,
               minWidth: 0,
-              padding: isMobile ? '3% 3.5%' : '12px 14px',
-              minHeight: isMobile ? '10vh' : 44,
+              padding: isMobile ? '10px 12px' : '12px 14px',
+              height: isMobile ? '44px' : 'auto',
+              minHeight: isMobile ? '44px' : 44,
               border: `1px solid ${border}`,
-              borderRadius: isMobile ? '2vw' : 8,
+              borderRadius: isMobile ? '8px' : 8,
               fontSize: 16, // 16px prevents iOS zoom on focus
               background: isDark ? '#2d2d2d' : '#fff',
               color: text,
@@ -381,13 +391,14 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             onClick={sendMessage}
             disabled={loading}
             style={{
-              padding: isMobile ? '3% 4%' : '12px 16px',
-              minHeight: isMobile ? '10vh' : 44,
-              minWidth: isMobile ? '14vw' : 56,
+              padding: isMobile ? '10px 16px' : '12px 16px',
+              height: isMobile ? '44px' : 'auto',
+              minHeight: isMobile ? '44px' : 44,
+              minWidth: isMobile ? '56px' : 56,
               background: '#0d47a1',
               color: '#fff',
               border: 'none',
-              borderRadius: isMobile ? '2vw' : 8,
+              borderRadius: isMobile ? '8px' : 8,
               cursor: loading ? 'not-allowed' : 'pointer',
               fontWeight: 600,
               flexShrink: 0,

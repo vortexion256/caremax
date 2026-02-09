@@ -23,7 +23,7 @@ body {
     /* Account for navigation bars: iOS safe-area + Android nav bar (~48-56px) + keyboard spacing */
     /* Use max() to ensure at least 56px (Android nav bar) + safe-area + extra spacing */
     padding-bottom: max(
-      calc(3% + env(safe-area-inset-bottom) + 1vh),
+      calc(12px + env(safe-area-inset-bottom) + 1vh),
       calc(56px + env(safe-area-inset-bottom) + 8px)
     ) !important;
   }
@@ -34,15 +34,16 @@ body {
     font-size: 16px !important;
   }
   
-  /* Use relative units for mobile spacing */
-  .caremax-input-container {
-    padding-left: 3% !important;
-    padding-right: 3% !important;
-    padding-top: 3% !important;
-  }
-  
   /* Ensure widget container respects navigation bars */
   #root {
     padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  /* Ensure proper flex layout - header and input stay fixed, only messages scroll */
+  #root > div {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;
+    overflow: hidden !important;
   }
 }
