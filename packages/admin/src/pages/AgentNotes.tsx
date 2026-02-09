@@ -25,6 +25,9 @@ export default function AgentNotes() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'reviewed' | 'archived'>('all');
   const [filterCategory, setFilterCategory] = useState<'all' | AgentNote['category']>('all');
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [consolidating, setConsolidating] = useState(false);
+  const [showConsolidationDialog, setShowConsolidationDialog] = useState(false);
+  const [consolidationResult, setConsolidationResult] = useState<{ notesConsolidated: number } | null>(null);
 
   const loadNotes = async () => {
     setLoading(true);
@@ -84,6 +87,38 @@ export default function AgentNotes() {
     }
   };
 
+  const runConsolidation = async () => {
+    setConsolidating(true);
+    setError(null);
+    setConsolidationResult(null);
+    try {
+      const result = await api<{ notesConsolidated: number }>(`/tenants/${tenantId}/agent-notes/consolidate`, { method: 'POST' });
+      await loadNotes();
+      setConsolidationResult(result);
+      // Show success message for a few seconds
+      setTimeout(() => {
+        setConsolidationResult(null);
+      }, 5000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to run consolidation');
+    } finally {
+      setConsolidating(false);
+      setShowConsolidationDialog(false);
+    }
+  };
+
+  const handleConsolidationClick = () => {
+    setShowConsolidationDialog(true);
+  };
+
+  const handleConsolidationConfirm = () => {
+    runConsolidation();
+  };
+
+  const handleConsolidationCancel = () => {
+    setShowConsolidationDialog(false);
+  };
+
   const categoryColors: Record<AgentNote['category'], string> = {
     common_questions: '#1976d2',
     keywords: '#d32f2f',
@@ -109,6 +144,124 @@ export default function AgentNotes() {
       <p style={{ color: '#666', marginBottom: 24 }}>
         Review notes created by the agent during conversations. The agent tracks analytics and insights such as most common questions, frequently asked about items, keywords, trends, and user behavior patterns to help improve the service.
       </p>
+
+      {/* Consolidation Button */}
+      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={handleConsolidationClick}
+          disabled={consolidating || notes.length === 0}
+          style={{
+            padding: '8px 16px',
+            fontSize: 14,
+            background: consolidating || notes.length === 0 ? '#ccc' : '#0d47a1',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 6,
+            cursor: consolidating || notes.length === 0 ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {consolidating ? 'Checking & consolidating…' : 'Check and consolidate notes'}
+        </button>
+        <span style={{ fontSize: 13, color: '#666' }}>
+          Asks the agent to review all notes and merge duplicates or similar notes to avoid redundancy and repetition.
+        </span>
+      </div>
+
+      {/* Consolidation Success Message */}
+      {consolidationResult && consolidationResult.notesConsolidated > 0 && (
+        <div style={{ 
+          padding: '12px 16px', 
+          backgroundColor: '#e8f5e9', 
+          border: '1px solid #4caf50', 
+          borderRadius: 6, 
+          marginBottom: 16, 
+          color: '#2e7d32', 
+          fontSize: 14 
+        }}>
+          ✓ Successfully consolidated {consolidationResult.notesConsolidated} note{consolidationResult.notesConsolidated !== 1 ? 's' : ''}. Duplicate and similar notes have been merged.
+        </div>
+      )}
+
+      {/* Consolidation Confirmation Dialog */}
+      {showConsolidationDialog && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: 8,
+            padding: 24,
+            maxWidth: 500,
+            width: '90%',
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+          }}>
+            <h2 style={{ margin: '0 0 16px 0', fontSize: 20, fontWeight: 600 }}>
+              Consolidate Agent Notes
+            </h2>
+            <p style={{ margin: '0 0 16px 0', fontSize: 14, color: '#333', lineHeight: 1.6 }}>
+              The agent will review all {notes.length} note{notes.length !== 1 ? 's' : ''} and identify duplicates or similar notes that cover the same topic.
+            </p>
+            <div style={{ 
+              backgroundColor: '#f5f5f5', 
+              padding: 12, 
+              borderRadius: 6, 
+              marginBottom: 16,
+              fontSize: 13,
+              color: '#666',
+            }}>
+              <strong style={{ display: 'block', marginBottom: 8, color: '#333' }}>What will happen:</strong>
+              <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+                <li>Similar or duplicate notes will be merged into a single consolidated note</li>
+                <li>Redundant notes will be deleted</li>
+                <li>Important information from all notes will be preserved in the merged note</li>
+                <li>This process cannot be undone</li>
+              </ul>
+            </div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                onClick={handleConsolidationCancel}
+                disabled={consolidating}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: 14,
+                  backgroundColor: '#f5f5f5',
+                  color: '#333',
+                  border: '1px solid #ddd',
+                  borderRadius: 6,
+                  cursor: consolidating ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConsolidationConfirm}
+                disabled={consolidating}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: 14,
+                  backgroundColor: consolidating ? '#ccc' : '#0d47a1',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: consolidating ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {consolidating ? 'Processing...' : 'OK, Proceed'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>

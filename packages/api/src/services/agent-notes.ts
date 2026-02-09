@@ -262,6 +262,28 @@ export async function getNote(tenantId: string, noteId: string): Promise<AgentNo
 }
 
 /**
+ * Update note content.
+ */
+export async function updateNoteContent(
+  tenantId: string,
+  noteId: string,
+  content: string
+): Promise<AgentNote | null> {
+  const ref = db.collection(NOTES_COLLECTION).doc(noteId);
+  const doc = await ref.get();
+  if (!doc.exists) return null;
+  const data = doc.data()!;
+  if (data.tenantId !== tenantId) return null;
+
+  await ref.update({
+    content: content.trim(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  return getNote(tenantId, noteId);
+}
+
+/**
  * Update note status (e.g., mark as reviewed).
  */
 export async function updateNoteStatus(

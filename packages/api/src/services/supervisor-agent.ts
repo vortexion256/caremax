@@ -129,7 +129,7 @@ Analyze this request and create a step-by-step action plan. Use create_action_pl
             action: string;
             description: string;
             toolToUse?: string;
-            parameters?: Record<string, unknown>;
+            status?: 'pending' | 'in_progress' | 'completed';
             needsUserInput?: boolean;
             userPrompt?: string;
           }>;
