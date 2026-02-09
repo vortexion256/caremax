@@ -24,6 +24,7 @@
   const IFRAME_HEIGHT = 480;
   const OFFSET = 20; // Desktop fixed offset
   const OFFSET_MOBILE = '2vw'; // Mobile: 2% of viewport width
+  const NAV_BAR_HEIGHT = 56; // Typical Android navigation bar height (48-56px)
   const Z = 2147483647;
   const MOBILE_BREAK = 480;
 
@@ -46,7 +47,16 @@
   function applyButtonStyles(): void {
     const mobile = isMobile();
     const size = mobile ? BUTTON_SIZE_MOBILE : BUTTON_SIZE + 'px';
-    const offset = mobile ? OFFSET_MOBILE : OFFSET + 'px';
+    
+    // On mobile, position button above navigation bar (account for safe-area-inset-bottom + nav bar height)
+    // Use calc() to combine viewport offset with safe-area-inset-bottom
+    let offset: string;
+    if (mobile) {
+      // Position above navigation bar: 2vw offset + nav bar height + safe area
+      offset = `calc(${OFFSET_MOBILE} + ${NAV_BAR_HEIGHT}px + env(safe-area-inset-bottom))`;
+    } else {
+      offset = OFFSET + 'px';
+    }
     
     // Set base styles
     button.style.borderRadius = '50%';
@@ -66,7 +76,7 @@
     button.style.width = size;
     button.style.height = size;
     button.style.bottom = offset;
-    button.style.right = offset;
+    button.style.right = mobile ? OFFSET_MOBILE : offset;
     
     // Update SVG size based on mobile state
     const svgSize = mobile ? '60%' : '28';
@@ -93,9 +103,10 @@
     const mobile = isMobile();
     const offset = mobile ? OFFSET_MOBILE : OFFSET + 'px';
     const buttonSize = mobile ? '12vw' : (BUTTON_SIZE + 2) + 'px';
-    const bottom = mobile ? '0' : `calc(${offset} + ${buttonSize})`;
     
     if (mobile) {
+      // On mobile, iframe covers full screen (navigation bar is system UI overlay)
+      // The input container inside handles padding for navigation bars
       iframe.style.left = '0';
       iframe.style.right = '0';
       iframe.style.top = '0';
@@ -108,6 +119,7 @@
       iframe.style.top = '';
       iframe.style.left = '';
       iframe.style.right = offset;
+      const bottom = `calc(${offset} + ${buttonSize})`;
       iframe.style.bottom = bottom;
       iframe.style.width = IFRAME_WIDTH + 'px';
       iframe.style.height = IFRAME_HEIGHT + 'px';

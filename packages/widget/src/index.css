@@ -20,8 +20,12 @@ body {
   .caremax-input-container {
     position: relative;
     z-index: 10;
-    /* Add extra padding on mobile to account for keyboard - use percentage */
-    padding-bottom: calc(3% + env(safe-area-inset-bottom) + 1vh) !important;
+    /* Account for navigation bars: iOS safe-area + Android nav bar (~48-56px) + keyboard spacing */
+    /* Use max() to ensure at least 56px (Android nav bar) + safe-area + extra spacing */
+    padding-bottom: max(
+      calc(3% + env(safe-area-inset-bottom) + 1vh),
+      calc(56px + env(safe-area-inset-bottom) + 8px)
+    ) !important;
   }
   
   /* Prevent iOS zoom on input focus */
@@ -35,5 +39,10 @@ body {
     padding-left: 3% !important;
     padding-right: 3% !important;
     padding-top: 3% !important;
+  }
+  
+  /* Ensure widget container respects navigation bars */
+  #root {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
