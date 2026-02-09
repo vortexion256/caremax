@@ -24,6 +24,7 @@ export default defineConfig({
   server: { port: 3002 },
   define: {
     'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'),
+    'import.meta.env.VITE_WIDGET_URL': JSON.stringify(process.env.VITE_WIDGET_URL ?? process.env.NEXT_PUBLIC_WIDGET_URL ?? ''),
     'import.meta.env.VITE_FIREBASE_API_KEY': JSON.stringify(firebaseApiKey),
     'import.meta.env.VITE_FIREBASE_AUTH_DOMAIN': JSON.stringify(firebaseAuthDomain),
     'import.meta.env.VITE_FIREBASE_PROJECT_ID': JSON.stringify(firebaseProjectId),

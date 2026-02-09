@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useTenant } from '../TenantContext';
 
-const WIDGET_BASE = typeof window !== 'undefined' ? window.location.origin.replace(/:\d+$/, ':5173') : 'https://your-widget-url.com';
+// In production set VITE_WIDGET_URL (e.g. https://caremax-widget.vercel.app). In dev, defaults to same host with port 5173.
+const WIDGET_BASE =
+  (typeof import.meta.env !== 'undefined' && (import.meta.env.VITE_WIDGET_URL ?? '').trim()) ||
+  (typeof window !== 'undefined' ? window.location.origin.replace(/:\d+$/, ':5173') : 'https://your-widget-url.com');
 
 export default function Embed() {
   const { tenantId } = useTenant();
