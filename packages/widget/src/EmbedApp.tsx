@@ -303,7 +303,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
       <div
         className="caremax-input-area"
         style={{
-          padding: '12px 16px 24px',
+          padding: `12px 16px calc(${isMobile ? '72px' : '24px'} + env(safe-area-inset-bottom))`,
           borderTop: `1px solid ${border}`,
           backgroundColor: card,
           flexShrink: 0,
