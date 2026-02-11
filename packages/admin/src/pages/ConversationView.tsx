@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { collection, query, where, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, startAfter, getDocs, doc, getDoc, type DocumentSnapshot } from 'firebase/firestore';
 import { firestore } from '../firebase';
 import { useTenant } from '../TenantContext';
+import { useIsMobile } from '../hooks/useIsMobile';
+
+const PAGE_SIZE = 10;
 
 type Message = {
   messageId: string;
@@ -12,21 +15,39 @@ type Message = {
   createdAt: number | null;
 };
 
+function messageFromDoc(d: { id: string; data: () => Record<string, unknown> }): Message {
+  const data = d.data();
+  return {
+    messageId: d.id,
+    role: (data.role as Message['role']) ?? 'assistant',
+    content: (data.content as string) ?? '',
+    imageUrls: data.imageUrls as string[] | undefined,
+    createdAt: data.createdAt && typeof (data.createdAt as { toMillis?: () => number }).toMillis === 'function'
+      ? (data.createdAt as { toMillis: () => number }).toMillis()
+      : null,
+  };
+}
+
 export default function ConversationView() {
   const { conversationId } = useParams<{ conversationId: string }>();
   const { tenantId } = useTenant();
+  const { isMobile, isVerySmall } = useIsMobile();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>('open');
+  const [lastDoc, setLastDoc] = useState<DocumentSnapshot | null>(null);
+  const [hasMore, setHasMore] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!conversationId || !tenantId) return;
     setLoading(true);
     setError(null);
+    setLastDoc(null);
+    setHasMore(true);
 
-    // Get conversation status
     getDoc(doc(firestore, 'conversations', conversationId))
       .then((convDoc) => {
         if (convDoc.exists()) {
@@ -35,35 +56,55 @@ export default function ConversationView() {
       })
       .catch(() => {});
 
-    // Listen to messages
+    const messagesRef = collection(firestore, 'messages');
     const q = query(
-      collection(firestore, 'messages'),
+      messagesRef,
       where('conversationId', '==', conversationId),
-      orderBy('createdAt', 'asc')
+      orderBy('createdAt', 'desc'),
+      limit(PAGE_SIZE)
     );
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const list = snap.docs.map((d) => {
-          const data = d.data();
-          return {
-            messageId: d.id,
-            role: data.role as Message['role'],
-            content: data.content ?? '',
-            imageUrls: data.imageUrls,
-            createdAt: data.createdAt?.toMillis?.() ?? null,
-          };
-        });
+    getDocs(q)
+      .then((snap) => {
+        const docs = snap.docs;
+        const list = docs.map((d) => messageFromDoc(d)).reverse();
         setMessages(list);
-        setLoading(false);
-      },
-      (err) => {
+        setHasMore(docs.length === PAGE_SIZE);
+        setLastDoc(docs.length > 0 ? docs[docs.length - 1] : null);
+      })
+      .catch((err) => {
         setError(err.message);
+      })
+      .finally(() => {
         setLoading(false);
-      }
-    );
-    return () => unsub();
+      });
   }, [conversationId, tenantId]);
+
+  const loadOlder = () => {
+    if (!conversationId || !lastDoc || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    const messagesRef = collection(firestore, 'messages');
+    const q = query(
+      messagesRef,
+      where('conversationId', '==', conversationId),
+      orderBy('createdAt', 'desc'),
+      limit(PAGE_SIZE),
+      startAfter(lastDoc)
+    );
+    getDocs(q)
+      .then((snap) => {
+        const docs = snap.docs;
+        const older = docs.map((d) => messageFromDoc(d)).reverse();
+        setMessages((prev) => [...older, ...prev]);
+        setHasMore(docs.length === PAGE_SIZE);
+        setLastDoc(docs.length > 0 ? docs[docs.length - 1] : null);
+      })
+      .catch((err) => {
+        setError(err.message);
+      })
+      .finally(() => {
+        setLoadingMore(false);
+      });
+  };
 
   useEffect(() => {
     listRef.current?.scrollTo(0, listRef.current.scrollHeight);
@@ -96,25 +137,46 @@ export default function ConversationView() {
   };
 
   return (
-    <div>
-      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
-        <Link to="/conversations" style={{ color: '#0d47a1', textDecoration: 'none' }}>
+    <div style={{ width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
+      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: isVerySmall ? 8 : 12, flexWrap: 'wrap' }}>
+        <Link
+          to="/conversations"
+          style={{
+            color: '#0d47a1',
+            textDecoration: 'none',
+            fontSize: isMobile ? 13 : 14,
+            padding: isMobile ? '8px 0' : 0,
+            minHeight: 44,
+            display: 'flex',
+            alignItems: 'center',
+            touchAction: 'manipulation',
+          }}
+        >
           ← Back to conversations
         </Link>
         {getStatusBadge(status)}
         {(status === 'handoff_requested' || status === 'human_joined') && (
           <Link
             to={`/handoffs/${conversationId}`}
-            style={{ color: '#0d47a1', textDecoration: 'none', fontSize: 14 }}
+            style={{
+              color: '#0d47a1',
+              textDecoration: 'none',
+              fontSize: isMobile ? 13 : 14,
+              padding: isMobile ? '8px 0' : 0,
+              minHeight: 44,
+              display: 'flex',
+              alignItems: 'center',
+              touchAction: 'manipulation',
+            }}
           >
             Open in handoff chat
           </Link>
         )}
       </div>
 
-      <h2 style={{ margin: '0 0 16px 0' }}>Conversation</h2>
-      <p style={{ fontSize: 12, color: '#666', marginBottom: 16 }}>
-        Conversation ID: <code>{conversationId}</code>
+      <h2 style={{ margin: '0 0 16px 0', fontSize: isMobile ? 20 : 24 }}>Conversation</h2>
+      <p style={{ fontSize: isMobile ? 11 : 12, color: '#666', marginBottom: 16, wordBreak: 'break-word' }}>
+        Conversation ID: <code style={{ fontSize: isMobile ? 10 : 12, wordBreak: 'break-all' }}>{conversationId}</code>
       </p>
 
       <div
@@ -122,14 +184,37 @@ export default function ConversationView() {
         style={{
           border: '1px solid #e0e0e0',
           borderRadius: 8,
-          padding: 16,
-          maxHeight: '60vh',
+          padding: isMobile ? 12 : 16,
+          maxHeight: isMobile ? '50vh' : '60vh',
           overflowY: 'auto',
+          overflowX: 'hidden',
           background: '#fafafa',
           marginBottom: 16,
+          width: '100%',
         }}
       >
-        {messages.length === 0 ? (
+        {hasMore && messages.length > 0 && (
+          <div style={{ marginBottom: 16, textAlign: 'center' }}>
+            <button
+              onClick={loadOlder}
+              disabled={loadingMore}
+              style={{
+                padding: isMobile ? '10px 20px' : '8px 16px',
+                fontSize: isMobile ? 15 : 13,
+                backgroundColor: loadingMore ? '#ccc' : '#0d47a1',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                cursor: loadingMore ? 'not-allowed' : 'pointer',
+                minHeight: 44,
+                touchAction: 'manipulation',
+              }}
+            >
+              {loadingMore ? 'Loading...' : 'Load older messages'}
+            </button>
+          </div>
+        )}
+        {messages.length === 0 && !loading ? (
           <p style={{ color: '#666' }}>No messages yet.</p>
         ) : (
           messages.map((msg) => (
@@ -145,8 +230,8 @@ export default function ConversationView() {
                 }`,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <strong style={{ fontSize: 13, color: '#666' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap', gap: 4 }}>
+                <strong style={{ fontSize: isMobile ? 14 : 13, color: '#666' }}>
                   {msg.role === 'user'
                     ? 'User'
                     : msg.role === 'human_agent'
@@ -154,12 +239,12 @@ export default function ConversationView() {
                       : 'AI Assistant'}
                 </strong>
                 {msg.createdAt && (
-                  <span style={{ fontSize: 11, color: '#999' }}>
+                  <span style={{ fontSize: isMobile ? 10 : 11, color: '#999' }}>
                     {new Date(msg.createdAt).toLocaleString()}
                   </span>
                 )}
               </div>
-              <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
+              <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: isMobile ? 14 : 13, lineHeight: 1.5 }}>{msg.content}</div>
               {msg.imageUrls && msg.imageUrls.length > 0 && (
                 <div style={{ marginTop: 8 }}>
                   {msg.imageUrls.map((url, idx) => (

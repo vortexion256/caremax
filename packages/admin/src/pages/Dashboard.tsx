@@ -1,8 +1,10 @@
 import { Link, Navigate } from 'react-router-dom';
 import { useTenant } from '../TenantContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 export default function Dashboard() {
   const { isPlatformAdmin, tenantId } = useTenant();
+  const { isMobile } = useIsMobile();
 
   // If platform-only admin (no real tenant), redirect to platform console
   if (isPlatformAdmin && tenantId === 'platform') {
@@ -10,9 +12,9 @@ export default function Dashboard() {
   }
 
   return (
-    <div>
-      <h1 style={{ margin: '0 0 16px 0' }}>Dashboard</h1>
-      <p style={{ color: '#666' }}>
+    <div style={{ width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
+      <h1 style={{ margin: '0 0 16px 0', fontSize: isMobile ? 20 : 24 }}>Dashboard</h1>
+      <p style={{ color: '#666', fontSize: isMobile ? 14 : 16 }}>
         Welcome to CareMax Admin. Use the sidebar to configure your agent, manage handoffs, and get the embed code.
       </p>
       {isPlatformAdmin && (
@@ -25,12 +27,14 @@ export default function Dashboard() {
             to="/platform"
             style={{
               display: 'inline-block',
-              padding: '8px 16px',
+              padding: isMobile ? '10px 20px' : '8px 16px',
               background: '#0d47a1',
               color: '#fff',
               textDecoration: 'none',
               borderRadius: 6,
-              fontSize: 14,
+              fontSize: isMobile ? 15 : 14,
+              minHeight: 44,
+              touchAction: 'manipulation',
             }}
           >
             Open platform console →

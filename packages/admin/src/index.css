@@ -1,3 +1,77 @@
 * { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
-#root { min-height: 100vh; }
+html {
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+}
+body { 
+  margin: 0; 
+  font-family: system-ui, -apple-system, sans-serif; 
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+}
+#root { 
+  min-height: 100vh; 
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  table {
+    font-size: 12px;
+  }
+  
+  /* Prevent horizontal overflow */
+  * {
+    max-width: 100%;
+  }
+  
+  /* Ensure forms don't overflow */
+  form {
+    width: 100%;
+    max-width: 100%;
+  }
+  
+  input, textarea, select {
+    max-width: 100%;
+  }
+  
+  /* Prevent code blocks from overflowing */
+  code, pre {
+    word-break: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+  }
+  
+  /* Improve touch targets - minimum 44x44px for accessibility */
+  button, a, input[type="checkbox"], input[type="radio"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Better touch scrolling */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Prevent text size adjustment on iOS */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
+/* Touch action improvements */
+button, a {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Prevent double-tap zoom on buttons */
+@media (max-width: 768px) {
+  button, a {
+    touch-action: manipulation;
+  }
+}

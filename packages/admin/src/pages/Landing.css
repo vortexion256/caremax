@@ -2,6 +2,8 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: 24px;
+  width: 100%;
+  max-width: 100%;
 }
 
 @media (min-width: 640px) {
@@ -16,4 +18,18 @@
     grid-template-columns: repeat(4, 1fr);
     gap: 32px;
   }
+}
+
+/* Ensure feature items don't overflow on very small screens */
+.landing-features-grid > div {
+  min-width: 0;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  padding: 0 4px;
+}
+
+.landing-features-grid > div p {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }

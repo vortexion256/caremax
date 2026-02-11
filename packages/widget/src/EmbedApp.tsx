@@ -241,47 +241,57 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             Describe your symptoms or ask a question. You can attach images if needed.
           </div>
         )}
-        {messages.map((m) => (
-          <div
-            key={m.messageId}
-            style={{
-              alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-              maxWidth: '85%',
-              padding: isMobile ? '2% 3%' : '8px 12px',
-              borderRadius: isMobile ? '3vw' : 12,
-              backgroundColor:
-                m.role === 'user'
-                  ? '#0d47a1'
-                  : m.role === 'human_agent'
-                    ? '#1b5e20'
-                    : isDark
-                      ? '#3d3d3d'
-                      : '#e8e8e8',
-              color: m.role === 'user' ? '#fff' : text,
-              fontSize: isMobile ? '0.875rem' : 14,
-              whiteSpace: 'pre-wrap',
-            }}
-          >
-            {m.role === 'human_agent' && (
-              <span style={{ fontSize: isMobile ? '0.6875rem' : 11, opacity: 0.9, display: 'block', marginBottom: isMobile ? '1%' : 4 }}>
-                Care team
-              </span>
-            )}
-            {m.content}
-            {m.imageUrls?.length ? (
-              <div style={{ marginTop: isMobile ? '2%' : 8 }}>
-                {m.imageUrls.map((url) => (
-                  <img
-                    key={url}
-                    src={url}
-                    alt=""
-                    style={{ maxWidth: '100%', borderRadius: isMobile ? '2vw' : 8, maxHeight: isMobile ? '30vh' : 120 }}
-                  />
-                ))}
+        {messages.map((m, index) => {
+          const firstHumanAgentIndex = messages.findIndex((msg) => msg.role === 'human_agent');
+          const isFirstHumanAgent = firstHumanAgentIndex >= 0 && index === firstHumanAgentIndex;
+          return (
+            <React.Fragment key={m.messageId}>
+              {isFirstHumanAgent && (
+                <div style={{ alignSelf: 'flex-start', maxWidth: '85%', padding: isMobile ? '4px 8px' : '6px 10px', fontSize: isMobile ? '0.6875rem' : 11, color: '#2e7d32', fontWeight: 500 }}>
+                  Care team joined
+                </div>
+              )}
+              <div
+                style={{
+                  alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+                  maxWidth: '85%',
+                  padding: isMobile ? '2% 3%' : '8px 12px',
+                  borderRadius: isMobile ? '3vw' : 12,
+                  backgroundColor:
+                    m.role === 'user'
+                      ? '#0d47a1'
+                      : m.role === 'human_agent'
+                        ? '#1b5e20'
+                        : isDark
+                          ? '#3d3d3d'
+                          : '#e8e8e8',
+                  color: m.role === 'user' ? '#fff' : text,
+                  fontSize: isMobile ? '0.875rem' : 14,
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {m.role === 'human_agent' && (
+                  <span style={{ fontSize: isMobile ? '0.6875rem' : 11, opacity: 0.9, display: 'block', marginBottom: isMobile ? '1%' : 4 }}>
+                    Care team
+                  </span>
+                )}
+                {m.content}
+                {m.imageUrls?.length ? (
+                  <div style={{ marginTop: isMobile ? '2%' : 8 }}>
+                    {m.imageUrls.map((url) => (
+                      <img
+                        key={url}
+                        src={url}
+                        alt=""
+                        style={{ maxWidth: '100%', borderRadius: isMobile ? '2vw' : 8, maxHeight: isMobile ? '30vh' : 120 }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-        ))}
+            </React.Fragment>
+          );
+        })}
         {loading && (
           <div style={{ alignSelf: 'flex-start', padding: isMobile ? '2% 3%' : '8px 12px', color: text, fontSize: isMobile ? '0.875rem' : 14 }}>
             ...
