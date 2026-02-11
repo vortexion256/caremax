@@ -3,7 +3,9 @@
   --primary: #2563eb;
   --primary-hover: #1d4ed8;
   --bg-sidebar: #f8fafc;
-  --bg-main: #ffffff;
+  --bg-main: #0f172a;
+  --bg-futuristic: radial-gradient(circle at 50% 50%, #1e1b4b 0%, #0f172a 100%),
+    linear-gradient(135deg, rgba(37, 99, 235, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
   --text-main: #1e293b;
   --text-muted: #64748b;
   --border-color: #e2e8f0;
@@ -15,7 +17,8 @@ html, body {
   padding: 0;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   color: var(--text-main);
-  background: var(--bg-main);
+  background: var(--bg-futuristic);
+  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
   width: 100%;
@@ -72,6 +75,12 @@ button:active {
 @media (max-width: 768px) {
   table { font-size: 12px; }
   * { max-width: 100%; }
+  .mobile-menu-open aside {
+    padding-top: 80px !important;
+  }
+  .mobile-menu-open aside .logout-container {
+    margin-bottom: 40px !important;
+  }
   form { width: 100%; }
   input, textarea, select { font-size: 16px !important; }
   button, a { min-height: 44px; touch-action: manipulation; }

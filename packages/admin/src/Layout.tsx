@@ -24,7 +24,7 @@ export default function Layout() {
   ];
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', width: '100%', background: '#fff' }}>
+    <div className={menuOpen ? 'mobile-menu-open' : ''} style={{ display: 'flex', minHeight: '100vh', width: '100%', background: 'transparent' }}>
       {/* Mobile Header */}
       {isMobile && (
         <header style={{
@@ -106,7 +106,7 @@ export default function Layout() {
           })}
         </nav>
 
-        <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid #e2e8f0' }}>
+        <div className="logout-container" style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid #e2e8f0' }}>
           <div style={{ padding: '0 12px', marginBottom: 12 }}>
             <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tenant</div>
             <div style={{ fontSize: 13, fontWeight: 500, color: '#475569', marginTop: 2 }}>{tenantId}</div>
@@ -168,12 +168,13 @@ export default function Layout() {
         flex: 1, 
         padding: isMobile ? '80px 20px 40px' : '40px 60px', 
         minWidth: 0,
-        background: '#fff'
+        background: 'rgba(255, 255, 255, 0.9)',
+        backdropFilter: 'blur(10px)',
+        margin: isMobile ? '0' : '20px',
+        borderRadius: isMobile ? '0' : '16px',
+        boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)'
       }}>
         <div style={{ maxWidth: 1000, margin: '0 auto' }}>
           <Outlet />
         </div>
       </main>
-    </div>
-  );
-}
