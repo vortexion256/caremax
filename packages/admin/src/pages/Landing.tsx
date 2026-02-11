@@ -125,7 +125,8 @@ export default function Landing({ onLogin }: Props) {
             marginBottom: 28, 
             lineHeight: 1.05,
             letterSpacing: '-0.04em',
-            textShadow: '0 10px 30px rgba(0,0,0,0.3)'
+            textShadow: '0 10px 30px rgba(0,0,0,0.3)',
+            color: 'white'
           }}>
             Intelligent Clinical <br />
             <span style={{ color: '#38bdf8' }}>Triage for Healthcare</span>
