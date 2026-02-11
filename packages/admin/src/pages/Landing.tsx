@@ -16,19 +16,21 @@ export default function Landing({ onLogin }: Props) {
     <div
       style={{
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
         display: 'flex',
         flexDirection: 'column',
         width: '100%',
         maxWidth: '100vw',
         overflowX: 'hidden',
         fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
+        color: 'white',
       }}
     >
+      <div className="dynamic-bg" />
+
       {/* Header */}
       <header style={{ 
         padding: isVerySmall ? '12px 16px' : isMobile ? '16px 24px' : '20px 48px',
-        background: 'rgba(255, 255, 255, 0.05)', 
+        background: 'rgba(15, 23, 42, 0.3)', 
         backdropFilter: 'blur(12px)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
         position: 'sticky',
@@ -43,18 +45,19 @@ export default function Landing({ onLogin }: Props) {
           alignItems: 'center',
           gap: isVerySmall ? 8 : 12
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ 
-              width: 32, height: 32, background: 'white', borderRadius: 8, 
+              width: 36, height: 36, background: 'white', borderRadius: 10, 
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 800, color: '#4f46e5', fontSize: 20
+              fontWeight: 800, color: '#0ea5e9', fontSize: 22,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
             }}>C</div>
             <h1 style={{ 
               margin: 0, 
               color: 'white', 
-              fontSize: isVerySmall ? 20 : 24,
+              fontSize: isVerySmall ? 20 : 26,
               fontWeight: 800,
-              letterSpacing: '-0.02em'
+              letterSpacing: '-0.03em'
             }}>CareMax</h1>
           </div>
           <div style={{ 
@@ -66,15 +69,15 @@ export default function Landing({ onLogin }: Props) {
               onClick={() => navigate('/login')}
               disabled={loading}
               style={{
-                padding: '8px 16px',
-                fontSize: 14,
+                padding: '10px 20px',
+                fontSize: 15,
                 backgroundColor: 'transparent',
                 color: 'white',
                 border: 'none',
-                borderRadius: 8,
+                borderRadius: 10,
                 cursor: loading ? 'not-allowed' : 'pointer',
                 fontWeight: 600,
-                transition: 'opacity 0.2s'
+                transition: 'all 0.2s'
               }}
             >
               Sign In
@@ -83,15 +86,15 @@ export default function Landing({ onLogin }: Props) {
               onClick={() => navigate('/signup')}
               disabled={loading}
               style={{
-                padding: '10px 20px',
-                fontSize: 14,
+                padding: '12px 24px',
+                fontSize: 15,
                 backgroundColor: 'white',
-                color: '#4f46e5',
+                color: '#0c4a6e',
                 border: 'none',
-                borderRadius: 8,
+                borderRadius: 10,
                 cursor: loading ? 'not-allowed' : 'pointer',
                 fontWeight: 700,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.2)',
               }}
             >
               Get Started
@@ -106,40 +109,42 @@ export default function Landing({ onLogin }: Props) {
         display: 'flex', 
         alignItems: 'center', 
         justifyContent: 'center', 
-        padding: isVerySmall ? '40px 20px' : isMobile ? '60px 24px' : '100px 24px'
+        padding: isVerySmall ? '60px 20px' : isMobile ? '80px 24px' : '120px 24px'
       }}>
         <div style={{ 
           maxWidth: 1000, 
           textAlign: 'center', 
-          color: 'white',
           width: '100%'
         }} className="animate-fade-in">
-          <div className="hero-badge">✨ Powered by Google Gemini AI</div>
+          <div className="hero-badge">
+            <span style={{ fontSize: 18 }}>✨</span> Powered by Google Gemini AI
+          </div>
           <h2 style={{ 
-            fontSize: isVerySmall ? 32 : isMobile ? 42 : 64,
+            fontSize: isVerySmall ? 36 : isMobile ? 48 : 72,
             fontWeight: 800, 
-            marginBottom: 24, 
-            lineHeight: 1.1,
-            letterSpacing: '-0.03em',
+            marginBottom: 28, 
+            lineHeight: 1.05,
+            letterSpacing: '-0.04em',
+            textShadow: '0 10px 30px rgba(0,0,0,0.3)'
           }}>
-            AI-Powered Clinical <br />
-            <span style={{ color: 'rgba(255,255,255,0.7)' }}>Triage Assistant</span>
+            Intelligent Clinical <br />
+            <span style={{ color: '#38bdf8' }}>Triage for Healthcare</span>
           </h2>
           <p style={{ 
-            fontSize: isVerySmall ? 16 : 20,
-            marginBottom: 48, 
-            color: 'rgba(255,255,255,0.9)', 
+            fontSize: isVerySmall ? 17 : 22,
+            marginBottom: 56, 
+            color: 'rgba(255,255,255,0.85)', 
             lineHeight: 1.6, 
-            maxWidth: 700, 
-            margin: '0 auto 48px',
+            maxWidth: 750, 
+            margin: '0 auto 56px',
           }}>
-            CareMax helps healthcare organizations provide intelligent symptom assessment 
-            and triage through a seamless, embeddable chat widget.
+            Empower your clinical teams with AI-driven symptom assessment. 
+            Streamline patient intake and ensure every case gets the right level of care.
           </p>
 
           <div style={{ 
             display: 'flex', 
-            gap: 16,
+            gap: 20,
             justifyContent: 'center', 
             flexWrap: 'wrap',
           }}>
@@ -147,20 +152,26 @@ export default function Landing({ onLogin }: Props) {
               onClick={() => navigate('/signup')}
               disabled={loading}
               style={{
-                padding: '18px 36px',
+                padding: '20px 44px',
                 fontSize: 18,
-                backgroundColor: 'white',
-                color: '#4f46e5',
+                backgroundColor: '#0ea5e9',
+                color: 'white',
                 border: 'none',
-                borderRadius: 12,
+                borderRadius: 14,
                 cursor: loading ? 'not-allowed' : 'pointer',
                 fontWeight: 700,
-                boxShadow: '0 10px 25px -5px rgba(0,0,0,0.2)',
-                transition: 'transform 0.2s',
+                boxShadow: '0 20px 25px -5px rgba(14, 165, 233, 0.4)',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                 width: isMobile ? '100%' : 'auto',
               }}
-              onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
-              onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.backgroundColor = '#0284c7';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.backgroundColor = '#0ea5e9';
+              }}
             >
               Start Free Trial
             </button>
@@ -168,17 +179,20 @@ export default function Landing({ onLogin }: Props) {
               onClick={() => navigate('/login')}
               disabled={loading}
               style={{
-                padding: '18px 36px',
+                padding: '20px 44px',
                 fontSize: 18,
-                backgroundColor: 'rgba(255,255,255,0.1)',
+                backgroundColor: 'rgba(255,255,255,0.05)',
                 color: 'white',
                 border: '1px solid rgba(255,255,255,0.2)',
-                borderRadius: 12,
+                borderRadius: 14,
                 cursor: loading ? 'not-allowed' : 'pointer',
                 fontWeight: 700,
-                backdropFilter: 'blur(8px)',
+                backdropFilter: 'blur(12px)',
                 width: isMobile ? '100%' : 'auto',
+                transition: 'all 0.3s',
               }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
             >
               View Demo
             </button>
@@ -188,53 +202,53 @@ export default function Landing({ onLogin }: Props) {
 
       {/* Features Section */}
       <section style={{ 
-        padding: isMobile ? '60px 24px' : '100px 24px',
-        background: 'rgba(0, 0, 0, 0.2)',
+        padding: isMobile ? '80px 24px' : '120px 24px',
+        background: 'rgba(15, 23, 42, 0.4)',
         borderTop: '1px solid rgba(255, 255, 255, 0.05)'
       }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', width: '100%' }}>
-          <div style={{ textAlign: 'center', marginBottom: 64 }} className="animate-fade-in delay-1">
+          <div style={{ textAlign: 'center', marginBottom: 80 }} className="animate-fade-in delay-1">
             <h3 style={{ 
-              fontSize: isMobile ? 28 : 40,
+              fontSize: isMobile ? 32 : 44,
               fontWeight: 800, 
               color: 'white', 
-              marginBottom: 16,
-              letterSpacing: '-0.02em'
+              marginBottom: 20,
+              letterSpacing: '-0.03em'
             }}>
-              Everything you need for modern triage
+              Built for Modern Healthcare
             </h3>
-            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 18 }}>
-              Powerful features to streamline patient intake and support.
+            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 20, maxWidth: 700, margin: '0 auto' }}>
+              Advanced AI capabilities designed to integrate seamlessly into clinical workflows.
             </p>
           </div>
           
           <div className="landing-features-grid animate-fade-in delay-2">
             <div className="feature-card">
-              <div className="feature-icon">🤖</div>
-              <h4 className="feature-title">AI-Powered Triage</h4>
+              <div className="feature-icon">🏥</div>
+              <h4 className="feature-title">Clinical Triage</h4>
               <p className="feature-description">
-                Intelligent symptom assessment using Google Gemini AI to help patients understand their next steps.
+                Sophisticated symptom assessment using Google Gemini AI to guide patients to appropriate care levels.
               </p>
             </div>
             <div className="feature-card">
-              <div className="feature-icon">💬</div>
-              <h4 className="feature-title">Embeddable Widget</h4>
+              <div className="feature-icon">⚡</div>
+              <h4 className="feature-title">Instant Integration</h4>
               <p className="feature-description">
-                Easy-to-integrate chat widget that works seamlessly on any website or application with just one line of code.
+                Deploy our secure chat widget on any hospital portal or patient app with a single line of code.
               </p>
             </div>
             <div className="feature-card">
-              <div className="feature-icon">📚</div>
-              <h4 className="feature-title">RAG Knowledge Base</h4>
+              <div className="feature-icon">🛡️</div>
+              <h4 className="feature-title">Secure Knowledge</h4>
               <p className="feature-description">
-                Upload medical protocols and documents to create a custom knowledge base for your organization.
+                Upload your medical protocols to create a private, RAG-powered knowledge base for accurate responses.
               </p>
             </div>
             <div className="feature-card">
-              <div className="feature-icon">👥</div>
-              <h4 className="feature-title">Human Handoff</h4>
+              <div className="feature-icon">👨‍⚕️</div>
+              <h4 className="feature-title">Expert Handoff</h4>
               <p className="feature-description">
-                Seamless escalation to human agents when complex cases require personal attention or clinical intervention.
+                Intelligent escalation to clinical staff when cases require human intervention or complex decision-making.
               </p>
             </div>
           </div>
@@ -243,27 +257,28 @@ export default function Landing({ onLogin }: Props) {
 
       {/* Footer */}
       <footer style={{ 
-        padding: '48px 24px',
+        padding: '64px 24px',
         textAlign: 'center', 
         color: 'rgba(255,255,255,0.5)', 
-        borderTop: '1px solid rgba(255, 255, 255, 0.05)'
+        borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+        background: 'rgba(15, 23, 42, 0.6)',
       }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: 'center', gap: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: 'center', gap: 32 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ 
-              width: 24, height: 24, background: 'rgba(255,255,255,0.2)', borderRadius: 6, 
+              width: 28, height: 28, background: 'rgba(255,255,255,0.2)', borderRadius: 8, 
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 800, color: 'white', fontSize: 14
+              fontWeight: 800, color: 'white', fontSize: 16
             }}>C</div>
-            <span style={{ fontWeight: 700, color: 'white' }}>CareMax</span>
+            <span style={{ fontWeight: 700, color: 'white', fontSize: 20, letterSpacing: '-0.02em' }}>CareMax</span>
           </div>
-          <p style={{ margin: 0, fontSize: 14 }}>
-            © 2026 CareMax. All rights reserved. Built for healthcare excellence.
+          <p style={{ margin: 0, fontSize: 15 }}>
+            © 2026 CareMax Health Technologies. All rights reserved.
           </p>
-          <div style={{ display: 'flex', gap: 24, fontSize: 14 }}>
-            <span>Privacy</span>
-            <span>Terms</span>
-            <span>Contact</span>
+          <div style={{ display: 'flex', gap: 32, fontSize: 15 }}>
+            <span style={{ cursor: 'pointer' }}>Privacy Policy</span>
+            <span style={{ cursor: 'pointer' }}>Terms of Service</span>
+            <span style={{ cursor: 'pointer' }}>Contact</span>
           </div>
         </div>
       </footer>
