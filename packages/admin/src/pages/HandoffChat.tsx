@@ -4,6 +4,7 @@ import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestor
 import { firestore } from '../firebase';
 import { api } from '../api';
 import { useTenant } from '../TenantContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 type Message = {
   messageId: string;
@@ -16,6 +17,7 @@ type Message = {
 export default function HandoffChat() {
   const { conversationId } = useParams<{ conversationId: string }>();
   const { tenantId } = useTenant();
+  const { isMobile } = useIsMobile();
   const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,76 +97,170 @@ export default function HandoffChat() {
   if (error && messages.length === 0) return <p style={{ color: '#c62828' }}>{error}</p>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)', maxHeight: 600 }}>
-      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <Link to="/handoffs" style={{ color: '#0d47a1', textDecoration: 'none', fontSize: 14 }}>
-          ← Back to handoff queue
+    <div style={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      height: isMobile ? 'calc(100vh - 100px)' : 'calc(100vh - 120px)', 
+      maxHeight: isMobile ? 'none' : 800,
+      backgroundColor: '#fff',
+      borderRadius: isMobile ? 0 : 16,
+      boxShadow: isMobile ? 'none' : '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+      overflow: 'hidden'
+    }}>
+      <div style={{ 
+        padding: '16px 20px', 
+        borderBottom: '1px solid #f1f5f9',
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: 12, 
+        flexWrap: 'wrap',
+        background: '#fff'
+      }}>
+        <Link to="/handoffs" style={{ color: '#64748b', textDecoration: 'none', fontSize: 14, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span>←</span> {!isMobile && 'Back'}
         </Link>
-        <span style={{ color: '#666', fontSize: 14 }}>Conversation {conversationId.slice(0, 8)}…</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ color: '#0f172a', fontWeight: 600, fontSize: 15 }}>Chat {conversationId.slice(0, 8)}</span>
+        </div>
         <button
           type="button"
           onClick={returnToAgent}
-          style={{ marginLeft: 'auto', padding: '6px 12px', fontSize: 13, background: '#fff', border: '1px solid #0d47a1', color: '#0d47a1', borderRadius: 6, cursor: 'pointer' }}
+          style={{ 
+            padding: '6px 12px', 
+            fontSize: 13, 
+            background: '#f8fafc', 
+            border: '1px solid #e2e8f0', 
+            color: '#475569', 
+            borderRadius: 8, 
+            cursor: 'pointer',
+            fontWeight: 500,
+            transition: 'all 0.2s'
+          }}
         >
           Return to AI
         </button>
       </div>
+      
       <div
         ref={listRef}
         style={{
           flex: 1,
           overflow: 'auto',
-          border: '1px solid #e0e0e0',
-          borderRadius: 8,
-          padding: 16,
-          backgroundColor: '#fafafa',
+          padding: '20px',
+          backgroundColor: '#f8fafc',
           display: 'flex',
           flexDirection: 'column',
-          gap: 12,
+          gap: 16,
         }}
       >
         {messages.map((m) => (
           <div
             key={m.messageId}
             style={{
-              alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-              maxWidth: '85%',
-              padding: '10px 14px',
-              borderRadius: 12,
-              backgroundColor:
-                m.role === 'user' ? '#0d47a1' : m.role === 'human_agent' ? '#1b5e20' : '#e8e8e8',
-              color: m.role === 'user' ? '#fff' : '#111',
-              fontSize: 14,
-              whiteSpace: 'pre-wrap',
+              alignSelf: m.role === 'user' ? 'flex-start' : 'flex-end',
+              maxWidth: isMobile ? '90%' : '75%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: m.role === 'user' ? 'flex-start' : 'flex-end',
             }}
           >
-            {m.role === 'human_agent' && (
-              <span style={{ fontSize: 11, opacity: 0.9, display: 'block', marginBottom: 4, color: '#fff' }}>
-                You (care team)
-              </span>
-            )}
-            {m.role === 'assistant' && (
-              <span style={{ fontSize: 11, opacity: 0.8, display: 'block', marginBottom: 4, color: '#666' }}>
-                AI
-              </span>
-            )}
-            {m.content}
+            <span style={{ 
+              fontSize: 11, 
+              fontWeight: 500, 
+              color: '#64748b', 
+              marginBottom: 4, 
+              marginLeft: m.role === 'user' ? 4 : 0,
+              marginRight: m.role === 'user' ? 0 : 4
+            }}>
+              {m.role === 'user' ? 'User' : m.role === 'human_agent' ? 'You (Agent)' : 'AI Assistant'}
+            </span>
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: 16,
+                borderTopLeftRadius: m.role === 'user' ? 4 : 16,
+                borderTopRightRadius: m.role === 'user' ? 16 : 4,
+                backgroundColor: m.role === 'user' ? '#fff' : m.role === 'human_agent' ? '#2563eb' : '#e2e8f0',
+                color: m.role === 'human_agent' ? '#fff' : '#1e293b',
+                fontSize: 14,
+                lineHeight: 1.5,
+                whiteSpace: 'pre-wrap',
+                boxShadow: m.role === 'user' ? '0 1px 2px 0 rgb(0 0 0 / 0.05)' : 'none',
+                border: m.role === 'user' ? '1px solid #e2e8f0' : 'none'
+              }}
+            >
+              {m.content}
+              {m.imageUrls?.length ? (
+                <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {m.imageUrls.map((url) => (
+                    <img
+                      key={url}
+                      src={url}
+                      alt=""
+                      style={{ maxWidth: '100%', borderRadius: 8, maxHeight: 200, objectFit: 'cover' }}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
         ))}
       </div>
-      <form onSubmit={sendReply} style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-        <input
-          value={reply}
-          onChange={(e) => setReply(e.target.value)}
-          placeholder="Reply as care team..."
-          style={{ flex: 1, padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 }}
-          disabled={sending}
-        />
-        <button type="submit" disabled={sending || !reply.trim()} style={{ padding: '10px 20px', background: '#1b5e20', color: '#fff', border: 'none', borderRadius: 8, cursor: sending ? 'not-allowed' : 'pointer' }}>
-          {sending ? 'Sending…' : 'Send'}
-        </button>
-      </form>
-      {error && <p style={{ color: '#c62828', fontSize: 14, marginTop: 8 }}>{error}</p>}
+
+      <div style={{ padding: '16px 20px', background: '#fff', borderTop: '1px solid #f1f5f9' }}>
+        <form onSubmit={sendReply} style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <textarea
+              value={reply}
+              onChange={(e) => setReply(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
+                  e.preventDefault();
+                  sendReply(e);
+                }
+              }}
+              placeholder="Type your message..."
+              rows={1}
+              style={{ 
+                width: '100%', 
+                padding: '12px 14px', 
+                border: '1px solid #e2e8f0', 
+                borderRadius: 12, 
+                fontSize: 15,
+                resize: 'none',
+                maxHeight: 120,
+                outline: 'none',
+                transition: 'border-color 0.2s',
+                backgroundColor: '#f8fafc'
+              }}
+              disabled={sending}
+            />
+          </div>
+          <button 
+            type="submit" 
+            disabled={sending || !reply.trim()} 
+            style={{ 
+              height: 44,
+              padding: '0 20px', 
+              background: '#2563eb', 
+              color: '#fff', 
+              border: 'none', 
+              borderRadius: 12, 
+              cursor: sending || !reply.trim() ? 'not-allowed' : 'pointer',
+              fontWeight: 600,
+              fontSize: 14,
+              transition: 'all 0.2s',
+              opacity: sending || !reply.trim() ? 0.6 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            {sending ? '...' : 'Send'}
+          </button>
+        </form>
+        {error && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 8, marginBottom: 0 }}>{error}</p>}
+      </div>
     </div>
   );
 }

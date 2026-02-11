@@ -25,7 +25,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   const [firestoreReady, setFirestoreReady] = useState(false);
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -62,6 +62,11 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
     if (!text && images.length === 0) return;
     setInput('');
     setImages([]);
+    
+    // Auto-resize textarea back to original
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
 
     let cid = conversationId;
     if (!cid) cid = await createConversation();
@@ -161,10 +166,10 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   }, [conversationId, firestoreReady]);
 
   const isDark = theme === 'dark';
-  const bg = isDark ? '#1a1a1a' : '#f5f5f5';
-  const card = isDark ? '#2d2d2d' : '#fff';
-  const text = isDark ? '#e0e0e0' : '#111';
-  const border = isDark ? '#444' : '#ddd';
+  const card = isDark ? '#1e1e1e' : '#ffffff';
+  const text = isDark ? '#f3f4f6' : '#1f2937';
+  const border = isDark ? '#374151' : '#e5e7eb';
+  const secondaryText = isDark ? '#9ca3af' : '#6b7280';
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 480;
   
@@ -174,171 +179,176 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        minHeight: isMobile ? '50vh' : 300,
-        maxHeight: '100vh',
+        minHeight: isMobile ? '100%' : 400,
+        maxHeight: '100%',
         width: '100%',
-        maxWidth: isMobile ? '100%' : 360,
+        maxWidth: isMobile ? '100%' : 400,
         margin: '0 auto',
         backgroundColor: card,
-        borderRadius: isMobile ? 0 : 12,
-        boxShadow: isMobile ? 'none' : '0 4px 20px rgba(0,0,0,0.15)',
+        borderRadius: isMobile ? 0 : 16,
+        boxShadow: isMobile ? 'none' : '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
         overflow: 'hidden',
         color: text,
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
       }}
     >
       <div
         style={{
-          padding: isMobile ? '12px 16px' : '12px 16px',
-          height: isMobile ? '56px' : 'auto',
-          minHeight: isMobile ? '56px' : 44,
+          padding: '16px 20px',
           display: 'flex',
           alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: isMobile ? '8px' : 4,
-          flexShrink: 0,
+          justifyContent: 'space-between',
           borderBottom: `1px solid ${border}`,
-          backgroundColor: isDark ? '#252525' : '#fafafa',
-          fontWeight: 600,
-          position: 'relative',
+          backgroundColor: isDark ? '#111827' : '#ffffff',
+          flexShrink: 0,
           zIndex: 10,
         }}
       >
-        <span style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 4 }}>
-          <span>{widgetConfig?.chatTitle?.trim() || 'CareMax'}</span>
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 400,
-              color: isDark ? '#888' : '#6b7280',
-            }}
-          >
-            — powered by CareMAX
-          </span>
-        </span>
-        {humanJoined && (
-          <span style={{ marginLeft: isMobile ? '8px' : 8, fontSize: isMobile ? '0.75rem' : 12, color: '#0a7c42', fontWeight: 500 }}>
-            Care team joined
-          </span>
-        )}
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 16, color: isDark ? '#ffffff' : '#111827' }}>
+            {widgetConfig?.chatTitle?.trim() || 'CareMax'}
+          </div>
+          <div style={{ fontSize: 11, color: secondaryText, marginTop: 2 }}>
+            {humanJoined ? '🟢 Care team online' : '⚡ AI Assistant'}
+          </div>
+        </div>
       </div>
+
       <div
         ref={listRef}
         style={{
           flex: 1,
-          overflow: 'auto',
+          overflowY: 'auto',
           WebkitOverflowScrolling: 'touch',
-          padding: isMobile ? '12px' : 12,
+          padding: '20px 16px',
           display: 'flex',
           flexDirection: 'column',
-          gap: isMobile ? '8px' : 8,
-          minHeight: 0,
-          overflowY: 'auto',
-          overflowX: 'hidden',
+          gap: 16,
+          backgroundColor: isDark ? '#111827' : '#f9fafb',
         }}
       >
         {messages.length === 0 && !loading && (
-          <div style={{ color: text, opacity: 0.8, fontSize: isMobile ? '0.875rem' : 14 }}>
-            Describe your symptoms or ask a question. You can attach images if needed.
+          <div style={{ 
+            padding: 20, 
+            textAlign: 'center', 
+            color: secondaryText, 
+            fontSize: 14,
+            backgroundColor: isDark ? '#1f2937' : '#ffffff',
+            borderRadius: 12,
+            border: `1px dashed ${border}`,
+            margin: '20px 0'
+          }}>
+            👋 How can we help you today? Ask about symptoms or medical advice.
           </div>
         )}
         {messages.map((m, index) => {
-          const firstHumanAgentIndex = messages.findIndex((msg) => msg.role === 'human_agent');
-          const isFirstHumanAgent = firstHumanAgentIndex >= 0 && index === firstHumanAgentIndex;
+          const isUser = m.role === 'user';
           return (
-            <React.Fragment key={m.messageId}>
-              {isFirstHumanAgent && (
-                <div style={{ alignSelf: 'flex-start', maxWidth: '85%', padding: isMobile ? '4px 8px' : '6px 10px', fontSize: isMobile ? '0.6875rem' : 11, color: '#2e7d32', fontWeight: 500 }}>
-                  Care team joined
-                </div>
+            <div
+              key={m.messageId}
+              style={{
+                alignSelf: isUser ? 'flex-end' : 'flex-start',
+                maxWidth: '85%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: isUser ? 'flex-end' : 'flex-start',
+              }}
+            >
+              {!isUser && (
+                <span style={{ fontSize: 11, fontWeight: 600, color: secondaryText, marginBottom: 4, marginLeft: 4 }}>
+                  {m.role === 'human_agent' ? 'Care Team' : widgetConfig?.agentName || 'AI'}
+                </span>
               )}
               <div
                 style={{
-                  alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-                  maxWidth: '85%',
-                  padding: isMobile ? '2% 3%' : '8px 12px',
-                  borderRadius: isMobile ? '3vw' : 12,
-                  backgroundColor:
-                    m.role === 'user'
-                      ? '#0d47a1'
-                      : m.role === 'human_agent'
-                        ? '#1b5e20'
-                        : isDark
-                          ? '#3d3d3d'
-                          : '#e8e8e8',
-                  color: m.role === 'user' ? '#fff' : text,
-                  fontSize: isMobile ? '0.875rem' : 14,
+                  padding: '10px 14px',
+                  borderRadius: 18,
+                  borderTopRightRadius: isUser ? 4 : 18,
+                  borderTopLeftRadius: isUser ? 18 : 4,
+                  backgroundColor: isUser ? '#2563eb' : (isDark ? '#374151' : '#ffffff'),
+                  color: isUser ? '#ffffff' : text,
+                  fontSize: 14,
+                  lineHeight: 1.5,
                   whiteSpace: 'pre-wrap',
+                  boxShadow: isUser ? 'none' : '0 1px 2px 0 rgba(0,0,0,0.05)',
+                  border: isUser ? 'none' : `1px solid ${border}`,
                 }}
               >
-                {m.role === 'human_agent' && (
-                  <span style={{ fontSize: isMobile ? '0.6875rem' : 11, opacity: 0.9, display: 'block', marginBottom: isMobile ? '1%' : 4 }}>
-                    Care team
-                  </span>
-                )}
                 {m.content}
                 {m.imageUrls?.length ? (
-                  <div style={{ marginTop: isMobile ? '2%' : 8 }}>
+                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {m.imageUrls.map((url) => (
                       <img
                         key={url}
                         src={url}
                         alt=""
-                        style={{ maxWidth: '100%', borderRadius: isMobile ? '2vw' : 8, maxHeight: isMobile ? '30vh' : 120 }}
+                        style={{ maxWidth: '100%', borderRadius: 12, maxHeight: 240, objectFit: 'cover' }}
                       />
                     ))}
                   </div>
                 ) : null}
               </div>
-            </React.Fragment>
+            </div>
           );
         })}
         {loading && (
-          <div style={{ alignSelf: 'flex-start', padding: isMobile ? '2% 3%' : '8px 12px', color: text, fontSize: isMobile ? '0.875rem' : 14 }}>
-            ...
+          <div style={{ alignSelf: 'flex-start', display: 'flex', gap: 4, padding: '8px 12px' }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite' }}></span>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite 0.2s' }}></span>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite 0.4s' }}></span>
           </div>
         )}
       </div>
+
       <div
-        ref={inputContainerRef}
-        className="caremax-input-container"
+        className="caremax-input-area"
         style={{
-          padding: isMobile ? '12px' : 12,
+          padding: '12px 16px 24px',
           borderTop: `1px solid ${border}`,
-          flexShrink: 0,
           backgroundColor: card,
-          position: 'relative',
-          zIndex: 10,
+          flexShrink: 0,
         }}
       >
         {images.length > 0 && (
-          <div style={{ display: 'flex', gap: isMobile ? '4px' : 4, marginBottom: isMobile ? '8px' : 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
             {images.map((f, i) => (
-              <span
+              <div
                 key={i}
                 style={{
-                  fontSize: isMobile ? '0.75rem' : 12,
-                  padding: isMobile ? '4px 8px' : '4px 8px',
-                  background: border,
-                  borderRadius: isMobile ? '8px' : 8,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: isMobile ? '4px' : 4,
+                  position: 'relative',
+                  width: 50,
+                  height: 50,
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  border: `1px solid ${border}`
                 }}
               >
-                {f.name}
+                <div style={{ width: '100%', height: '100%', background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10 }}>IMG</div>
                 <button
                   type="button"
                   onClick={() => setImages((p) => p.filter((_, j) => j !== i))}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: isMobile ? '4px' : 4, minWidth: isMobile ? '32px' : 32, minHeight: isMobile ? '32px' : 32 }}
-                  aria-label="Remove image"
+                  style={{ 
+                    position: 'absolute', top: 2, right: 2, width: 16, height: 16, borderRadius: '50%', 
+                    background: 'rgba(0,0,0,0.5)', color: '#fff', border: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12
+                  }}
                 >
                   ×
                 </button>
-              </span>
+              </div>
             ))}
           </div>
         )}
-        <div style={{ display: 'flex', gap: isMobile ? '8px' : 8, alignItems: 'center' }}>
+        
+        <div style={{ 
+          display: 'flex', 
+          gap: 8, 
+          alignItems: 'flex-end',
+          backgroundColor: isDark ? '#374151' : '#f3f4f6',
+          borderRadius: 24,
+          padding: '4px 4px 4px 12px',
+          border: `1px solid ${border}`
+        }}>
           <input
             type="file"
             accept="image/*"
@@ -350,75 +360,89 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           <label
             htmlFor="caremax-file"
             style={{
-              padding: isMobile ? '10px 12px' : '12px 14px',
-              height: isMobile ? '44px' : 44,
-              minHeight: isMobile ? '44px' : 44,
-              minWidth: isMobile ? '44px' : 44,
-              boxSizing: 'border-box',
-              background: border,
-              borderRadius: isMobile ? '8px' : 8,
+              padding: '8px',
               cursor: 'pointer',
-              fontSize: isMobile ? '0.875rem' : 14,
-              display: 'inline-flex',
+              display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              flexShrink: 0,
+              color: secondaryText,
+              transition: 'color 0.2s'
             }}
+            title="Attach images"
           >
-            Image
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+            </svg>
           </label>
-          <input
+          
+          <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-            onFocus={() => {
-              // On mobile, scroll messages to bottom when input is focused
-              if (window.innerWidth <= 480 && listRef.current) {
-                setTimeout(() => {
-                  listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-                }, 300); // Delay to allow keyboard animation
+            onChange={(e) => {
+              setInput(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
               }
             }}
-            placeholder="Type your message..."
+            placeholder="Type a message..."
+            rows={1}
             style={{
               flex: 1,
-              minWidth: 0,
-              padding: isMobile ? '10px 12px' : '12px 14px',
-              height: isMobile ? '44px' : 'auto',
-              minHeight: isMobile ? '44px' : 44,
-              border: `1px solid ${border}`,
-              borderRadius: isMobile ? '8px' : 8,
-              fontSize: 16, // 16px prevents iOS zoom on focus
-              background: isDark ? '#2d2d2d' : '#fff',
+              padding: '10px 0',
+              border: 'none',
+              background: 'transparent',
               color: text,
-              WebkitAppearance: 'none',
-              appearance: 'none',
+              fontSize: 15,
+              outline: 'none',
+              resize: 'none',
+              maxHeight: 120,
+              fontFamily: 'inherit'
             }}
           />
+          
           <button
             type="button"
             onClick={sendMessage}
-            disabled={loading}
+            disabled={loading || (!input.trim() && images.length === 0)}
             style={{
-              padding: isMobile ? '10px 16px' : '12px 16px',
-              height: isMobile ? '44px' : 'auto',
-              minHeight: isMobile ? '44px' : 44,
-              minWidth: isMobile ? '56px' : 56,
-              background: '#0d47a1',
-              color: '#fff',
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              background: (loading || (!input.trim() && images.length === 0)) ? 'transparent' : '#2563eb',
+              color: (loading || (!input.trim() && images.length === 0)) ? secondaryText : '#ffffff',
               border: 'none',
-              borderRadius: isMobile ? '8px' : 8,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s',
               flexShrink: 0,
-              fontSize: isMobile ? '0.875rem' : 'inherit',
             }}
           >
-            Send
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
           </button>
         </div>
       </div>
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 0.4; }
+          50% { opacity: 1; }
+        }
+        .caremax-input-area textarea::-webkit-scrollbar {
+          width: 4px;
+        }
+        .caremax-input-area textarea::-webkit-scrollbar-thumb {
+          background-color: ${border};
+          border-radius: 4px;
+        }
+      `}</style>
     </div>
   );
 }

@@ -110,25 +110,27 @@ export default function ConversationView() {
     listRef.current?.scrollTo(0, listRef.current.scrollHeight);
   }, [messages]);
 
-  if (loading) return <p>Loading...</p>;
-  if (error) return <p style={{ color: '#c62828' }}>{error}</p>;
+  if (loading) return <div style={{ color: '#64748b', padding: 20 }}>Loading conversation...</div>;
+  if (error) return <div style={{ color: '#ef4444', padding: 20 }}>{error}</div>;
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, { bg: string; color: string; label: string }> = {
-      open: { bg: '#e8f5e9', color: '#2e7d32', label: 'AI Only' },
-      handoff_requested: { bg: '#fff3e0', color: '#e65100', label: 'Handoff Requested' },
-      human_joined: { bg: '#e3f2fd', color: '#1565c0', label: 'Care Team Active' },
+      open: { bg: '#eff6ff', color: '#2563eb', label: 'AI Only' },
+      handoff_requested: { bg: '#fffbeb', color: '#d97706', label: 'Handoff' },
+      human_joined: { bg: '#f0fdf4', color: '#166534', label: 'Care Team' },
     };
     const style = styles[status] || styles.open;
     return (
       <span
         style={{
-          padding: '4px 8px',
-          borderRadius: 4,
+          padding: '4px 10px',
+          borderRadius: 6,
           fontSize: 12,
-          fontWeight: 500,
+          fontWeight: 600,
           background: style.bg,
           color: style.color,
+          textTransform: 'uppercase',
+          letterSpacing: '0.02em'
         }}
       >
         {style.label}
@@ -137,128 +139,142 @@ export default function ConversationView() {
   };
 
   return (
-    <div style={{ width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
-      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: isVerySmall ? 8 : 12, flexWrap: 'wrap' }}>
-        <Link
-          to="/conversations"
-          style={{
-            color: '#0d47a1',
-            textDecoration: 'none',
-            fontSize: isMobile ? 13 : 14,
-            padding: isMobile ? '8px 0' : 0,
-            minHeight: 44,
-            display: 'flex',
-            alignItems: 'center',
-            touchAction: 'manipulation',
-          }}
-        >
-          ← Back to conversations
-        </Link>
-        {getStatusBadge(status)}
+    <div style={{ width: '100%', maxWidth: '100%', display: 'flex', flexDirection: 'column', height: isMobile ? 'calc(100vh - 100px)' : 'calc(100vh - 120px)' }}>
+      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Link
+            to="/conversations"
+            style={{
+              color: '#64748b',
+              textDecoration: 'none',
+              fontSize: 14,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4
+            }}
+          >
+            ← {!isMobile && 'Back'}
+          </Link>
+          <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 22 }}>Conversation</h2>
+          {getStatusBadge(status)}
+        </div>
+        
         {(status === 'handoff_requested' || status === 'human_joined') && (
           <Link
             to={`/handoffs/${conversationId}`}
             style={{
-              color: '#0d47a1',
+              background: '#2563eb',
+              color: '#fff',
               textDecoration: 'none',
-              fontSize: isMobile ? 13 : 14,
-              padding: isMobile ? '8px 0' : 0,
-              minHeight: 44,
-              display: 'flex',
-              alignItems: 'center',
-              touchAction: 'manipulation',
+              fontSize: 13,
+              fontWeight: 600,
+              padding: '8px 16px',
+              borderRadius: 8,
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
             }}
           >
-            Open in handoff chat
+            Join Chat
           </Link>
         )}
       </div>
 
-      <h2 style={{ margin: '0 0 16px 0', fontSize: isMobile ? 20 : 24 }}>Conversation</h2>
-      <p style={{ fontSize: isMobile ? 11 : 12, color: '#666', marginBottom: 16, wordBreak: 'break-word' }}>
-        Conversation ID: <code style={{ fontSize: isMobile ? 10 : 12, wordBreak: 'break-all' }}>{conversationId}</code>
-      </p>
+      <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16, fontFamily: 'monospace' }}>
+        ID: {conversationId}
+      </div>
 
       <div
         ref={listRef}
         style={{
-          border: '1px solid #e0e0e0',
-          borderRadius: 8,
-          padding: isMobile ? 12 : 16,
-          maxHeight: isMobile ? '50vh' : '60vh',
+          flex: 1,
+          border: '1px solid #e2e8f0',
+          borderRadius: 16,
+          padding: isMobile ? 12 : 20,
           overflowY: 'auto',
-          overflowX: 'hidden',
-          background: '#fafafa',
-          marginBottom: 16,
-          width: '100%',
+          background: '#f8fafc',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 16,
         }}
       >
         {hasMore && messages.length > 0 && (
-          <div style={{ marginBottom: 16, textAlign: 'center' }}>
+          <div style={{ textAlign: 'center' }}>
             <button
               onClick={loadOlder}
               disabled={loadingMore}
               style={{
-                padding: isMobile ? '10px 20px' : '8px 16px',
-                fontSize: isMobile ? 15 : 13,
-                backgroundColor: loadingMore ? '#ccc' : '#0d47a1',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
+                padding: '8px 16px',
+                fontSize: 13,
+                backgroundColor: '#fff',
+                color: '#64748b',
+                border: '1px solid #e2e8f0',
+                borderRadius: 8,
                 cursor: loadingMore ? 'not-allowed' : 'pointer',
-                minHeight: 44,
-                touchAction: 'manipulation',
+                fontWeight: 500
               }}
             >
               {loadingMore ? 'Loading...' : 'Load older messages'}
             </button>
           </div>
         )}
-        {messages.length === 0 && !loading ? (
-          <p style={{ color: '#666' }}>No messages yet.</p>
+        
+        {messages.length === 0 ? (
+          <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>No messages yet.</div>
         ) : (
-          messages.map((msg) => (
-            <div
-              key={msg.messageId}
-              style={{
-                marginBottom: 16,
-                padding: 12,
-                borderRadius: 8,
-                background: msg.role === 'user' ? '#e3f2fd' : msg.role === 'human_agent' ? '#fff3e0' : '#ffffff',
-                borderLeft: `4px solid ${
-                  msg.role === 'user' ? '#2196f3' : msg.role === 'human_agent' ? '#ff9800' : '#4caf50'
-                }`,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap', gap: 4 }}>
-                <strong style={{ fontSize: isMobile ? 14 : 13, color: '#666' }}>
-                  {msg.role === 'user'
-                    ? 'User'
-                    : msg.role === 'human_agent'
-                      ? 'Care Team'
-                      : 'AI Assistant'}
-                </strong>
-                {msg.createdAt && (
-                  <span style={{ fontSize: isMobile ? 10 : 11, color: '#999' }}>
-                    {new Date(msg.createdAt).toLocaleString()}
+          messages.map((msg) => {
+            const isUser = msg.role === 'user';
+            return (
+              <div
+                key={msg.messageId}
+                style={{
+                  alignSelf: isUser ? 'flex-start' : 'flex-end',
+                  maxWidth: isMobile ? '90%' : '75%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: isUser ? 'flex-start' : 'flex-end',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, padding: '0 4px' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>
+                    {msg.role === 'user' ? 'User' : msg.role === 'human_agent' ? 'Care Team' : 'AI Assistant'}
                   </span>
-                )}
-              </div>
-              <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: isMobile ? 14 : 13, lineHeight: 1.5 }}>{msg.content}</div>
-              {msg.imageUrls && msg.imageUrls.length > 0 && (
-                <div style={{ marginTop: 8 }}>
-                  {msg.imageUrls.map((url, idx) => (
-                    <img
-                      key={idx}
-                      src={url}
-                      alt={`Attachment ${idx + 1}`}
-                      style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 4, marginRight: 8 }}
-                    />
-                  ))}
+                  {msg.createdAt && (
+                    <span style={{ fontSize: 10, color: '#cbd5e1' }}>
+                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
                 </div>
-              )}
-            </div>
-          ))
+                <div
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: 16,
+                    borderTopLeftRadius: isUser ? 4 : 16,
+                    borderTopRightRadius: isUser ? 16 : 4,
+                    background: isUser ? '#fff' : msg.role === 'human_agent' ? '#2563eb' : '#e2e8f0',
+                    color: msg.role === 'human_agent' ? '#fff' : '#1e293b',
+                    fontSize: 14,
+                    lineHeight: 1.5,
+                    whiteSpace: 'pre-wrap',
+                    boxShadow: isUser ? '0 1px 2px 0 rgb(0 0 0 / 0.05)' : 'none',
+                    border: isUser ? '1px solid #e2e8f0' : 'none'
+                  }}
+                >
+                  {msg.content}
+                  {msg.imageUrls && msg.imageUrls.length > 0 && (
+                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {msg.imageUrls.map((url, idx) => (
+                        <img
+                          key={idx}
+                          src={url}
+                          alt=""
+                          style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 12, objectFit: 'cover' }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })
         )}
       </div>
     </div>
