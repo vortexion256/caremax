@@ -369,7 +369,7 @@ export async function runAgent(
     if (ragContext) {
       systemContent += `\n\nRelevant context from this organization\\'s knowledge base (use this for contact info, phone numbers, hours, locations, and other org-specific details):\n${ragContext}`;
     } else if (lastUser && process.env.NODE_ENV !== "test") {
-      console.log("RAG: enabled but no context returned for tenant", tenantId, "- check Agent settings \\"Use RAG\\" and that RAG documents exist and are indexed.");
+      console.log("RAG: enabled but no context returned for tenant", tenantId, "- check Agent settings \"Use RAG\" and that RAG documents exist and are indexed.");
     }
     const existingRecords = await listRecords(tenantId);
     systemContent += `\n\n--- Current Auto Agent Brain records (check these before adding anything) ---\n${formatExistingRecordsForPrompt(existingRecords)}\n--- End of existing records ---`;
@@ -413,7 +413,7 @@ export async function runAgent(
     description:
       "Save a new fact or piece of information that you did not know before, so you can use it in future answers. Use when the user or care team has provided contact details, policy info, or other org-specific facts.",
     schema: z.object({
-      title: z.string().describe("Short title for the record (e.g. \\"Support email address\\")"),
+      title: z.string().describe("Short title for the record (e.g. \"Support email address\")"),
       content: z.string().describe("The key information to remember"),
     }),
     func: async ({ title, content }) => {
@@ -460,8 +460,8 @@ export async function runAgent(
     name: "query_google_sheet",
     description: `Fetch data from one of the organization\\'s connected sheets. Pass useWhen to pick which sheet (only query the sheet that matches the user\\'s question). Available: ${googleSheetsList.map((s) => s.useWhen).join(", ")}.`,
     schema: z.object({
-      useWhen: z.string().describe(`Which sheet to query: one of ${googleSheetsList.map((s) => `\\"${s.useWhen}\\"`).join(", ")}. Must match exactly.`),
-      range: z.string().optional().describe("Optional A1 range, e.g. \\"Sheet1\\" or \\"Bookings!A:F\\". Omit to use the sheet\\'s default range."),
+      useWhen: z.string().describe(`Which sheet to query: one of ${googleSheetsList.map((s) => `"${s.useWhen}"`).join(", ")}. Must match exactly.`),
+      range: z.string().optional().describe("Optional A1 range, e.g. \"Sheet1\" or \"Bookings!A:F\". Omit to use the sheet's default range."),
     }),
     func: async ({ useWhen, range }) => {
       const entry = googleSheetsList.find((s) => s.useWhen.toLowerCase() === (useWhen ?? "").toLowerCase()) ?? googleSheetsList[0];
@@ -479,9 +479,9 @@ export async function runAgent(
     name: "create_note",
     description: "Create a note for admin review about analytics, insights, or patterns observed during conversations. Use this to track: most common questions by users, frequently asked about items/topics, important keywords or trends, user behavior patterns, or any insights that would help improve the service. Create notes when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points).",
     schema: z.object({
-      content: z.string().describe("The note content describing the insight or pattern (e.g. \\"Common question: Many users asking about appointment booking process\\" or \\"Keyword trend: Users frequently mention \\\\'insurance coverage\\\\'\\" or \\"Most asked about: Ntinda branch location and hours\\")"),
+      content: z.string().describe("The note content describing the insight or pattern (e.g. \"Common question: Many users asking about appointment booking process\" or \"Keyword trend: Users frequently mention 'insurance coverage'\" or \"Most asked about: Ntinda branch location and hours\")"),
       patientName: z.string().optional().describe("Optional: Patient or user name if relevant to the note (usually omit for analytics notes)"),
-      category: z.enum(["common_questions", "keywords", "analytics", "insights", "other"]).optional().describe("Category: \\"common_questions\\" for frequently asked questions, \\"keywords\\" for trending keywords/phrases, \\"analytics\\" for usage patterns/metrics, \\"insights\\" for general observations, \\"other\\" for anything else"),
+      category: z.enum(["common_questions", "keywords", "analytics", "insights", "other"]).optional().describe("Category: \"common_questions\" for frequently asked questions, \"keywords\" for trending keywords/phrases, \"analytics\" for usage patterns/metrics, \"insights\" for general observations, \"other\" for anything else"),
     }),
     func: async ({ content, patientName, category }) => {
       if (!options?.conversationId) {
@@ -689,20 +689,6 @@ export async function runAgentWithRetry(
  * Does not return a reply; only processes tool calls to create records.
  */
 export async function extractAndRecordLearningFromHistory(
-  tenantId: string,
-  history: { role: string; content: string; imageUrls?: string[] }[],
-  options?: { userId?: string; conversationId?: string }
-): Promise<void> {
-  const config = await getAgentConfig(tenantId);
-  if (!config.ragEnabled) return;
-
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-    model: config.model,
-    temperature: config.temperature,
-    apiKey,
-  });
-
-  const avoidGeneric = config.agentName !== "CareMax Assistant"
     ? ` Never say "CareMax Assistant" or "I don\'t have a name"—always say you are ${config.agentName}.`
     : "";
   const nameInstruction = `Your name is ${config.agentName}. You must always use this name: when greeting, when asked "what\'s your name" or "who are you", and in any introduction.${avoidGeneric}`;
@@ -1014,17 +1000,6 @@ export async function extractAndRecordLearningFromHistory(
 
   return { text: finalText, requestHandoff };
 }
-  const config = await getAgentConfig(tenantId);
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY or GOOGLE_API_KEY not set");
-
-  const model = new ChatGoogleGenerativeAI({
-    model: config.model,
-    temperature: config.temperature,
-    apiKey,
-  });
-
-  const avoidGeneric = config.agentName !== "CareMax Assistant"
     ? ` Never say "CareMax Assistant" or "I don't have a name"—always say you are ${config.agentName}.`
     : "";
   const nameInstruction = `Your name is ${config.agentName}. You must always use this name: when greeting, when asked "what's your name" or "who are you", and in any introduction.${avoidGeneric}`;
