@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../config/firebase.js';
 import { requireAuth, requireTenantParam, requireAdmin, type AuthLocals } from '../middleware/auth.js';
-import { runAgent, extractAndRecordLearningFromHistory } from '../services/agent.js';
+import { runAgentWithRetry, extractAndRecordLearningFromHistory } from '../services/agent.js';
 import type { ConversationStatus } from '../types/index.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -146,7 +146,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
   try {
     const convData = conv.data();
     const userId = (convData?.userId as string | undefined) ?? undefined;
-    agentResponse = await runAgent(tenantId, history, {
+    agentResponse = await runAgentWithRetry(tenantId, history, {
       userId,
       conversationId,
     });
