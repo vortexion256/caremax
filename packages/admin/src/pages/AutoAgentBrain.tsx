@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { api, type AgentRecord, type AgentBrainModificationRequest } from '../api';
 import { useTenant } from '../TenantContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 export default function AutoAgentBrain() {
   const { tenantId } = useTenant();
+  const { isMobile } = useIsMobile();
   const [records, setRecords] = useState<AgentRecord[]>([]);
   const [modRequests, setModRequests] = useState<AgentBrainModificationRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -111,11 +113,8 @@ export default function AutoAgentBrain() {
     setConsolidating(true);
     setError(null);
     try {
-      const result = await api<{ modificationRequestsCreated: number }>(`/tenants/${tenantId}/agent-records/consolidate`, { method: 'POST' });
+      await api<{ modificationRequestsCreated: number }>(`/tenants/${tenantId}/agent-records/consolidate`, { method: 'POST' });
       load();
-      if (result.modificationRequestsCreated > 0) {
-        // Optional: could show a brief success message
-      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to run consolidation');
     } finally {
@@ -124,190 +123,192 @@ export default function AutoAgentBrain() {
   };
 
   const formatDate = (ms: number | null) =>
-    ms ? new Date(ms).toLocaleString() : '—';
+    ms ? new Date(ms).toLocaleDateString() : '—';
 
-  if (loading) return <p>Loading...</p>;
+  if (loading) return <div style={{ color: '#64748b' }}>Loading memory...</div>;
 
   return (
     <div>
-      <h1 style={{ margin: '0 0 16px 0' }}>Auto Agent Brain</h1>
-      <p style={{ color: '#666', marginBottom: 16 }}>
-        Records the agent automatically saves when it learns new information (e.g. after the care team or user provides details the agent didn’t know). These are indexed and used in RAG so the agent can answer next time. You can view, edit, or delete entries here. The agent can request edits or deletions; those appear under Modification requests and require your approval before they are applied.
+      <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Auto Agent Brain</h1>
+      <p style={{ color: '#64748b', marginBottom: 32, maxWidth: 800 }}>
+        The agent's dynamic memory. It automatically learns from interactions and care team feedback.
       </p>
-      {error && <p style={{ color: '#c62828', marginBottom: 16 }}>{error}</p>}
 
-      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      {error && (
+        <div style={{ padding: 12, background: '#fef2f2', color: '#991b1b', borderRadius: 8, marginBottom: 24, fontSize: 14 }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        background: '#f8fafc', 
+        padding: 20, 
+        borderRadius: 12, 
+        border: '1px solid #e2e8f0',
+        marginBottom: 32,
+        flexWrap: 'wrap',
+        gap: 16
+      }}>
+        <div style={{ flex: '1 1 300px' }}>
+          <h3 style={{ margin: '0 0 4px 0', fontSize: 16, color: '#0f172a' }}>Memory Optimization</h3>
+          <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
+            Analyze memory records to merge duplicates and remove outdated info.
+          </p>
+        </div>
         <button
           type="button"
           onClick={runConsolidation}
           disabled={consolidating || records.length === 0}
           style={{
-            padding: '8px 16px',
+            padding: '10px 20px',
             fontSize: 14,
-            background: consolidating || records.length === 0 ? '#ccc' : '#0d47a1',
+            fontWeight: 600,
+            background: consolidating || records.length === 0 ? '#94a3b8' : '#2563eb',
             color: '#fff',
             border: 'none',
-            borderRadius: 6,
+            borderRadius: 8,
             cursor: consolidating || records.length === 0 ? 'not-allowed' : 'pointer',
           }}
         >
-          {consolidating ? 'Checking & consolidating…' : 'Check and consolidate memory'}
+          {consolidating ? 'Optimizing...' : 'Optimize Memory'}
         </button>
-        <span style={{ fontSize: 13, color: '#666' }}>
-          Asks the agent to review all records and propose merging or removing duplicate/scattered related entries. Proposals appear under Modification requests for you to approve.
-        </span>
       </div>
 
       {modRequests.length > 0 && (
-        <>
-          <h2 style={{ fontSize: 16, marginBottom: 8 }}>Modification requests</h2>
-          <p style={{ color: '#666', fontSize: 14, marginBottom: 12 }}>
-            The agent has requested the following changes. Approve to apply them to its memory, or reject to discard. This prevents users from manipulating the agent into deleting or changing important information.
-          </p>
-          <ul style={{ listStyle: 'none', padding: 0, marginBottom: 24 }}>
+        <section style={{ marginBottom: 40 }}>
+          <h2 style={{ fontSize: 18, margin: '0 0 16px 0', color: '#0f172a' }}>Modification Requests</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {modRequests.map((req) => (
-              <li
+              <div
                 key={req.requestId}
                 style={{
-                  padding: 12,
-                  border: '1px solid #e0e0e0',
-                  borderRadius: 8,
-                  marginBottom: 8,
-                  backgroundColor: '#fafafa',
+                  padding: 20,
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 12,
+                  backgroundColor: '#fff',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <strong>{req.type === 'edit' ? 'Edit' : 'Delete'} record</strong> — record ID: <code style={{ fontSize: 12 }}>{req.recordId}</code>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <span style={{ 
+                        fontSize: 11, 
+                        fontWeight: 700, 
+                        textTransform: 'uppercase', 
+                        padding: '2px 8px', 
+                        borderRadius: 4, 
+                        background: req.type === 'edit' ? '#eff6ff' : '#fef2f2', 
+                        color: req.type === 'edit' ? '#2563eb' : '#ef4444' 
+                      }}>
+                        {req.type}
+                      </span>
+                      <span style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(req.createdAt)}</span>
+                    </div>
                     {req.type === 'edit' && (req.title != null || req.content != null) && (
-                      <div style={{ marginTop: 8, fontSize: 14, color: '#555' }}>
-                        {req.title != null && <div><strong>New title:</strong> {req.title}</div>}
-                        {req.content != null && <div><strong>New content:</strong> {req.content.length > 200 ? `${req.content.slice(0, 200)}…` : req.content}</div>}
+                      <div style={{ fontSize: 14, color: '#1e293b', marginBottom: 8 }}>
+                        {req.title != null && <div style={{ fontWeight: 600 }}>{req.title}</div>}
+                        {req.content != null && <div style={{ marginTop: 4, color: '#475569' }}>{req.content}</div>}
                       </div>
                     )}
-                    {req.reason && <p style={{ margin: '4px 0 0 0', fontSize: 13, color: '#666' }}>Reason: {req.reason}</p>}
-                    <p style={{ margin: 4, fontSize: 12, color: '#888' }}>{formatDate(req.createdAt)}</p>
+                    {req.reason && <div style={{ fontSize: 13, color: '#64748b', fontStyle: 'italic' }}>Reason: {req.reason}</div>}
                   </div>
-                  <span style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
                     <button
                       type="button"
                       onClick={() => approveRequest(req.requestId)}
                       disabled={actioningRequestId === req.requestId}
-                      style={{ padding: '6px 12px', fontSize: 13, background: '#1b5e20', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                      style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, background: '#22c55e', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}
                     >
-                      {actioningRequestId === req.requestId ? '…' : 'Approve'}
+                      Approve
                     </button>
                     <button
                       type="button"
                       onClick={() => rejectRequest(req.requestId)}
                       disabled={actioningRequestId === req.requestId}
-                      style={{ padding: '6px 12px', fontSize: 13, background: '#fff', border: '1px solid #c62828', color: '#c62828', borderRadius: 6, cursor: 'pointer' }}
+                      style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, background: '#fff', border: '1px solid #e2e8f0', color: '#ef4444', borderRadius: 8, cursor: 'pointer' }}
                     >
                       Reject
                     </button>
-                  </span>
+                  </div>
                 </div>
-              </li>
+              </div>
             ))}
-          </ul>
-        </>
+          </div>
+        </section>
       )}
 
-      <h2 style={{ fontSize: 16, marginBottom: 8 }}>Learned records</h2>
-      {records.length === 0 ? (
-        <p>No records yet. When the agent learns something new (e.g. after a handoff), it will save it here if RAG is enabled in Agent settings.</p>
-      ) : (
-        <ul style={{ listStyle: 'none', padding: 0 }}>
-          {records.map((r) => (
-            <li
-              key={r.recordId}
-              style={{
-                padding: '12px 0',
-                borderBottom: '1px solid #eee',
-                display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'space-between',
-                gap: 12,
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <strong>{r.title}</strong>
-                <p style={{ margin: '4px 0 0 0', color: '#555', fontSize: 14, whiteSpace: 'pre-wrap' }}>
-                  {r.content.length > 200 ? `${r.content.slice(0, 200)}…` : r.content}
+      <section>
+        <h2 style={{ fontSize: 18, margin: '0 0 16px 0', color: '#0f172a' }}>Learned Records</h2>
+        {records.length === 0 ? (
+          <div style={{ padding: 48, textAlign: 'center', background: '#f8fafc', borderRadius: 12, border: '1px dashed #e2e8f0', color: '#94a3b8' }}>
+            No memory records yet. The agent learns automatically during conversations.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
+            {records.map((r) => (
+              <div
+                key={r.recordId}
+                style={{
+                  padding: 20,
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 12,
+                  backgroundColor: '#fff',
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                  <h4 style={{ margin: 0, fontSize: 15, color: '#0f172a', fontWeight: 600 }}>{r.title}</h4>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(r.createdAt)}</span>
+                </div>
+                <p style={{ margin: '0 0 20px 0', color: '#475569', fontSize: 14, lineHeight: 1.5, flex: 1 }}>
+                  {r.content.length > 150 ? `${r.content.slice(0, 150)}...` : r.content}
                 </p>
-                <p style={{ margin: 4, fontSize: 12, color: '#888' }}>{formatDate(r.createdAt)}</p>
+                <div style={{ display: 'flex', gap: 8, borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>
+                  <button type="button" onClick={() => setEditingId(r.recordId)} style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', color: '#475569' }}>
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => remove(r.recordId)}
+                    disabled={deletingId === r.recordId}
+                    style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, color: '#ef4444', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
-              <span style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                <button type="button" onClick={() => setEditingId(r.recordId)} style={{ padding: '4px 10px', fontSize: 13, cursor: 'pointer' }}>
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => remove(r.recordId)}
-                  disabled={deletingId === r.recordId}
-                  style={{ padding: '4px 10px', fontSize: 13, cursor: 'pointer', color: '#c62828' }}
-                >
-                  {deletingId === r.recordId ? 'Deleting...' : 'Delete'}
-                </button>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+            ))}
+          </div>
+        )}
+      </section>
 
       {editingId && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-          onClick={() => setEditingId(null)}
-        >
-          <div
-            style={{
-              background: '#fff',
-              padding: 24,
-              borderRadius: 8,
-              maxWidth: 600,
-              width: '90%',
-              maxHeight: '90vh',
-              overflow: 'auto',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 style={{ margin: '0 0 16px 0', fontSize: 18 }}>Edit record</h2>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.3)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setEditingId(null)}>
+          <div style={{ background: '#fff', padding: 32, borderRadius: 16, maxWidth: 640, width: '90%', maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ margin: '0 0 24px 0', fontSize: 20, color: '#0f172a' }}>Edit Memory Record</h2>
             {editLoading ? (
-              <p>Loading...</p>
+              <div style={{ color: '#64748b' }}>Loading...</div>
             ) : (
-              <form onSubmit={saveEdit}>
-                <label style={{ display: 'block', marginBottom: 8 }}>
-                  Title
-                  <input
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    style={{ display: 'block', width: '100%', padding: 8, marginTop: 4 }}
-                  />
-                </label>
-                <label style={{ display: 'block', marginBottom: 8 }}>
-                  Content
-                  <textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    rows={8}
-                    style={{ display: 'block', width: '100%', padding: 8, marginTop: 4 }}
-                  />
-                </label>
-                <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-                  <button type="submit" disabled={editSaving}>
-                    {editSaving ? 'Saving...' : 'Save'}
-                  </button>
-                  <button type="button" onClick={() => setEditingId(null)}>
+              <form onSubmit={saveEdit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#334155', marginBottom: 6 }}>Title</label>
+                  <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} style={{ width: '100%' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#334155', marginBottom: 6 }}>Content</label>
+                  <textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={8} style={{ width: '100%' }} />
+                </div>
+                <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
+                  <button type="button" onClick={() => setEditingId(null)} style={{ padding: '10px 20px', fontSize: 14, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', fontWeight: 500 }}>
                     Cancel
+                  </button>
+                  <button type="submit" disabled={editSaving} style={{ padding: '10px 24px', fontSize: 14, fontWeight: 600, background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>
+                    {editSaving ? 'Saving...' : 'Save Changes'}
                   </button>
                 </div>
               </form>
