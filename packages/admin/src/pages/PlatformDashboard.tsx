@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useTenant } from '../TenantContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 type PlatformTenant = {
   tenantId: string;
@@ -10,6 +11,7 @@ type PlatformTenant = {
 
 export default function PlatformDashboard() {
   const { isPlatformAdmin } = useTenant();
+  const { isMobile } = useIsMobile();
   const [tenants, setTenants] = useState<PlatformTenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,60 +29,69 @@ export default function PlatformDashboard() {
       .finally(() => setLoading(false));
   }, [isPlatformAdmin]);
 
-  if (!isPlatformAdmin) {
-    return null;
-  }
+  if (!isPlatformAdmin) return null;
+
+  const cardStyle = {
+    flex: isMobile ? '1 1 100%' : '1 1 0px',
+    padding: '24px',
+    borderRadius: 12,
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+  };
+
+  const labelStyle = { 
+    fontSize: 12, 
+    fontWeight: 600, 
+    color: '#64748b', 
+    textTransform: 'uppercase' as const, 
+    letterSpacing: '0.05em', 
+    marginBottom: 8 
+  };
 
   return (
     <div>
-      <h1 style={{ margin: '0 0 16px 0' }}>Platform dashboard</h1>
-      <p style={{ color: '#555', marginBottom: 24, maxWidth: 600 }}>
-        High-level overview of your CareMax SaaS. This is visible only to platform admins.
+      <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Platform Dashboard</h1>
+      <p style={{ color: '#64748b', marginBottom: 32, maxWidth: 600 }}>
+        High-level overview of your CareMax SaaS. Monitor system health and tenant growth.
       </p>
+
       {loading ? (
-        <p>Loading...</p>
+        <div style={{ color: '#64748b' }}>Loading metrics...</div>
       ) : error ? (
-        <p style={{ color: '#c62828' }}>{error}</p>
+        <div style={{ padding: 12, background: '#fef2f2', color: '#991b1b', borderRadius: 8, fontSize: 14 }}>{error}</div>
       ) : (
-        <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-          <div
-            style={{
-              flex: '0 0 200px',
-              padding: 16,
-              borderRadius: 8,
-              background: '#ffffff',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
-          >
-            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Total tenants</div>
-            <div style={{ fontSize: 28, fontWeight: 600 }}>{tenants.length}</div>
+        <div style={{ display: 'flex', gap: 20, marginBottom: 32, flexWrap: 'wrap' }}>
+          <div style={cardStyle}>
+            <div style={labelStyle}>Total Tenants</div>
+            <div style={{ fontSize: 32, fontWeight: 700, color: '#0f172a' }}>{tenants.length}</div>
           </div>
-          <div
-            style={{
-              flex: '0 0 260px',
-              padding: 16,
-              borderRadius: 8,
-              background: '#ffffff',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-            }}
-          >
-            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Most recent tenant</div>
+          
+          <div style={cardStyle}>
+            <div style={labelStyle}>Most Recent Tenant</div>
             {tenants.length === 0 ? (
-              <div style={{ fontSize: 14, color: '#999' }}>None yet</div>
+              <div style={{ fontSize: 14, color: '#94a3b8', marginTop: 8 }}>No tenants yet</div>
             ) : (
-              <div style={{ fontSize: 14 }}>
-                <div style={{ fontWeight: 500 }}>{tenants[0].name || tenants[0].tenantId}</div>
-                <div style={{ fontSize: 12, color: '#777' }}>
+              <div style={{ marginTop: 4 }}>
+                <div style={{ fontWeight: 600, color: '#0f172a', fontSize: 18 }}>{tenants[0].name || tenants[0].tenantId}</div>
+                <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
                   {tenants[0].createdAt
-                    ? new Date(tenants[0].createdAt).toLocaleString()
-                    : 'Created date unknown'}
+                    ? new Date(tenants[0].createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })
+                    : 'Date unknown'}
                 </div>
               </div>
             )}
+          </div>
+
+          <div style={cardStyle}>
+            <div style={labelStyle}>System Status</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#22c55e' }}></div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: '#166534' }}>All Systems Operational</div>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 }
-

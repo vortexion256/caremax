@@ -5,13 +5,11 @@ import { auth } from './firebase';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-  
   return isMobile;
 }
 
@@ -26,76 +24,70 @@ export default function PlatformLayout() {
   }
 
   const nav = [
-    { path: '/platform', label: 'Platform dashboard' },
-    { path: '/platform/tenants', label: 'All tenants' },
+    { path: '/platform', label: 'Platform Dashboard' },
+    { path: '/platform/tenants', label: 'All Tenants' },
     { path: '/platform/usage', label: 'Usage & Billing' },
   ];
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', position: 'relative' }}>
-      {/* Mobile menu button */}
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%', background: '#f8fafc' }}>
+      {/* Mobile Header */}
       {isMobile && (
-        <button
-          onClick={() => setMenuOpen(!menuOpen)}
-          style={{
-            position: 'fixed',
-            top: 16,
-            left: 16,
-            zIndex: 1001,
-            padding: '8px 12px',
-            background: '#0d47a1',
-            color: 'white',
-            border: 'none',
-            borderRadius: 6,
-            cursor: 'pointer',
-            fontSize: 20,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-          }}
-          aria-label="Toggle menu"
-        >
-          {menuOpen ? '✕' : '☰'}
-        </button>
-      )}
-
-      {/* Overlay for mobile */}
-      {isMobile && menuOpen && (
-        <div
-          onClick={() => setMenuOpen(false)}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.5)',
-            zIndex: 999
-          }}
-        />
+        <header style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 56,
+          background: '#1e293b',
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 16px',
+          zIndex: 1001,
+          justifyContent: 'space-between',
+          color: '#fff'
+        }}>
+          <span style={{ fontWeight: 600 }}>Platform Console</span>
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: 24,
+              cursor: 'pointer',
+              color: '#fff'
+            }}
+          >
+            {menuOpen ? '✕' : '☰'}
+          </button>
+        </header>
       )}
 
       {/* Sidebar */}
       <aside
         style={{
           width: isMobile ? 280 : 260,
-          borderRight: '1px solid #e0e0e0',
-          padding: 24,
-          background: '#0d47a1',
+          background: '#0f172a',
           color: '#fff',
-          position: isMobile ? 'fixed' : 'relative',
+          position: isMobile ? 'fixed' : 'sticky',
           top: 0,
+          height: '100vh',
           left: isMobile ? (menuOpen ? 0 : -280) : 0,
-          bottom: 0,
           zIndex: 1000,
-          transition: 'left 0.3s ease',
-          overflowY: 'auto'
+          transition: 'left 0.2s ease-in-out',
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '24px 16px'
         }}
       >
-        <h2 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 18 : 20 }}>CareMax Platform</h2>
-        <p style={{ margin: '0 0 16px 0', fontSize: 12, opacity: 0.9 }}>SaaS owner console</p>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 16 }}>
+        <div style={{ padding: '0 12px 4px', fontWeight: 700, fontSize: 18 }}>
+          CareMax
+        </div>
+        <div style={{ padding: '0 12px 24px', fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Platform Console
+        </div>
+        
+        <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
           {nav.map(({ path, label }) => {
             const active = location.pathname === path;
             return (
@@ -104,12 +96,14 @@ export default function PlatformLayout() {
                 to={path}
                 onClick={() => isMobile && setMenuOpen(false)}
                 style={{
-                  padding: '8px 12px',
+                  padding: '10px 12px',
                   borderRadius: 8,
                   textDecoration: 'none',
-                  color: active ? '#0d47a1' : '#fff',
-                  fontWeight: active ? 600 : 400,
-                  background: active ? '#e3f2fd' : 'rgba(255,255,255,0.06)',
+                  color: active ? '#fff' : '#94a3b8',
+                  fontWeight: active ? 600 : 500,
+                  background: active ? '#1e293b' : 'transparent',
+                  fontSize: 14,
+                  transition: 'all 0.2s'
                 }}
               >
                 {label}
@@ -117,37 +111,71 @@ export default function PlatformLayout() {
             );
           })}
         </nav>
-        <div style={{ fontSize: 11, opacity: 0.9 }}>
-          <div>Signed in as:</div>
-          <div style={{ fontWeight: 500 }}>{email ?? 'Platform admin'}</div>
-        </div>
-        <button
-          type="button"
-          onClick={() => auth.signOut().catch(() => {})}
-          style={{
-            marginTop: 16,
-            padding: '6px 10px',
-            fontSize: 12,
-            borderRadius: 6,
-            border: '1px solid rgba(255,255,255,0.4)',
-            background: 'transparent',
-            color: '#fff',
-            cursor: 'pointer',
-            width: '100%'
-          }}
-        >
-          Logout
-        </button>
-        <div style={{ marginTop: 16, fontSize: 11 }}>
-          <Link to="/" style={{ color: '#bbdefb', textDecoration: 'none' }} onClick={() => isMobile && setMenuOpen(false)}>
-            ← Go to tenant admin
+
+        <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid #1e293b' }}>
+          <div style={{ padding: '0 12px', marginBottom: 16 }}>
+            <div style={{ fontSize: 11, color: '#64748b' }}>Admin</div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: '#cbd5e1', marginTop: 2, wordBreak: 'break-all' }}>{email}</div>
+          </div>
+          
+          <Link 
+            to="/" 
+            style={{ 
+              display: 'block',
+              padding: '8px 12px',
+              fontSize: 13,
+              color: '#38bdf8',
+              textDecoration: 'none',
+              fontWeight: 500
+            }} 
+            onClick={() => isMobile && setMenuOpen(false)}
+          >
+            ← Tenant Admin
           </Link>
+          
+          <button
+            onClick={() => auth.signOut()}
+            style={{
+              marginTop: 8,
+              padding: '10px 12px',
+              fontSize: 13,
+              borderRadius: 8,
+              border: '1px solid #1e293b',
+              background: 'transparent',
+              color: '#94a3b8',
+              cursor: 'pointer',
+              width: '100%',
+              textAlign: 'left',
+              fontWeight: 500
+            }}
+          >
+            Sign Out
+          </button>
         </div>
       </aside>
-      <main style={{ flex: 1, padding: isMobile ? '60px 16px 24px' : 24, background: '#fafafa', width: '100%', minWidth: 0 }}>
-        <Outlet />
+
+      {/* Overlay */}
+      {isMobile && menuOpen && (
+        <div
+          onClick={() => setMenuOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.4)',
+            zIndex: 999
+          }}
+        />
+      )}
+
+      <main style={{ 
+        flex: 1, 
+        padding: isMobile ? '80px 20px 40px' : '40px 60px', 
+        minWidth: 0
+      }}>
+        <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+          <Outlet />
+        </div>
       </main>
     </div>
   );
 }
-

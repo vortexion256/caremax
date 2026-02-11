@@ -12,178 +12,167 @@ export default function Layout() {
 
   const nav = [
     { path: '/', label: 'Dashboard' },
-    { path: '/agent', label: 'Agent settings' },
+    { path: '/agent', label: 'Agent Settings' },
     { path: '/advanced-prompts', label: 'Advanced Prompts' },
-    { path: '/conversations', label: 'All conversations' },
-    { path: '/handoffs', label: 'Handoff queue' },
+    { path: '/conversations', label: 'Conversations' },
+    { path: '/handoffs', label: 'Handoff Queue' },
     { path: '/agent-notes', label: 'Notes' },
-    { path: '/rag', label: 'RAG documents' },
-    { path: '/agent-brain', label: 'Auto Agent Brain' },
+    { path: '/rag', label: 'Knowledge Base' },
+    { path: '/agent-brain', label: 'Auto Brain' },
     { path: '/integrations', label: 'Integrations' },
-    { path: '/embed', label: 'Embed' },
+    { path: '/embed', label: 'Embed Widget' },
   ];
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', position: 'relative', width: '100%', overflowX: 'hidden' }}>
-      {/* Mobile menu button - hamburger icon when closed */}
-      {isMobile && !menuOpen && (
-        <button
-          onClick={() => setMenuOpen(true)}
-          style={{
-            position: 'fixed',
-            top: isVerySmall ? 8 : 16,
-            left: isVerySmall ? 8 : 16,
-            zIndex: 1001,
-            padding: isVerySmall ? '6px 10px' : '8px 12px',
-            background: '#0d47a1',
-            color: 'white',
-            border: 'none',
-            borderRadius: 6,
-            cursor: 'pointer',
-            fontSize: isVerySmall ? 18 : 20,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-            minWidth: isVerySmall ? 36 : 44,
-            minHeight: isVerySmall ? 36 : 44
-          }}
-          aria-label="Open menu"
-        >
-          ☰
-        </button>
-      )}
-
-      {/* Overlay for mobile */}
-      {isMobile && menuOpen && (
-        <div
-          onClick={() => setMenuOpen(false)}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.5)',
-            zIndex: 999
-          }}
-        />
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%', background: '#fff' }}>
+      {/* Mobile Header */}
+      {isMobile && (
+        <header style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 56,
+          background: '#fff',
+          borderBottom: '1px solid #e2e8f0',
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 16px',
+          zIndex: 1001,
+          justifyContent: 'space-between'
+        }}>
+          <span style={{ fontWeight: 600, color: '#0f172a' }}>CareMax</span>
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: 24,
+              cursor: 'pointer',
+              padding: 4,
+              color: '#475569'
+            }}
+          >
+            {menuOpen ? '✕' : '☰'}
+          </button>
+        </header>
       )}
 
       {/* Sidebar */}
       <aside
         style={{
-          width: isVerySmall ? '100vw' : isMobile ? 280 : 220,
-          borderRight: '1px solid #e0e0e0',
-          padding: isVerySmall ? 12 : isMobile ? 16 : 24,
-          background: '#fafafa',
-          position: isMobile ? 'fixed' : 'relative',
+          width: isMobile ? 280 : 240,
+          borderRight: '1px solid #e2e8f0',
+          background: '#f8fafc',
+          position: isMobile ? 'fixed' : 'sticky',
           top: 0,
-          left: isMobile ? (menuOpen ? 0 : (isVerySmall ? '-100vw' : -280)) : 0,
-          bottom: 0,
+          height: '100vh',
+          left: isMobile ? (menuOpen ? 0 : -280) : 0,
           zIndex: 1000,
-          transition: 'left 0.3s ease',
-          overflowY: 'auto',
-          overflowX: 'hidden',
-          flexShrink: 0,
-          maxWidth: '100vw'
+          transition: 'left 0.2s ease-in-out',
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '24px 16px'
         }}
       >
-        {/* Mobile close button - positioned on the right */}
-        {isMobile && menuOpen && (
-          <button
-            onClick={() => setMenuOpen(false)}
-            style={{
-              position: 'absolute',
-              top: isVerySmall ? 8 : 16,
-              right: isVerySmall ? 8 : 16,
-              zIndex: 1002,
-              padding: isVerySmall ? '6px 10px' : '8px 12px',
-              background: '#0d47a1',
-              color: 'white',
-              border: 'none',
-              borderRadius: 6,
-              cursor: 'pointer',
-              fontSize: isVerySmall ? 18 : 20,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-              minWidth: isVerySmall ? 36 : 44,
-              minHeight: isVerySmall ? 36 : 44
-            }}
-            aria-label="Close menu"
-          >
-            ✕
-          </button>
+        {!isMobile && (
+          <div style={{ padding: '0 12px 24px', fontWeight: 700, fontSize: 20, color: '#2563eb' }}>
+            CareMax
+          </div>
         )}
-        <h2 style={{ margin: '0 0 20px 0', fontSize: isVerySmall ? 14 : isMobile ? 16 : 18, wordBreak: 'break-word', paddingRight: isMobile && menuOpen ? (isVerySmall ? 50 : 60) : 0 }}>CareMax Admin</h2>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {nav.map(({ path, label }) => (
-            <Link
-              key={path}
-              to={path}
-              onClick={() => isMobile && setMenuOpen(false)}
-              style={{
-                padding: isVerySmall ? '5px 8px' : isMobile ? '6px 10px' : '8px 12px',
-                borderRadius: 8,
-                textDecoration: 'none',
-                color: location.pathname === path ? '#0d47a1' : '#333',
-                fontWeight: location.pathname === path ? 600 : 400,
-                background: location.pathname === path ? '#e3f2fd' : 'transparent',
-                fontSize: isVerySmall ? 12 : isMobile ? 13 : 14,
-                wordWrap: 'break-word',
-                overflowWrap: 'break-word',
-                whiteSpace: 'normal',
-                lineHeight: 1.4
-              }}
-            >
-              {label}
-            </Link>
-          ))}
+        
+        <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {nav.map(({ path, label }) => {
+            const active = location.pathname === path;
+            return (
+              <Link
+                key={path}
+                to={path}
+                onClick={() => isMobile && setMenuOpen(false)}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  textDecoration: 'none',
+                  color: active ? '#2563eb' : '#475569',
+                  fontWeight: active ? 600 : 500,
+                  background: active ? '#eff6ff' : 'transparent',
+                  fontSize: 14,
+                  transition: 'all 0.2s'
+                }}
+              >
+                {label}
+              </Link>
+            );
+          })}
         </nav>
-        <p style={{ marginTop: 20, fontSize: isVerySmall ? 10 : 11, color: '#666', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
-          Tenant: {tenantId}
-          {isPlatformAdmin && ' · Platform admin'}
-        </p>
-        {isPlatformAdmin && (
-          <p style={{ marginTop: 4, fontSize: isVerySmall ? 10 : 11, wordBreak: 'break-word' }}>
+
+        <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid #e2e8f0' }}>
+          <div style={{ padding: '0 12px', marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tenant</div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: '#475569', marginTop: 2 }}>{tenantId}</div>
+          </div>
+          
+          {isPlatformAdmin && (
             <Link 
               to="/platform" 
-              style={{ color: '#0d47a1', textDecoration: 'none', wordBreak: 'break-word', overflowWrap: 'break-word' }} 
+              style={{ 
+                display: 'block',
+                padding: '8px 12px',
+                fontSize: 13,
+                color: '#2563eb',
+                textDecoration: 'none',
+                fontWeight: 500
+              }} 
               onClick={() => isMobile && setMenuOpen(false)}
             >
-              Open platform console
+              Platform Console
             </Link>
-          </p>
-        )}
-        <button
-          type="button"
-          onClick={() => auth.signOut().catch(() => {})}
-          style={{
-            marginTop: 12,
-            padding: isVerySmall ? '5px 8px' : '6px 10px',
-            fontSize: isVerySmall ? 11 : 12,
-            borderRadius: 6,
-            border: '1px solid #ddd',
-            background: '#fff',
-            cursor: 'pointer',
-            width: '100%',
-            wordBreak: 'break-word'
-          }}
-        >
-          Logout
-        </button>
+          )}
+          
+          <button
+            onClick={() => auth.signOut()}
+            style={{
+              marginTop: 8,
+              padding: '10px 12px',
+              fontSize: 13,
+              borderRadius: 8,
+              border: '1px solid #e2e8f0',
+              background: '#fff',
+              color: '#64748b',
+              cursor: 'pointer',
+              width: '100%',
+              textAlign: 'left',
+              fontWeight: 500
+            }}
+          >
+            Sign Out
+          </button>
+        </div>
       </aside>
+
+      {/* Overlay */}
+      {isMobile && menuOpen && (
+        <div
+          onClick={() => setMenuOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.3)',
+            backdropFilter: 'blur(2px)',
+            zIndex: 999
+          }}
+        />
+      )}
+
       <main style={{ 
         flex: 1, 
-        padding: isVerySmall ? '50px 8px 16px' : isMobile ? '60px 12px 24px' : 24, 
-        width: '100%', 
+        padding: isMobile ? '80px 20px 40px' : '40px 60px', 
         minWidth: 0,
-        maxWidth: '100%',
-        overflowX: 'hidden'
+        background: '#fff'
       }}>
-        <Outlet />
+        <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+          <Outlet />
+        </div>
       </main>
     </div>
   );
