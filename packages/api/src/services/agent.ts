@@ -600,7 +600,7 @@ export async function runAgent(
     text = (response.content as { text?: string }[]).map((c) => c?.text ?? "").join("");
   const markerPresent = text.includes(HANDOFF_MARKER);
   const textWithoutMarker = markerPresent
-    ? text.replace(new RegExp(`\\\\s*${HANDOFF_MARKER.replace(/[\\\\\\[\\\\]]/g, "\\\\$&\")}\\\\s*$`, "i"), "").trim()
+    ? text.replace(new RegExp(`\\s*${HANDOFF_MARKER.replace(/[\\\[\]]/g, "\\$&")}\\s*$`, "i"), "").trim()
     : text;
   const finalText = textWithoutMarker || "I could not generate a response. Please try rephrasing.";
   const requestHandoff =
@@ -642,11 +642,61 @@ export async function runAgent(
 
   return { text: finalText, requestHandoff };
 }
-  const config = await getAgentConfig(tenantId);
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY or GOOGLE_API_KEY not set");
 
-  const model = new ChatGoogleGenerativeAI({
+export async function runAgentWithRetry(
+  tenantId: string,
+  history: any[],
+  options?: any,
+  maxRetries = 2
+): Promise<AgentResult> {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await runAgent(tenantId, history, { ...options, isRetry: attempt > 0 });
+      
+      // If we get the "could not generate" fallback, treat it as a retryable failure
+      if (result.text === 'I could not generate a response. Please try rephrasing.') {
+        if (attempt < maxRetries) {
+          console.warn(`Agent returned fallback response, retrying (attempt ${attempt + 1})...`);
+          continue; 
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      lastError = error;
+      console.error(`Agent attempt ${attempt} failed:`, error);
+      
+      if (attempt < maxRetries) {
+        // Wait briefly before retrying (optional)
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        continue;
+      }
+    }
+  }
+  
+  // Final fallback: If all retries fail, return a helpful error or escalate
+  return { 
+    text: "I'm having a temporary technical issue processing your request. I've notified the care team to assist you.",
+    requestHandoff: true 
+  };
+}
+
+/**
+ * Run the agent in learning-only mode on an existing conversation (e.g. after "Return to AI").
+ * Reviews the full history and calls record_learned_knowledge for any new info from the care team or user.
+ * Does not return a reply; only processes tool calls to create records.
+ */
+export async function extractAndRecordLearningFromHistory(
+  tenantId: string,
+  history: { role: string; content: string; imageUrls?: string[] }[],
+  options?: { userId?: string; conversationId?: string }
+): Promise<void> {
+  const config = await getAgentConfig(tenantId);
+  if (!config.ragEnabled) return;
+
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
     model: config.model,
     temperature: config.temperature,
     apiKey,
@@ -964,10 +1014,6 @@ export async function runAgent(
 
   return { text: finalText, requestHandoff };
 }
-  tenantId: string,
-  history: { role: string; content: string; imageUrls?: string[] }[],
-  options?: { userId?: string; conversationId?: string; isRetry?: boolean }
-): Promise<AgentResult> {
   const config = await getAgentConfig(tenantId);
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY or GOOGLE_API_KEY not set");
@@ -1294,50 +1340,19 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   return { text: finalText, requestHandoff };
 }
 
-export async function runAgentWithRetry(
-  tenantId: string,
-  history: any[],
-  options?: any,
-  maxRetries = 2
-): Promise<AgentResult> {
-  let lastError: any;
-  
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await runAgent(tenantId, history, { ...options, isRetry: attempt > 0 });
-      
-      // If we get the "could not generate" fallback, treat it as a retryable failure
-      if (result.text === 'I could not generate a response. Please try rephrasing.') {
-        if (attempt < maxRetries) {
-          console.warn(`Agent returned fallback response, retrying (attempt ${attempt + 1})...`);
-          continue; 
-        }
-      }
-      
-      return result;
-    } catch (error) {
-      lastError = error;
-      console.error(`Agent attempt ${attempt} failed:`, error);
-      
-      if (attempt < maxRetries) {
-        // Wait briefly before retrying (optional)
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        continue;
-      }
-    }
-  }
-  
-  // Final fallback: If all retries fail, return a helpful error or escalate
-  return { 
-    text: "I'm having a temporary technical issue processing your request. I've notified the care team to assist you.",
-    requestHandoff: true 
-  };
-}
+/**
+ * Run the agent in learning-only mode on an existing conversation (e.g. after "Return to AI").
+ * Reviews the full history and calls record_learned_knowledge for any new info from the care team or user.
+ * Does not return a reply; only processes tool calls to create records.
+ */
+export async function extractAndRecordLearningFromHistory(
   tenantId: string,
   history: { role: string; content: string; imageUrls?: string[] }[],
   options?: { userId?: string; conversationId?: string }
-): Promise<AgentResult> {
+): Promise<void> {
   const config = await getAgentConfig(tenantId);
+  if (!config.ragEnabled) return;
+
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY or GOOGLE_API_KEY not set');
 
@@ -1997,84 +2012,4 @@ Review the list above and submit edit/delete requests to consolidate scattered o
   }
 
   return { modificationRequestsCreated: requestCount };
-}
-
-export async function runAgentWithRetry(
-  tenantId: string,
-  history: any[],
-  options?: any,
-  maxRetries = 2
-): Promise<AgentResult> {
-  let lastError: any;
-  
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await runAgent(tenantId, history, { ...options, isRetry: attempt > 0 });
-      
-      // If we get the "could not generate" fallback, treat it as a retryable failure
-      if (result.text === 'I could not generate a response. Please try rephrasing.') {
-        if (attempt < maxRetries) {
-          console.warn(`Agent returned fallback response, retrying (attempt ${attempt + 1})...`);
-          continue; 
-        }
-      }
-      
-      return result;
-    } catch (error) {
-      lastError = error;
-      console.error(`Agent attempt ${attempt} failed:`, error);
-      
-      if (attempt < maxRetries) {
-        // Wait briefly before retrying (optional)
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        continue;
-      }
-    }
-  }
-  
-  // Final fallback: If all retries fail, return a helpful error or escalate
-  return { 
-    text: "I'm having a temporary technical issue processing your request. I've notified the care team to assist you.",
-    requestHandoff: true 
-  };
-}
-
-export async function runAgentWithRetry(
-  tenantId: string,
-  history: any[],
-  options?: any,
-  maxRetries = 2
-): Promise<AgentResult> {
-  let lastError: any;
-  
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await runAgent(tenantId, history, { ...options, isRetry: attempt > 0 });
-      
-      // If we get the "could not generate" fallback, treat it as a retryable failure
-      if (result.text === 'I could not generate a response. Please try rephrasing.') {
-        if (attempt < maxRetries) {
-          console.warn(`Agent returned fallback response, retrying (attempt ${attempt + 1})...`);
-          continue; 
-        }
-      }
-      
-      return result;
-    } catch (error) {
-      lastError = error;
-      console.error(`Agent attempt ${attempt} failed:`, error);
-      
-      if (attempt < maxRetries) {
-        // Wait briefly before retrying (optional)
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        continue;
-      }
-    }
-  }
-  
-  // Final fallback: If all retries fail, return a helpful error or escalate
-  return { 
-    text: "I'm having a temporary technical issue processing your request. I've notified the care team to assist you.",
-    requestHandoff: true 
-  };
 }
