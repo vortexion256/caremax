@@ -318,6 +318,1023 @@ function hasMultipleUserTurns(history: { role: string }[]): boolean {
 export async function runAgent(
   tenantId: string,
   history: { role: string; content: string; imageUrls?: string[] }[],
+  options?: { userId?: string; conversationId?: string; isRetry?: boolean }
+): Promise<AgentResult> {
+  const config = await getAgentConfig(tenantId);
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY or GOOGLE_API_KEY not set");
+
+  const model = new ChatGoogleGenerativeAI({
+    model: config.model,
+    temperature: config.temperature,
+    apiKey,
+  });
+
+  const avoidGeneric = config.agentName !== "CareMax Assistant"
+    ? ` Never say "CareMax Assistant" or "I don\\'t have a name"—always say you are ${config.agentName}.`
+    : "";
+  const nameInstruction = `Your name is ${config.agentName}. You must always use this name: when greeting, when asked "what\\'s your name" or "who are you", and in any introduction.${avoidGeneric}`;
+  const historyInstruction = `Use the full conversation history. Messages labeled "[Care team said to the user]: ..." are from a human care team member—treat them as what was actually said to the user. When the user asks what was recommended, what the care team said, or "what did you say?" / "what\\'s the best?", answer in one short paragraph using only that history (e.g. "The care team suggested Panado Extra for your pain."). Do not repeat the same sentence or block twice in one reply. Do not repeat long triage unless the user asks for more detail.`;
+  const imageInstruction = `When the user attaches images, they are included in the conversation and you can see them. Describe what you observe when relevant (e.g. for symptoms, skin, wounds) and suggest next steps. Do not say you cannot see images or that images are not available—you receive them when the user sends them.`;
+  const toneInstruction = `Tone: Be natural and concise. For "hi", "hello", or "how are you?" reply in one short sentence (e.g. "Hi! How can I help?" or "Doing well, thanks—what can I help with?"). Do not repeat "I am [name], a clinical triage assistant" or "How can I assist you with your health concerns today?" in every message—say it only when the user asks who you are or what you do. Vary your wording; avoid the same phrases in any reply.`;
+
+  const escalationInstruction = `\nEscalation to a human: When EITHER of the following is true, you MUST end your reply with exactly "${HANDOFF_MARKER}" on a new line (the user will not see this; the system will connect them to a care team member).\n1) The user expresses in any way that they want to speak to a human, a real person, the care team, or an agent—including indirect phrasings like "can I talk to someone?", "I want a person", "not a bot", "real human", "actual person", "get me a human", "speak to staff", "connect me with support".\n2) You have already tried to help with the same or similar question and could not resolve it, or the user is asking again / rephrasing after you gave an uncertain or unhelpful answer—in that case escalate so a human can take over instead of repeating that you cannot help.`;
+  const followUpHint =
+    hasMultipleUserTurns(history) && lastReplyWasUnhelpfulOrUncertain(history)
+      ? ` The user has sent another message after you previously could not fully help. You MUST end your reply with "${HANDOFF_MARKER}" to escalate to a human.`
+      : "";
+
+  // Get existing notes for this conversation to prevent duplicates
+  let existingNotesContext = "";
+  if (options?.conversationId) {
+    try {
+      const existingNotes = await listAgentNotes(tenantId, { conversationId: options.conversationId, limit: 10 });
+      if (existingNotes.length > 0) {
+        existingNotesContext = `\n\n--- Existing notes in this conversation (do NOT create duplicates) ---\n${existingNotes.map((n, i) => `${i + 1}. [${n.category}] ${n.content}${n.patientName ? ` (User: ${n.patientName})` : ""}`).join("\n")}\n--- End of existing notes ---\n\nBefore creating a note, check the list above. If a note about the same topic already exists (same question pattern, same keyword, same insight), do NOT create a duplicate. Only create a note if it\\'s genuinely new information not already covered above.`;
+      }
+    } catch (e) {
+      console.warn("Failed to load existing notes for deduplication:", e);
+    }
+  }
+
+  let recoveryInstruction = "";
+  if (options?.isRetry) {
+    recoveryInstruction = "\n\nNOTE: A previous attempt to process this request failed due to a tool error. Please ignore any previous technical failures and focus on answering the user\\'s last question based on the history provided.";
+  }
+
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}${recoveryInstruction}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notes: As you interact with users, observe patterns and create notes for admin review. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. Create notes periodically when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points). These notes help admins understand user needs and improve the service.${existingNotesContext}`;
+  if (config.ragEnabled) {
+    const lastUser = history.filter((m) => m.role === "user").pop();
+    const ragContext = lastUser ? await getRagContext(tenantId, lastUser.content) : "";
+    if (ragContext) {
+      systemContent += `\n\nRelevant context from this organization\\'s knowledge base (use this for contact info, phone numbers, hours, locations, and other org-specific details):\n${ragContext}`;
+    } else if (lastUser && process.env.NODE_ENV !== "test") {
+      console.log("RAG: enabled but no context returned for tenant", tenantId, "- check Agent settings \\"Use RAG\\" and that RAG documents exist and are indexed.");
+    }
+    const existingRecords = await listRecords(tenantId);
+    systemContent += `\n\n--- Current Auto Agent Brain records (check these before adding anything) ---\n${formatExistingRecordsForPrompt(existingRecords)}\n--- End of existing records ---`;
+    systemContent += `\n\nWhen the user or care team provides information to remember, you MUST decide based on the existing records above:\n1) If it UPDATES or CORRECTS an existing record (e.g. new phone number for the same branch, changed hours, corrected detail)—use request_edit_record with that record\\'s recordId; do NOT add a new record (that causes duplicates).\n2) If a record is obsolete or should be removed—use request_delete_record with that recordId.\n3) Only use record_learned_knowledge for genuinely NEW information that does not overlap any existing record (no similar title/topic).\nUse short, clear titles and key facts. To edit or delete you must use the recordId from the list above; an admin will approve before the change is applied.`;
+  }
+
+  const googleSheetsList = config.googleSheets ?? [];
+  let sheetsEnabled = false;
+  if (googleSheetsList.length > 0) {
+    try {
+      sheetsEnabled = await isGoogleConnected(tenantId);
+      if (sheetsEnabled) {
+        systemContent += `\n\nThis organization has connected Google Sheets. Only query the sheet that matches the user\\'s question:\n${googleSheetsList.map((s, i) => `- useWhen \\"${s.useWhen}\\" → use query_google_sheet with useWhen \\"${s.useWhen}\\" when the user asks about: ${s.useWhen}`).join("\n")}\nDo not call query_google_sheet for more than one sheet per turn; pick the single most relevant sheet by useWhen.`;
+      }
+    } catch {
+      // not connected
+    }
+  }
+
+  const langChainHistory = await toLangChainMessages(history);
+  const messages: BaseMessage[] = [
+    new SystemMessage(systemContent),
+    ...langChainHistory,
+  ];
+
+  const lastUserContent = history.filter((m) => m.role === "user").pop()?.content ?? "";
+  const userWantsHuman =
+    /\b(talk|speak|connect|transfer|hand me off|get me)\s+(to|with)\s+(a\s+)?(human|real\s+person|person|agent|someone|care\s+team|staff|representative)/i.test(lastUserContent) ||
+    /\b(let me\s+)?(talk|speak)\s+to\s+(a\s+)?(human|person|someone)/i.test(lastUserContent) ||
+    /\b(want|need)\s+to\s+(speak|talk)\s+to\s+(a\s+)?(human|person|someone)/i.test(lastUserContent) ||
+    /\b(real\s+person|human\s+agent|live\s+agent)/i.test(lastUserContent);
+
+  if (userWantsHuman) {
+    const handoffMessage =
+      `I\\'ve requested that a care team member join this chat. They\\'ll be with you shortly—please stay on this page.\n\nIf your need is urgent, please call your care team or 911 in an emergency.`;
+    return { text: handoffMessage, requestHandoff: true };
+  }
+
+  const recordTool = new DynamicStructuredTool({
+    name: "record_learned_knowledge",
+    description:
+      "Save a new fact or piece of information that you did not know before, so you can use it in future answers. Use when the user or care team has provided contact details, policy info, or other org-specific facts.",
+    schema: z.object({
+      title: z.string().describe("Short title for the record (e.g. \\"Support email address\\")"),
+      content: z.string().describe("The key information to remember"),
+    }),
+    func: async ({ title, content }) => {
+      await createRecord(tenantId, title.trim(), content.trim());
+      return "Record saved.";
+    },
+  });
+
+  const requestEditTool = new DynamicStructuredTool({
+    name: "request_edit_record",
+    description:
+      "Request that an existing memory record be edited. The change will not be applied until an admin approves it (prevents manipulation). Use when information in a record is wrong or outdated.",
+    schema: z.object({
+      recordId: z.string().describe("The ID of the record to edit"),
+      title: z.string().optional().describe("New title (omit to keep current)"),
+      content: z.string().optional().describe("New content (omit to keep current)"),
+      reason: z.string().optional().describe("Brief reason for the edit"),
+    }),
+    func: async ({ recordId, title, content, reason }) => {
+      const record = await getRecord(tenantId, recordId);
+      if (!record) return "Record not found. Cannot submit edit request.";
+      await createModificationRequest(tenantId, "edit", recordId, { title, content, reason });
+      return "Edit request submitted. An admin must approve it before the change is applied.";
+    },
+  });
+
+  const requestDeleteTool = new DynamicStructuredTool({
+    name: "request_delete_record",
+    description:
+      "Request that a memory record be deleted. The deletion will not happen until an admin approves it (prevents users from manipulating you into deleting important information).",
+    schema: z.object({
+      recordId: z.string().describe("The ID of the record to delete"),
+      reason: z.string().optional().describe("Brief reason for the deletion"),
+    }),
+    func: async ({ recordId, reason }) => {
+      const record = await getRecord(tenantId, recordId);
+      if (!record) return "Record not found. Cannot submit delete request.";
+      await createModificationRequest(tenantId, "delete", recordId, { reason });
+      return "Delete request submitted. An admin must approve it before the record is removed.";
+    },
+  });
+
+  const queryGoogleSheetTool = new DynamicStructuredTool({
+    name: "query_google_sheet",
+    description: `Fetch data from one of the organization\\'s connected sheets. Pass useWhen to pick which sheet (only query the sheet that matches the user\\'s question). Available: ${googleSheetsList.map((s) => s.useWhen).join(", ")}.`,
+    schema: z.object({
+      useWhen: z.string().describe(`Which sheet to query: one of ${googleSheetsList.map((s) => `\\"${s.useWhen}\\"`).join(", ")}. Must match exactly.`),
+      range: z.string().optional().describe("Optional A1 range, e.g. \\"Sheet1\\" or \\"Bookings!A:F\\". Omit to use the sheet\\'s default range."),
+    }),
+    func: async ({ useWhen, range }) => {
+      const entry = googleSheetsList.find((s) => s.useWhen.toLowerCase() === (useWhen ?? "").toLowerCase()) ?? googleSheetsList[0];
+      try {
+        const rangeToUse = range?.trim() || entry.range;
+        return await fetchSheetData(tenantId, entry.spreadsheetId, rangeToUse ?? undefined);
+      } catch (e) {
+        console.error("query_google_sheet error:", e);
+        return "Error: Google Sheet is currently unavailable. Please apologize to the user and offer to help with something else or suggest they try again later.";
+      }
+    },
+  });
+
+  const createNoteTool = new DynamicStructuredTool({
+    name: "create_note",
+    description: "Create a note for admin review about analytics, insights, or patterns observed during conversations. Use this to track: most common questions by users, frequently asked about items/topics, important keywords or trends, user behavior patterns, or any insights that would help improve the service. Create notes when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points).",
+    schema: z.object({
+      content: z.string().describe("The note content describing the insight or pattern (e.g. \\"Common question: Many users asking about appointment booking process\\" or \\"Keyword trend: Users frequently mention \\\\'insurance coverage\\\\'\\" or \\"Most asked about: Ntinda branch location and hours\\")"),
+      patientName: z.string().optional().describe("Optional: Patient or user name if relevant to the note (usually omit for analytics notes)"),
+      category: z.enum(["common_questions", "keywords", "analytics", "insights", "other"]).optional().describe("Category: \\"common_questions\\" for frequently asked questions, \\"keywords\\" for trending keywords/phrases, \\"analytics\\" for usage patterns/metrics, \\"insights\\" for general observations, \\"other\\" for anything else"),
+    }),
+    func: async ({ content, patientName, category }) => {
+      if (!options?.conversationId) {
+        return "Cannot create note: conversation ID not available.";
+      }
+      try {
+        await createNote(tenantId, options.conversationId, content.trim(), {
+          userId: options?.userId,
+          patientName: patientName?.trim(),
+          category: category ?? "other",
+        });
+        return "Note created successfully.";
+      } catch (e) {
+        console.error("create_doctor_note error:", e);
+        return "Error: Failed to create note. Please apologize to the user and offer to help with something else or suggest they try again later.";
+      }
+    },
+  });
+
+  const tools: unknown[] = [];
+  // Always include note tool - it\\'s essential for tracking analytics, insights, and patterns
+  tools.push(createNoteTool);
+  if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
+  if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
+  const modelWithTools = tools.length ? model.bindTools(tools as Parameters<typeof model.bindTools>[0]) : model;
+  let currentMessages: BaseMessage[] = messages;
+  const maxToolRounds = 3;
+  
+  // Accumulate tokens from all invocations (initial + tool call rounds)
+  let accumulatedUsage: UsageMetadata = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  
+  let response: BaseMessage = await modelWithTools.invoke(currentMessages);
+  const initialUsage = extractTokenUsage(response);
+  accumulatedUsage.inputTokens += initialUsage.inputTokens;
+  accumulatedUsage.outputTokens += initialUsage.outputTokens;
+  accumulatedUsage.totalTokens += initialUsage.totalTokens;
+
+  for (let round = 0; round < maxToolRounds; round++) {
+    const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
+    if (!toolCalls?.length) break;
+    const toolMessages: ToolMessage[] = [];
+    for (const tc of toolCalls) {
+      let content: string;
+      if (tc.name === "record_learned_knowledge" && tc.args && typeof tc.args.title === "string" && typeof tc.args.content === "string") {
+        try {
+          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim());
+          content = "Record saved.";
+        } catch (e) {
+          console.error("AutoAgentBrain createRecord error:", e);
+          content = "Error: Failed to save record. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else if (tc.name === "request_edit_record" && tc.args && typeof tc.args.recordId === "string") {
+        try {
+          content = await requestEditTool.invoke({
+            recordId: tc.args.recordId,
+            title: typeof tc.args.title === "string" ? tc.args.title : undefined,
+            content: typeof tc.args.content === "string" ? tc.args.content : undefined,
+            reason: typeof tc.args.reason === "string" ? tc.args.reason : undefined,
+          });
+        } catch (e) {
+          console.error("request_edit_record error:", e);
+          content = e instanceof Error ? e.message : "Error: Failed to submit edit request. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else if (tc.name === "request_delete_record" && tc.args && typeof tc.args.recordId === "string") {
+        try {
+          content = await requestDeleteTool.invoke({
+            recordId: tc.args.recordId,
+            reason: typeof tc.args.reason === "string" ? tc.args.reason : undefined,
+          });
+        } catch (e) {
+          console.error("request_delete_record error:", e);
+          content = e instanceof Error ? e.message : "Error: Failed to submit delete request. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else if (tc.name === "query_google_sheet" && sheetsEnabled && googleSheetsList.length > 0) {
+        try {
+          const useWhen = typeof tc.args?.useWhen === "string" ? tc.args.useWhen : googleSheetsList[0].useWhen;
+          const range = typeof tc.args?.range === "string" ? tc.args.range : undefined;
+          content = await queryGoogleSheetTool.invoke({ useWhen, range });
+        } catch (e) {
+          console.error("query_google_sheet error:", e);
+          content = e instanceof Error ? e.message : "Error: Failed to fetch sheet. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else if (tc.name === "create_note" && tc.args && typeof tc.args.content === "string") {
+        try {
+          const patientName = typeof tc.args.patientName === "string" ? tc.args.patientName : undefined;
+          const category = typeof tc.args.category === "string" && ["common_questions", "keywords", "analytics", "insights", "other"].includes(tc.args.category)
+            ? (tc.args.category as "common_questions" | "keywords" | "analytics" | "insights" | "other")
+            : undefined;
+          content = await createNoteTool.invoke({
+            content: tc.args.content,
+            patientName,
+            category,
+          });
+        } catch (e) {
+          console.error("create_note error:", e);
+          content = e instanceof Error ? e.message : "Error: Failed to create note. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else {
+        content = "Invalid arguments.";
+      }
+      toolMessages.push(new ToolMessage({ content, tool_call_id: tc.id }));
+    }
+    currentMessages = [...currentMessages, response, ...toolMessages];
+    response = await modelWithTools.invoke(currentMessages);
+    
+    // Accumulate tokens from this tool call round
+    const roundUsage = extractTokenUsage(response);
+    accumulatedUsage.inputTokens += roundUsage.inputTokens;
+    accumulatedUsage.outputTokens += roundUsage.outputTokens;
+    accumulatedUsage.totalTokens += roundUsage.totalTokens;
+  }
+
+  let text = "";
+  if (typeof response.content === "string") text = response.content;
+  else if (Array.isArray(response.content))
+    text = (response.content as { text?: string }[]).map((c) => c?.text ?? "").join("");
+  const markerPresent = text.includes(HANDOFF_MARKER);
+  const textWithoutMarker = markerPresent
+    ? text.replace(new RegExp(`\\\\s*${HANDOFF_MARKER.replace(/[\\\\\\[\\\\]]/g, "\\\\$&\")}\\\\s*$`, "i"), "").trim()
+    : text;
+  const finalText = textWithoutMarker || "I could not generate a response. Please try rephrasing.";
+  const requestHandoff =
+    markerPresent ||
+    /speak with (a )?(care )?(coordinator|team|human|agent)/i.test(text) ||
+    /recommend.*(speaking|talking) to/i.test(text);
+
+  // Record accumulated token usage from all invocations (initial + tool call rounds)
+  try {
+    // Use accumulated usage if we have any tokens, otherwise try to extract from final response as fallback
+    const finalUsage = extractTokenUsage(response);
+    const totalInputTokens = accumulatedUsage.inputTokens > 0 ? accumulatedUsage.inputTokens : finalUsage.inputTokens;
+    const totalOutputTokens = accumulatedUsage.outputTokens > 0 ? accumulatedUsage.outputTokens : finalUsage.outputTokens;
+    const totalTokens = accumulatedUsage.totalTokens > 0 ? accumulatedUsage.totalTokens : (finalUsage.totalTokens || totalInputTokens + totalOutputTokens);
+
+    // Only record if we have valid token counts
+    if (totalTokens > 0 || (totalInputTokens > 0 && totalOutputTokens >= 0)) {
+      await recordUsage(
+        config.model,
+        {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          totalTokens: totalTokens,
+        },
+        {
+          tenantId,
+          userId: options?.userId,
+          conversationId: options?.conversationId,
+        }
+      );
+      console.log(`✅ Recorded usage: ${totalInputTokens} input + ${totalOutputTokens} output = ${totalTokens} total tokens ($${computeCostUsd(config.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, totalTokens }).toFixed(6)})`);
+    } else {
+      console.warn("Could not extract usage metadata - no tokens found in any response");
+    }
+  } catch (e) {
+    // Usage tracking should never break the main flow
+    console.error("Failed to extract or record usage metadata:", e);
+  }
+
+  return { text: finalText, requestHandoff };
+}
+  const config = await getAgentConfig(tenantId);
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY or GOOGLE_API_KEY not set");
+
+  const model = new ChatGoogleGenerativeAI({
+    model: config.model,
+    temperature: config.temperature,
+    apiKey,
+  });
+
+  const avoidGeneric = config.agentName !== "CareMax Assistant"
+    ? ` Never say "CareMax Assistant" or "I don\'t have a name"—always say you are ${config.agentName}.`
+    : "";
+  const nameInstruction = `Your name is ${config.agentName}. You must always use this name: when greeting, when asked "what\'s your name" or "who are you", and in any introduction.${avoidGeneric}`;
+  const historyInstruction = `Use the full conversation history. Messages labeled "[Care team said to the user]: ..." are from a human care team member—treat them as what was actually said to the user. When the user asks what was recommended, what the care team said, or "what did you say?" / "what\'s the best?", answer in one short paragraph using only that history (e.g. "The care team suggested Panado Extra for your pain."). Do not repeat the same sentence or block twice in one reply. Do not repeat long triage unless the user asks for more detail.`;
+  const imageInstruction = `When the user attaches images, they are included in the conversation and you can see them. Describe what you observe when relevant (e.g. for symptoms, skin, wounds) and suggest next steps. Do not say you cannot see images or that images are not available—you receive them when the user sends them.`;
+  const toneInstruction = `Tone: Be natural and concise. For "hi", "hello", or "how are you?" reply in one short sentence (e.g. "Hi! How can I help?" or "Doing well, thanks—what can I help with?"). Do not repeat "I am [name], a clinical triage assistant" or "How can I assist you with your health concerns today?" in every message—say it only when the user asks who you are or what you do. Vary your wording; avoid the same phrases in every reply.`;
+
+  const escalationInstruction = `\nEscalation to a human: When EITHER of the following is true, you MUST end your reply with exactly "${HANDOFF_MARKER}" on a new line (the user will not see this; the system will connect them to a care team member).\n1) The user expresses in any way that they want to speak to a human, a real person, the care team, or an agent—including indirect phrasings like "can I talk to someone?", "I want a person", "not a bot", "real human", "actual person", "get me a human", "speak to staff", "connect me with support".\n2) You have already tried to help with the same or similar question and could not resolve it, or the user is asking again / rephrasing after you gave an uncertain or unhelpful answer—in that case escalate so a human can take over instead of repeating that you cannot help.`;
+  const followUpHint =
+    hasMultipleUserTurns(history) && lastReplyWasUnhelpfulOrUncertain(history)
+      ? ` The user has sent another message after you previously could not fully help. You MUST end your reply with "${HANDOFF_MARKER}" to escalate to a human.`
+      : "";
+
+  // Get existing notes for this conversation to prevent duplicates
+  let existingNotesContext = "";
+  if (options?.conversationId) {
+    try {
+      const existingNotes = await listAgentNotes(tenantId, { conversationId: options.conversationId, limit: 10 });
+      if (existingNotes.length > 0) {
+        existingNotesContext = `\n\n--- Existing notes in this conversation (do NOT create duplicates) ---\n${existingNotes.map((n, i) => `${i + 1}. [${n.category}] ${n.content}${n.patientName ? ` (User: ${n.patientName})` : ""}`).join("\n")}\n--- End of existing notes ---\n\nBefore creating a note, check the list above. If a note about the same topic already exists (same question pattern, same keyword, same insight), do NOT create a duplicate. Only create a note if it\'s genuinely new information not already covered above.`;
+      }
+    } catch (e) {
+      console.warn("Failed to load existing notes for deduplication:", e);
+    }
+  }
+
+  let recoveryInstruction = "";
+  if (options?.isRetry) {
+    recoveryInstruction = "\n\nNOTE: A previous attempt to process this request failed due to a tool error. Please ignore any previous technical failures and focus on answering the user\'s last question based on the history provided.";
+  }
+
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}${recoveryInstruction}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notes: As you interact with users, observe patterns and create notes for admin review. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. Create notes periodically when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points). These notes help admins understand user needs and improve the service.${existingNotesContext}`;
+  if (config.ragEnabled) {
+    const lastUser = history.filter((m) => m.role === "user").pop();
+    const ragContext = lastUser ? await getRagContext(tenantId, lastUser.content) : "";
+    if (ragContext) {
+      systemContent += `\n\nRelevant context from this organization\'s knowledge base (use this for contact info, phone numbers, hours, locations, and other org-specific details):\n${ragContext}`;
+    } else if (lastUser && process.env.NODE_ENV !== "test") {
+      console.log("RAG: enabled but no context returned for tenant", tenantId, "- check Agent settings \"Use RAG\" and that RAG documents exist and are indexed.");
+    }
+    const existingRecords = await listRecords(tenantId);
+    systemContent += `\n\n--- Current Auto Agent Brain records (check these before adding anything) ---\n${formatExistingRecordsForPrompt(existingRecords)}\n--- End of existing records ---`;
+    systemContent += `\n\nWhen the user or care team provides information to remember, you MUST decide based on the existing records above:\n1) If it UPDATES or CORRECTS an existing record (e.g. new phone number for the same branch, changed hours, corrected detail)—use request_edit_record with that record\'s recordId; do NOT add a new record (that causes duplicates).\n2) If a record is obsolete or should be removed—use request_delete_record with that recordId.\n3) Only use record_learned_knowledge for genuinely NEW information that does not overlap any existing record (no similar title/topic).\nUse short, clear titles and key facts. To edit or delete you must use the recordId from the list above; an admin will approve before the change is applied.`;
+  }
+
+  const googleSheetsList = config.googleSheets ?? [];
+  let sheetsEnabled = false;
+  if (googleSheetsList.length > 0) {
+    try {
+      sheetsEnabled = await isGoogleConnected(tenantId);
+      if (sheetsEnabled) {
+        systemContent += `\n\nThis organization has connected Google Sheets. Only query the sheet that matches the user\'s question:\n${googleSheetsList.map((s, i) => `- useWhen \"${s.useWhen}\" → use query_google_sheet with useWhen \"${s.useWhen}\" when the user asks about: ${s.useWhen}`).join("\n")}\nDo not call query_google_sheet for more than one sheet per turn; pick the single most relevant sheet by useWhen.`;
+      }
+    } catch {
+      // not connected
+    }
+  }
+
+  const langChainHistory = await toLangChainMessages(history);
+  const messages: BaseMessage[] = [
+    new SystemMessage(systemContent),
+    ...langChainHistory,
+  ];
+
+  const lastUserContent = history.filter((m) => m.role === "user").pop()?.content ?? "";
+  const userWantsHuman =
+    /\b(talk|speak|connect|transfer|hand me off|get me)\s+(to|with)\s+(a\s+)?(human|real\s+person|person|agent|someone|care\s+team|staff|representative)/i.test(lastUserContent) ||
+    /\b(let me\s+)?(talk|speak)\s+to\s+(a\s+)?(human|person|someone)/i.test(lastUserContent) ||
+    /\b(want|need)\s+to\s+(speak|talk)\s+to\s+(a\s+)?(human|person|someone)/i.test(lastUserContent) ||
+    /\b(real\s+person|human\s+agent|live\s+agent)/i.test(lastUserContent);
+
+  if (userWantsHuman) {
+    const handoffMessage =
+      `I\'ve requested that a care team member join this chat. They\'ll be with you shortly—please stay on this page.\n\nIf your need is urgent, please call your care team or 911 in an emergency.`;
+    return { text: handoffMessage, requestHandoff: true };
+  }
+
+  const recordTool = new DynamicStructuredTool({
+    name: "record_learned_knowledge",
+    description:
+      "Save a new fact or piece of information that you did not know before, so you can use it in future answers. Use when the user or care team has provided contact details, policy info, or other org-specific facts.",
+    schema: z.object({
+      title: z.string().describe("Short title for the record (e.g. \"Support email address\")"),
+      content: z.string().describe("The key information to remember"),
+    }),
+    func: async ({ title, content }) => {
+      await createRecord(tenantId, title.trim(), content.trim());
+      return "Record saved.";
+    },
+  });
+
+  const requestEditTool = new DynamicStructuredTool({
+    name: "request_edit_record",
+    description:
+      "Request that an existing memory record be edited. The change will not be applied until an admin approves it (prevents manipulation). Use when information in a record is wrong or outdated.",
+    schema: z.object({
+      recordId: z.string().describe("The ID of the record to edit"),
+      title: z.string().optional().describe("New title (omit to keep current)"),
+      content: z.string().optional().describe("New content (omit to keep current)"),
+      reason: z.string().optional().describe("Brief reason for the edit"),
+    }),
+    func: async ({ recordId, title, content, reason }) => {
+      const record = await getRecord(tenantId, recordId);
+      if (!record) return "Record not found. Cannot submit edit request.";
+      await createModificationRequest(tenantId, "edit", recordId, { title, content, reason });
+      return "Edit request submitted. An admin must approve it before the change is applied.";
+    },
+  });
+
+  const requestDeleteTool = new DynamicStructuredTool({
+    name: "request_delete_record",
+    description:
+      "Request that a memory record be deleted. The deletion will not happen until an admin approves it (prevents users from manipulating you into deleting important information).",
+    schema: z.object({
+      recordId: z.string().describe("The ID of the record to delete"),
+      reason: z.string().optional().describe("Brief reason for the deletion"),
+    }),
+    func: async ({ recordId, reason }) => {
+      const record = await getRecord(tenantId, recordId);
+      if (!record) return "Record not found. Cannot submit delete request.";
+      await createModificationRequest(tenantId, "delete", recordId, { reason });
+      return "Delete request submitted. An admin must approve it before the record is removed.";
+    },
+  });
+
+  const queryGoogleSheetTool = new DynamicStructuredTool({
+    name: "query_google_sheet",
+    description: `Fetch data from one of the organization\'s connected sheets. Pass useWhen to pick which sheet (only query the sheet that matches the user\'s question). Available: ${googleSheetsList.map((s) => s.useWhen).join(", ")}.`,
+    schema: z.object({
+      useWhen: z.string().describe(`Which sheet to query: one of ${googleSheetsList.map((s) => `\"${s.useWhen}\"`).join(", ")}. Must match exactly.`),
+      range: z.string().optional().describe("Optional A1 range, e.g. \"Sheet1\" or \"Bookings!A:F\". Omit to use the sheet\'s default range."),
+    }),
+    func: async ({ useWhen, range }) => {
+      const entry = googleSheetsList.find((s) => s.useWhen.toLowerCase() === (useWhen ?? "").toLowerCase()) ?? googleSheetsList[0];
+      try {
+        const rangeToUse = range?.trim() || entry.range;
+        return await fetchSheetData(tenantId, entry.spreadsheetId, rangeToUse ?? undefined);
+      } catch (e) {
+        console.error("query_google_sheet error:", e);
+        return "Error: Google Sheet is currently unavailable. Please apologize to the user and offer to help with something else or suggest they try again later.";
+      }
+    },
+  });
+
+  const createNoteTool = new DynamicStructuredTool({
+    name: "create_note",
+    description: "Create a note for admin review about analytics, insights, or patterns observed during conversations. Use this to track: most common questions by users, frequently asked about items/topics, important keywords or trends, user behavior patterns, or any insights that would help improve the service. Create notes when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points).",
+    schema: z.object({
+      content: z.string().describe("The note content describing the insight or pattern (e.g. \"Common question: Many users asking about appointment booking process\" or \"Keyword trend: Users frequently mention \\'insurance coverage\\'\" or \"Most asked about: Ntinda branch location and hours\")"),
+      patientName: z.string().optional().describe("Optional: Patient or user name if relevant to the note (usually omit for analytics notes)"),
+      category: z.enum(["common_questions", "keywords", "analytics", "insights", "other"]).optional().describe("Category: \"common_questions\" for frequently asked questions, \"keywords\" for trending keywords/phrases, \"analytics\" for usage patterns/metrics, \"insights\" for general observations, \"other\" for anything else"),
+    }),
+    func: async ({ content, patientName, category }) => {
+      if (!options?.conversationId) {
+        return "Cannot create note: conversation ID not available.";
+      }
+      try {
+        await createNote(tenantId, options.conversationId, content.trim(), {
+          userId: options?.userId,
+          patientName: patientName?.trim(),
+          category: category ?? "other",
+        });
+        return "Note created successfully.";
+      } catch (e) {
+        console.error("create_doctor_note error:", e);
+        return "Error: Failed to create note. Please apologize to the user and offer to help with something else or suggest they try again later.";
+      }
+    },
+  });
+
+  const tools: unknown[] = [];
+  // Always include note tool - it\'s essential for tracking analytics, insights, and patterns
+  tools.push(createNoteTool);
+  if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
+  if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
+  const modelWithTools = tools.length ? model.bindTools(tools as Parameters<typeof model.bindTools>[0]) : model;
+  let currentMessages: BaseMessage[] = messages;
+  const maxToolRounds = 3;
+  
+  // Accumulate tokens from all invocations (initial + tool call rounds)
+  let accumulatedUsage: UsageMetadata = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  
+  let response: BaseMessage = await modelWithTools.invoke(currentMessages);
+  const initialUsage = extractTokenUsage(response);
+  accumulatedUsage.inputTokens += initialUsage.inputTokens;
+  accumulatedUsage.outputTokens += initialUsage.outputTokens;
+  accumulatedUsage.totalTokens += initialUsage.totalTokens;
+
+  for (let round = 0; round < maxToolRounds; round++) {
+    const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
+    if (!toolCalls?.length) break;
+    const toolMessages: ToolMessage[] = [];
+    for (const tc of toolCalls) {
+      let content: string;
+      if (tc.name === "record_learned_knowledge" && tc.args && typeof tc.args.title === "string" && typeof tc.args.content === "string") {
+        try {
+          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim());
+          content = "Record saved.";
+        } catch (e) {
+          console.error("AutoAgentBrain createRecord error:", e);
+          content = "Error: Failed to save record. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else if (tc.name === "request_edit_record" && tc.args && typeof tc.args.recordId === "string") {
+        try {
+          content = await requestEditTool.invoke({
+            recordId: tc.args.recordId,
+            title: typeof tc.args.title === "string" ? tc.args.title : undefined,
+            content: typeof tc.args.content === "string" ? tc.args.content : undefined,
+            reason: typeof tc.args.reason === "string" ? tc.args.reason : undefined,
+          });
+        } catch (e) {
+          console.error("request_edit_record error:", e);
+          content = e instanceof Error ? e.message : "Error: Failed to submit edit request. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else if (tc.name === "request_delete_record" && tc.args && typeof tc.args.recordId === "string") {
+        try {
+          content = await requestDeleteTool.invoke({
+            recordId: tc.args.recordId,
+            reason: typeof tc.args.reason === "string" ? tc.args.reason : undefined,
+          });
+        } catch (e) {
+          console.error("request_delete_record error:", e);
+          content = e instanceof Error ? e.message : "Error: Failed to submit delete request. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else if (tc.name === "query_google_sheet" && sheetsEnabled && googleSheetsList.length > 0) {
+        try {
+          const useWhen = typeof tc.args?.useWhen === "string" ? tc.args.useWhen : googleSheetsList[0].useWhen;
+          const range = typeof tc.args?.range === "string" ? tc.args.range : undefined;
+          content = await queryGoogleSheetTool.invoke({ useWhen, range });
+        } catch (e) {
+          console.error("query_google_sheet error:", e);
+          content = e instanceof Error ? e.message : "Error: Failed to fetch sheet. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else if (tc.name === "create_note" && tc.args && typeof tc.args.content === "string") {
+        try {
+          const patientName = typeof tc.args.patientName === "string" ? tc.args.patientName : undefined;
+          const category = typeof tc.args.category === "string" && ["common_questions", "keywords", "analytics", "insights", "other"].includes(tc.args.category)
+            ? (tc.args.category as "common_questions" | "keywords" | "analytics" | "insights" | "other")
+            : undefined;
+          content = await createNoteTool.invoke({
+            content: tc.args.content,
+            patientName,
+            category,
+          });
+        } catch (e) {
+          console.error("create_note error:", e);
+          content = e instanceof Error ? e.message : "Error: Failed to create note. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else {
+        content = "Invalid arguments.";
+      }
+      toolMessages.push(new ToolMessage({ content, tool_call_id: tc.id }));
+    }
+    currentMessages = [...currentMessages, response, ...toolMessages];
+    response = await modelWithTools.invoke(currentMessages);
+    
+    // Accumulate tokens from this tool call round
+    const roundUsage = extractTokenUsage(response);
+    accumulatedUsage.inputTokens += roundUsage.inputTokens;
+    accumulatedUsage.outputTokens += roundUsage.outputTokens;
+    accumulatedUsage.totalTokens += roundUsage.totalTokens;
+  }
+
+  let text = "";
+  if (typeof response.content === "string") text = response.content;
+  else if (Array.isArray(response.content))
+    text = (response.content as { text?: string }[]).map((c) => c?.text ?? "").join("");
+  const markerPresent = text.includes(HANDOFF_MARKER);
+  const textWithoutMarker = markerPresent
+    ? text.replace(new RegExp(`\\s*${HANDOFF_MARKER.replace(/[\\\\[\\]]/g, "\\$&")}\\s*$`, "i"), "").trim()
+    : text;
+  const finalText = textWithoutMarker || "I could not generate a response. Please try rephrasing.";
+  const requestHandoff =
+    markerPresent ||
+    /speak with (a )?(care )?(coordinator|team|human|agent)/i.test(text) ||
+    /recommend.*(speaking|talking) to/i.test(text);
+
+  // Record accumulated token usage from all invocations (initial + tool call rounds)
+  try {
+    // Use accumulated usage if we have any tokens, otherwise try to extract from final response as fallback
+    const finalUsage = extractTokenUsage(response);
+    const totalInputTokens = accumulatedUsage.inputTokens > 0 ? accumulatedUsage.inputTokens : finalUsage.inputTokens;
+    const totalOutputTokens = accumulatedUsage.outputTokens > 0 ? accumulatedUsage.outputTokens : finalUsage.outputTokens;
+    const totalTokens = accumulatedUsage.totalTokens > 0 ? accumulatedUsage.totalTokens : (finalUsage.totalTokens || totalInputTokens + totalOutputTokens);
+
+    // Only record if we have valid token counts
+    if (totalTokens > 0 || (totalInputTokens > 0 && totalOutputTokens >= 0)) {
+      await recordUsage(
+        config.model,
+        {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          totalTokens: totalTokens,
+        },
+        {
+          tenantId,
+          userId: options?.userId,
+          conversationId: options?.conversationId,
+        }
+      );
+      console.log(`✅ Recorded usage: ${totalInputTokens} input + ${totalOutputTokens} output = ${totalTokens} total tokens ($${computeCostUsd(config.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, totalTokens }).toFixed(6)})`);
+    } else {
+      console.warn("Could not extract usage metadata - no tokens found in any response");
+    }
+  } catch (e) {
+    // Usage tracking should never break the main flow
+    console.error("Failed to extract or record usage metadata:", e);
+  }
+
+  return { text: finalText, requestHandoff };
+}
+  tenantId: string,
+  history: { role: string; content: string; imageUrls?: string[] }[],
+  options?: { userId?: string; conversationId?: string; isRetry?: boolean }
+): Promise<AgentResult> {
+  const config = await getAgentConfig(tenantId);
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY or GOOGLE_API_KEY not set");
+
+  const model = new ChatGoogleGenerativeAI({
+    model: config.model,
+    temperature: config.temperature,
+    apiKey,
+  });
+
+  const avoidGeneric = config.agentName !== "CareMax Assistant"
+    ? ` Never say "CareMax Assistant" or "I don't have a name"—always say you are ${config.agentName}.`
+    : "";
+  const nameInstruction = `Your name is ${config.agentName}. You must always use this name: when greeting, when asked "what's your name" or "who are you", and in any introduction.${avoidGeneric}`;
+  const historyInstruction = `Use the full conversation history. Messages labeled "[Care team said to the user]: ..." are from a human care team member—treat them as what was actually said to the user. When the user asks what was recommended, what the care team said, or "what did you say?" / "what's the best?", answer in one short paragraph using only that history (e.g. "The care team suggested Panado Extra for your pain."). Do not repeat the same sentence or block twice in one reply. Do not repeat long triage unless the user asks for more detail.`;
+  const imageInstruction = `When the user attaches images, they are included in the conversation and you can see them. Describe what you observe when relevant (e.g. for symptoms, skin, wounds) and suggest next steps. Do not say you cannot see images or that images are not available—you receive them when the user sends them.`;
+  const toneInstruction = `Tone: Be natural and concise. For "hi", "hello", or "how are you?" reply in one short sentence (e.g. "Hi! How can I help?" or "Doing well, thanks—what can I help with?"). Do not repeat "I am [name], a clinical triage assistant" or "How can I assist you with your health concerns today?" in every message—say it only when the user asks who you are or what you do. Vary your wording; avoid the same phrases in every reply.`;
+
+  const escalationInstruction = `
+Escalation to a human: When EITHER of the following is true, you MUST end your reply with exactly "${HANDOFF_MARKER}" on a new line (the user will not see this; the system will connect them to a care team member).
+1) The user expresses in any way that they want to speak to a human, a real person, the care team, or an agent—including indirect phrasings like "can I talk to someone?", "I want a person", "not a bot", "real human", "actual person", "get me a human", "speak to staff", "connect me with support".
+2) You have already tried to help with the same or similar question and could not resolve it, or the user is asking again / rephrasing after you gave an uncertain or unhelpful answer—in that case escalate so a human can take over instead of repeating that you cannot help.`;
+  const followUpHint =
+    hasMultipleUserTurns(history) && lastReplyWasUnhelpfulOrUncertain(history)
+      ? ` The user has sent another message after you previously could not fully help. You MUST end your reply with "${HANDOFF_MARKER}" to escalate to a human.`
+      : "";
+
+  // Get existing notes for this conversation to prevent duplicates
+  let existingNotesContext = "";
+  if (options?.conversationId) {
+    try {
+      const existingNotes = await listAgentNotes(tenantId, { conversationId: options.conversationId, limit: 10 });
+      if (existingNotes.length > 0) {
+        existingNotesContext = `\n\n--- Existing notes in this conversation (do NOT create duplicates) ---\n${existingNotes.map((n, i) => `${i + 1}. [${n.category}] ${n.content}${n.patientName ? ` (User: ${n.patientName})` : ""}`).join("\n")}\n--- End of existing notes ---\n\nBefore creating a note, check the list above. If a note about the same topic already exists (same question pattern, same keyword, same insight), do NOT create a duplicate. Only create a note if it's genuinely new information not already covered above.`;
+      }
+    } catch (e) {
+      console.warn("Failed to load existing notes for deduplication:", e);
+    }
+  }
+
+  let recoveryInstruction = "";
+  if (options?.isRetry) {
+    recoveryInstruction = "\n\nNOTE: A previous attempt to process this request failed due to a tool error. Please ignore any previous technical failures and focus on answering the user's last question based on the history provided.";
+  }
+
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}${recoveryInstruction}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notes: As you interact with users, observe patterns and create notes for admin review. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. Create notes periodically when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points). These notes help admins understand user needs and improve the service.${existingNotesContext}`;
+  if (config.ragEnabled) {
+    const lastUser = history.filter((m) => m.role === "user").pop();
+    const ragContext = lastUser ? await getRagContext(tenantId, lastUser.content) : "";
+    if (ragContext) {
+      systemContent += `\n\nRelevant context from this organization's knowledge base (use this for contact info, phone numbers, hours, locations, and other org-specific details):\n${ragContext}`;
+    } else if (lastUser && process.env.NODE_ENV !== "test") {
+      console.log("RAG: enabled but no context returned for tenant", tenantId, "- check Agent settings \"Use RAG\" and that RAG documents exist and are indexed.");
+    }
+    const existingRecords = await listRecords(tenantId);
+    systemContent += `\n\n--- Current Auto Agent Brain records (check these before adding anything) ---\n${formatExistingRecordsForPrompt(existingRecords)}\n--- End of existing records ---`;
+    systemContent += `\n\nWhen the user or care team provides information to remember, you MUST decide based on the existing records above:\n1) If it UPDATES or CORRECTS an existing record (e.g. new phone number for the same branch, changed hours, corrected detail)—use request_edit_record with that record's recordId; do NOT add a new record (that causes duplicates).\n2) If a record is obsolete or should be removed—use request_delete_record with that recordId.\n3) Only use record_learned_knowledge for genuinely NEW information that does not overlap any existing record (no similar title/topic).\nUse short, clear titles and key facts. To edit or delete you must use the recordId from the list above; an admin will approve before the change is applied.`;
+  }
+
+  const googleSheetsList = config.googleSheets ?? [];
+  let sheetsEnabled = false;
+  if (googleSheetsList.length > 0) {
+    try {
+      sheetsEnabled = await isGoogleConnected(tenantId);
+      if (sheetsEnabled) {
+        systemContent += `\n\nThis organization has connected Google Sheets. Only query the sheet that matches the user's question:\n${googleSheetsList.map((s, i) => `- useWhen "${s.useWhen}" → use query_google_sheet with useWhen "${s.useWhen}" when the user asks about: ${s.useWhen}`).join("\n")}\nDo not call query_google_sheet for more than one sheet per turn; pick the single most relevant sheet by useWhen.`;
+      }
+    } catch {
+      // not connected
+    }
+  }
+
+  const langChainHistory = await toLangChainMessages(history);
+  const messages: BaseMessage[] = [
+    new SystemMessage(systemContent),
+    ...langChainHistory,
+  ];
+
+  const lastUserContent = history.filter((m) => m.role === "user").pop()?.content ?? "";
+  const userWantsHuman =
+    /\b(talk|speak|connect|transfer|hand me off|get me)\s+(to|with)\s+(a\s+)?(human|real\s+person|person|agent|someone|care\s+team|staff|representative)/i.test(lastUserContent) ||
+    /\b(let me\s+)?(talk|speak)\s+to\s+(a\s+)?(human|person|someone)/i.test(lastUserContent) ||
+    /\b(want|need)\s+to\s+(speak|talk)\s+to\s+(a\s+)?(human|person|someone)/i.test(lastUserContent) ||
+    /\b(real\s+person|human\s+agent|live\s+agent)/i.test(lastUserContent);
+
+  if (userWantsHuman) {
+    const handoffMessage =
+      `I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.\n\nIf your need is urgent, please call your care team or 911 in an emergency.`;
+    return { text: handoffMessage, requestHandoff: true };
+  }
+
+  const recordTool = new DynamicStructuredTool({
+    name: "record_learned_knowledge",
+    description:
+      "Save a new fact or piece of information that you did not know before, so you can use it in future answers. Use when the user or care team has provided contact details, policy info, or other org-specific facts.",
+    schema: z.object({
+      title: z.string().describe("Short title for the record (e.g. \"Support email address\")"),
+      content: z.string().describe("The key information to remember"),
+    }),
+    func: async ({ title, content }) => {
+      await createRecord(tenantId, title.trim(), content.trim());
+      return "Record saved.";
+    },
+  });
+
+  const requestEditTool = new DynamicStructuredTool({
+    name: "request_edit_record",
+    description:
+      "Request that an existing memory record be edited. The change will not be applied until an admin approves it (prevents manipulation). Use when information in a record is wrong or outdated.",
+    schema: z.object({
+      recordId: z.string().describe("The ID of the record to edit"),
+      title: z.string().optional().describe("New title (omit to keep current)"),
+      content: z.string().optional().describe("New content (omit to keep current)"),
+      reason: z.string().optional().describe("Brief reason for the edit"),
+    }),
+    func: async ({ recordId, title, content, reason }) => {
+      const record = await getRecord(tenantId, recordId);
+      if (!record) return "Record not found. Cannot submit edit request.";
+      await createModificationRequest(tenantId, "edit", recordId, { title, content, reason });
+      return "Edit request submitted. An admin must approve it before the change is applied.";
+    },
+  });
+
+  const requestDeleteTool = new DynamicStructuredTool({
+    name: "request_delete_record",
+    description:
+      "Request that a memory record be deleted. The deletion will not happen until an admin approves it (prevents users from manipulating you into deleting important information).",
+    schema: z.object({
+      recordId: z.string().describe("The ID of the record to delete"),
+      reason: z.string().optional().describe("Brief reason for the deletion"),
+    }),
+    func: async ({ recordId, reason }) => {
+      const record = await getRecord(tenantId, recordId);
+      if (!record) return "Record not found. Cannot submit delete request.";
+      await createModificationRequest(tenantId, "delete", recordId, { reason });
+      return "Delete request submitted. An admin must approve it before the record is removed.";
+    },
+  });
+
+  const queryGoogleSheetTool = new DynamicStructuredTool({
+    name: "query_google_sheet",
+    description: `Fetch data from one of the organization's connected sheets. Pass useWhen to pick which sheet (only query the sheet that matches the user's question). Available: ${googleSheetsList.map((s) => s.useWhen).join(", ")}.`,
+    schema: z.object({
+      useWhen: z.string().describe(`Which sheet to query: one of ${googleSheetsList.map((s) => `\"${s.useWhen}\"`).join(", ")}. Must match exactly.`),
+      range: z.string().optional().describe("Optional A1 range, e.g. \"Sheet1\" or \"Bookings!A:F\". Omit to use the sheet's default range."),
+    }),
+    func: async ({ useWhen, range }) => {
+      const entry = googleSheetsList.find((s) => s.useWhen.toLowerCase() === (useWhen ?? "").toLowerCase()) ?? googleSheetsList[0];
+      try {
+        const rangeToUse = range?.trim() || entry.range;
+        return await fetchSheetData(tenantId, entry.spreadsheetId, rangeToUse ?? undefined);
+      } catch (e) {
+        console.error("query_google_sheet error:", e);
+        return "Error: Google Sheet is currently unavailable. Please apologize to the user and offer to help with something else or suggest they try again later.";
+      }
+    },
+  });
+
+  const createNoteTool = new DynamicStructuredTool({
+    name: "create_note",
+    description: "Create a note for admin review about analytics, insights, or patterns observed during conversations. Use this to track: most common questions by users, frequently asked about items/topics, important keywords or trends, user behavior patterns, or any insights that would help improve the service. Create notes when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points).",
+    schema: z.object({
+      content: z.string().describe("The note content describing the insight or pattern (e.g. \"Common question: Many users asking about appointment booking process\" or \"Keyword trend: Users frequently mention \'insurance coverage\'\" or \"Most asked about: Ntinda branch location and hours\")"),
+      patientName: z.string().optional().describe("Optional: Patient or user name if relevant to the note (usually omit for analytics notes)"),
+      category: z.enum(["common_questions", "keywords", "analytics", "insights", "other"]).optional().describe("Category: \"common_questions\" for frequently asked questions, \"keywords\" for trending keywords/phrases, \"analytics\" for usage patterns/metrics, \"insights\" for general observations, \"other\" for anything else"),
+    }),
+    func: async ({ content, patientName, category }) => {
+      if (!options?.conversationId) {
+        return "Cannot create note: conversation ID not available.";
+      }
+      try {
+        await createNote(tenantId, options.conversationId, content.trim(), {
+          userId: options?.userId,
+          patientName: patientName?.trim(),
+          category: category ?? "other",
+        });
+        return "Note created successfully.";
+      } catch (e) {
+        console.error("create_doctor_note error:", e);
+        return "Error: Failed to create note. Please apologize to the user and offer to help with something else or suggest they try again later.";
+      }
+    },
+  });
+
+  const tools: unknown[] = [];
+  // Always include note tool - it's essential for tracking analytics, insights, and patterns
+  tools.push(createNoteTool);
+  if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
+  if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
+  const modelWithTools = tools.length ? model.bindTools(tools as Parameters<typeof model.bindTools>[0]) : model;
+  let currentMessages: BaseMessage[] = messages;
+  const maxToolRounds = 3;
+  
+  // Accumulate tokens from all invocations (initial + tool call rounds)
+  let accumulatedUsage: UsageMetadata = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  
+  let response: BaseMessage = await modelWithTools.invoke(currentMessages);
+  const initialUsage = extractTokenUsage(response);
+  accumulatedUsage.inputTokens += initialUsage.inputTokens;
+  accumulatedUsage.outputTokens += initialUsage.outputTokens;
+  accumulatedUsage.totalTokens += initialUsage.totalTokens;
+
+  for (let round = 0; round < maxToolRounds; round++) {
+    const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
+    if (!toolCalls?.length) break;
+    const toolMessages: ToolMessage[] = [];
+    for (const tc of toolCalls) {
+      let content: string;
+      if (tc.name === "record_learned_knowledge" && tc.args && typeof tc.args.title === "string" && typeof tc.args.content === "string") {
+        try {
+          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim());
+          content = "Record saved.";
+        } catch (e) {
+          console.error("AutoAgentBrain createRecord error:", e);
+          content = "Error: Failed to save record. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else if (tc.name === "request_edit_record" && tc.args && typeof tc.args.recordId === "string") {
+        try {
+          content = await requestEditTool.invoke({
+            recordId: tc.args.recordId,
+            title: typeof tc.args.title === "string" ? tc.args.title : undefined,
+            content: typeof tc.args.content === "string" ? tc.args.content : undefined,
+            reason: typeof tc.args.reason === "string" ? tc.args.reason : undefined,
+          });
+        } catch (e) {
+          console.error("request_edit_record error:", e);
+          content = e instanceof Error ? e.message : "Error: Failed to submit edit request. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else if (tc.name === "request_delete_record" && tc.args && typeof tc.args.recordId === "string") {
+        try {
+          content = await requestDeleteTool.invoke({
+            recordId: tc.args.recordId,
+            reason: typeof tc.args.reason === "string" ? tc.args.reason : undefined,
+          });
+        } catch (e) {
+          console.error("request_delete_record error:", e);
+          content = e instanceof Error ? e.message : "Error: Failed to submit delete request. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else if (tc.name === "query_google_sheet" && sheetsEnabled && googleSheetsList.length > 0) {
+        try {
+          const useWhen = typeof tc.args?.useWhen === "string" ? tc.args.useWhen : googleSheetsList[0].useWhen;
+          const range = typeof tc.args?.range === "string" ? tc.args.range : undefined;
+          content = await queryGoogleSheetTool.invoke({ useWhen, range });
+        } catch (e) {
+          console.error("query_google_sheet error:", e);
+          content = e instanceof Error ? e.message : "Error: Failed to fetch sheet. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else if (tc.name === "create_note" && tc.args && typeof tc.args.content === "string") {
+        try {
+          const patientName = typeof tc.args.patientName === "string" ? tc.args.patientName : undefined;
+          const category = typeof tc.args.category === "string" && ["common_questions", "keywords", "analytics", "insights", "other"].includes(tc.args.category)
+            ? (tc.args.category as "common_questions" | "keywords" | "analytics" | "insights" | "other")
+            : undefined;
+          content = await createNoteTool.invoke({
+            content: tc.args.content,
+            patientName,
+            category,
+          });
+        } catch (e) {
+          console.error("create_note error:", e);
+          content = e instanceof Error ? e.message : "Error: Failed to create note. Please apologize to the user and offer to help with something else or suggest they try again later.";
+        }
+      } else {
+        content = "Invalid arguments.";
+      }
+      toolMessages.push(new ToolMessage({ content, tool_call_id: tc.id }));
+    }
+    currentMessages = [...currentMessages, response, ...toolMessages];
+    response = await modelWithTools.invoke(currentMessages);
+    
+    // Accumulate tokens from this tool call round
+    const roundUsage = extractTokenUsage(response);
+    accumulatedUsage.inputTokens += roundUsage.inputTokens;
+    accumulatedUsage.outputTokens += roundUsage.outputTokens;
+    accumulatedUsage.totalTokens += roundUsage.totalTokens;
+  }
+
+  let text = "";
+  if (typeof response.content === "string") text = response.content;
+  else if (Array.isArray(response.content))
+    text = (response.content as { text?: string }[]).map((c) => c?.text ?? "").join("");
+  const markerPresent = text.includes(HANDOFF_MARKER);
+  const textWithoutMarker = markerPresent
+    ? text.replace(new RegExp(`\\s*${HANDOFF_MARKER.replace(/[\\\[\]]/g, "\\$&")}\\s*$`, "i"), "").trim()
+    : text;
+  const finalText = textWithoutMarker || "I could not generate a response. Please try rephrasing.";
+  const requestHandoff =
+    markerPresent ||
+    /speak with (a )?(care )?(coordinator|team|human|agent)/i.test(text) ||
+    /recommend.*(speaking|talking) to/i.test(text);
+
+  // Record accumulated token usage from all invocations (initial + tool call rounds)
+  try {
+    // Use accumulated usage if we have any tokens, otherwise try to extract from final response as fallback
+    const finalUsage = extractTokenUsage(response);
+    const totalInputTokens = accumulatedUsage.inputTokens > 0 ? accumulatedUsage.inputTokens : finalUsage.inputTokens;
+    const totalOutputTokens = accumulatedUsage.outputTokens > 0 ? accumulatedUsage.outputTokens : finalUsage.outputTokens;
+    const totalTokens = accumulatedUsage.totalTokens > 0 ? accumulatedUsage.totalTokens : (finalUsage.totalTokens || totalInputTokens + totalOutputTokens);
+
+    // Only record if we have valid token counts
+    if (totalTokens > 0 || (totalInputTokens > 0 && totalOutputTokens >= 0)) {
+      await recordUsage(
+        config.model,
+        {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          totalTokens: totalTokens,
+        },
+        {
+          tenantId,
+          userId: options?.userId,
+          conversationId: options?.conversationId,
+        }
+      );
+      console.log(`✅ Recorded usage: ${totalInputTokens} input + ${totalOutputTokens} output = ${totalTokens} total tokens ($${computeCostUsd(config.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, totalTokens }).toFixed(6)})`);
+    } else {
+      console.warn("Could not extract usage metadata - no tokens found in any response");
+    }
+  } catch (e) {
+    // Usage tracking should never break the main flow
+    console.error("Failed to extract or record usage metadata:", e);
+  }
+
+  return { text: finalText, requestHandoff };
+}
+
+export async function runAgentWithRetry(
+  tenantId: string,
+  history: any[],
+  options?: any,
+  maxRetries = 2
+): Promise<AgentResult> {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await runAgent(tenantId, history, { ...options, isRetry: attempt > 0 });
+      
+      // If we get the "could not generate" fallback, treat it as a retryable failure
+      if (result.text === 'I could not generate a response. Please try rephrasing.') {
+        if (attempt < maxRetries) {
+          console.warn(`Agent returned fallback response, retrying (attempt ${attempt + 1})...`);
+          continue; 
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      lastError = error;
+      console.error(`Agent attempt ${attempt} failed:`, error);
+      
+      if (attempt < maxRetries) {
+        // Wait briefly before retrying (optional)
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        continue;
+      }
+    }
+  }
+  
+  // Final fallback: If all retries fail, return a helpful error or escalate
+  return { 
+    text: "I'm having a temporary technical issue processing your request. I've notified the care team to assist you.",
+    requestHandoff: true 
+  };
+}
+  tenantId: string,
+  history: { role: string; content: string; imageUrls?: string[] }[],
   options?: { userId?: string; conversationId?: string }
 ): Promise<AgentResult> {
   const config = await getAgentConfig(tenantId);
@@ -980,4 +1997,84 @@ Review the list above and submit edit/delete requests to consolidate scattered o
   }
 
   return { modificationRequestsCreated: requestCount };
+}
+
+export async function runAgentWithRetry(
+  tenantId: string,
+  history: any[],
+  options?: any,
+  maxRetries = 2
+): Promise<AgentResult> {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await runAgent(tenantId, history, { ...options, isRetry: attempt > 0 });
+      
+      // If we get the "could not generate" fallback, treat it as a retryable failure
+      if (result.text === 'I could not generate a response. Please try rephrasing.') {
+        if (attempt < maxRetries) {
+          console.warn(`Agent returned fallback response, retrying (attempt ${attempt + 1})...`);
+          continue; 
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      lastError = error;
+      console.error(`Agent attempt ${attempt} failed:`, error);
+      
+      if (attempt < maxRetries) {
+        // Wait briefly before retrying (optional)
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        continue;
+      }
+    }
+  }
+  
+  // Final fallback: If all retries fail, return a helpful error or escalate
+  return { 
+    text: "I'm having a temporary technical issue processing your request. I've notified the care team to assist you.",
+    requestHandoff: true 
+  };
+}
+
+export async function runAgentWithRetry(
+  tenantId: string,
+  history: any[],
+  options?: any,
+  maxRetries = 2
+): Promise<AgentResult> {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await runAgent(tenantId, history, { ...options, isRetry: attempt > 0 });
+      
+      // If we get the "could not generate" fallback, treat it as a retryable failure
+      if (result.text === 'I could not generate a response. Please try rephrasing.') {
+        if (attempt < maxRetries) {
+          console.warn(`Agent returned fallback response, retrying (attempt ${attempt + 1})...`);
+          continue; 
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      lastError = error;
+      console.error(`Agent attempt ${attempt} failed:`, error);
+      
+      if (attempt < maxRetries) {
+        // Wait briefly before retrying (optional)
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        continue;
+      }
+    }
+  }
+  
+  // Final fallback: If all retries fail, return a helpful error or escalate
+  return { 
+    text: "I'm having a temporary technical issue processing your request. I've notified the care team to assist you.",
+    requestHandoff: true 
+  };
 }
