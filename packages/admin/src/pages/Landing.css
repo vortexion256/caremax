@@ -98,7 +98,7 @@
   width: 100%;
   height: 100%;
   z-index: -1;
-  background-image: url('/assets/landing-bg.png');
+  /* background-image is handled in Landing.tsx */
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
