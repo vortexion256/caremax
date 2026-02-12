@@ -50,9 +50,9 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
 
         // Draw connecting line
         const gradient = ctx.createLinearGradient(centerX, centerY, x, y);
-        gradient.addColorStop(0, 'rgba(37, 99, 235, 0.6)');
-        gradient.addColorStop(0.5, 'rgba(147, 51, 234, 0.3)');
-        gradient.addColorStop(1, 'rgba(37, 99, 235, 0.1)');
+        gradient.addColorStop(0, 'rgba(37, 99, 235, 0.5)');
+        gradient.addColorStop(0.5, 'rgba(147, 51, 234, 0.25)');
+        gradient.addColorStop(1, 'rgba(37, 99, 235, 0.08)');
 
         ctx.strokeStyle = gradient;
         ctx.lineWidth = 1.5;
@@ -68,7 +68,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
           const px = centerX + Math.cos(angle) * radius * progress;
           const py = centerY + Math.sin(angle) * radius * progress;
 
-          ctx.fillStyle = `rgba(37, 99, 235, ${0.4 * (1 - progress)})`;
+          ctx.fillStyle = `rgba(37, 99, 235, ${0.3 * (1 - progress)})`;
           ctx.beginPath();
           ctx.arc(px, py, 2, 0, Math.PI * 2);
           ctx.fill();
@@ -77,7 +77,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
 
       // Draw center glow
       const glowGradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, 70);
-      glowGradient.addColorStop(0, 'rgba(37, 99, 235, 0.2)');
+      glowGradient.addColorStop(0, 'rgba(37, 99, 235, 0.1)');
       glowGradient.addColorStop(1, 'rgba(37, 99, 235, 0)');
       ctx.fillStyle = glowGradient;
       ctx.fillRect(centerX - 70, centerY - 70, 140, 140);
@@ -101,12 +101,12 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       style={{ 
         position: 'relative', 
         width: '100%', 
-        height: isMobile ? '400px' : '550px', 
-        background: '#0f172a',
+        height: isMobile ? '300px' : '380px', 
+        background: '#ffffff',
         borderRadius: '16px',
         overflow: 'hidden',
         marginTop: '24px',
-        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3)'
+        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
       }}
     >
       <canvas
@@ -129,11 +129,11 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
           left: '50%',
           transform: 'translate(-50%, -50%)',
           zIndex: 10,
-          width: isMobile ? '100px' : '130px',
-          height: isMobile ? '100px' : '130px',
+          width: isMobile ? '80px' : '100px',
+          height: isMobile ? '80px' : '100px',
           borderRadius: '50%',
-          border: '3px solid rgba(37, 99, 235, 0.5)',
-          background: 'rgba(15, 23, 42, 0.8)',
+          border: '3px solid rgba(37, 99, 235, 0.6)',
+          background: 'rgba(255, 255, 255, 0.95)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -163,14 +163,14 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
               transform: 'translate(-50%, -50%)',
               zIndex: 10,
               padding: isMobile ? '6px 12px' : '8px 16px',
-              background: 'rgba(30, 41, 59, 0.7)',
-              border: '1px solid rgba(37, 99, 235, 0.4)',
+              background: 'rgba(255, 255, 255, 0.85)',
+              border: '1px solid rgba(37, 99, 235, 0.5)',
               borderRadius: '20px',
-              color: '#3b82f6',
+              color: '#2563eb',
               fontSize: isMobile ? '11px' : '13px',
               fontWeight: 600,
               whiteSpace: 'nowrap',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+              boxShadow: '0 2px 4px -1px rgba(0, 0, 0, 0.08), 0 1px 2px -1px rgba(0, 0, 0, 0.04)',
               backdropFilter: 'blur(4px)',
               transition: 'all 0.3s ease'
             }}
