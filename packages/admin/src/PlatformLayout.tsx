@@ -69,7 +69,7 @@ export default function PlatformLayout() {
           width: isMobile ? 280 : 260,
           background: '#0f172a',
           color: '#fff',
-          position: isMobile ? 'fixed' : 'sticky',
+          position: 'fixed',
           top: 0,
           height: '100vh',
           left: isMobile ? (menuOpen ? 0 : -280) : 0,
@@ -77,7 +77,8 @@ export default function PlatformLayout() {
           transition: 'left 0.2s ease-in-out',
           display: 'flex',
           flexDirection: 'column',
-          padding: '24px 16px'
+          padding: '24px 16px',
+          overflowY: 'auto'
         }}
       >
         <div style={{ padding: '0 12px 4px', fontWeight: 700, fontSize: 18 }}>
@@ -170,7 +171,8 @@ export default function PlatformLayout() {
       <main style={{ 
         flex: 1, 
         padding: isMobile ? '80px 20px 40px' : '40px 60px', 
-        minWidth: 0
+        minWidth: 0,
+        marginLeft: isMobile ? 0 : 260
       }}>
         <div style={{ maxWidth: 1000, margin: '0 auto' }}>
           <Outlet />

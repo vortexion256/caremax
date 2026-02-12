@@ -7,7 +7,7 @@ import { useIsMobile } from './hooks/useIsMobile';
 export default function Layout() {
   const location = useLocation();
   const { tenantId, isPlatformAdmin } = useTenant();
-  const { isMobile, isVerySmall } = useIsMobile();
+  const { isMobile } = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const nav = [
@@ -24,7 +24,7 @@ export default function Layout() {
   ];
 
   return (
-    <div className={menuOpen ? 'mobile-menu-open' : ''} style={{ display: 'flex', minHeight: '100vh', width: '100%', background: 'transparent' }}>
+    <div className={menuOpen ? 'mobile-menu-open' : ''} style={{ display: 'flex', minHeight: '100vh', width: '100%', background: '#f8fafc' }}>
       {/* Mobile Header */}
       {isMobile && (
         <header style={{
@@ -64,7 +64,7 @@ export default function Layout() {
           width: isMobile ? 280 : 240,
           borderRight: '1px solid #e2e8f0',
           background: '#f8fafc',
-          position: isMobile ? 'fixed' : 'sticky',
+          position: 'fixed',
           top: 0,
           height: '100vh',
           left: isMobile ? (menuOpen ? 0 : -280) : 0,
@@ -72,7 +72,8 @@ export default function Layout() {
           transition: 'left 0.2s ease-in-out',
           display: 'flex',
           flexDirection: 'column',
-          padding: '24px 16px'
+          padding: '24px 16px',
+          overflowY: 'auto'
         }}
       >
         {!isMobile && (
@@ -168,11 +169,12 @@ export default function Layout() {
         flex: 1, 
         padding: isMobile ? '80px 20px 40px' : '40px 60px', 
         minWidth: 0,
-        background: 'rgba(255, 255, 255, 0.9)',
-        backdropFilter: 'blur(10px)',
+        marginLeft: isMobile ? 0 : 240,
+        background: '#fff',
         margin: isMobile ? '0' : '20px',
         borderRadius: isMobile ? '0' : '16px',
-        boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)'
+        boxShadow: '0 4px 24px rgba(0, 0, 0, 0.05)',
+        minHeight: 'calc(100vh - 40px)'
       }}>
         <div style={{ maxWidth: 1000, margin: '0 auto' }}>
           <Outlet />

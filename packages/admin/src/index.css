@@ -3,10 +3,10 @@
   --primary: #2563eb;
   --primary-hover: #1d4ed8;
   --bg-sidebar: #f8fafc;
-  --bg-main: #0f172a;
+  --bg-main: #ffffff;
   --bg-futuristic: radial-gradient(circle at 50% 50%, #1e1b4b 0%, #0f172a 100%),
     linear-gradient(135deg, rgba(37, 99, 235, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
-  --text-main: #f8fafc;
+  --text-main: #0f172a;
   --text-muted: #64748b;
   --border-color: #e2e8f0;
   --radius: 8px;
@@ -17,8 +17,7 @@ html, body {
   padding: 0;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   color: var(--text-main);
-  background: var(--bg-futuristic);
-  background-attachment: fixed;
+  background: #f8fafc;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
   width: 100%;
@@ -30,7 +29,7 @@ html, body {
 }
 
 h1, h2, h3 {
-  color: inherit;
+  color: #0f172a;
   font-weight: 600;
 }
 
@@ -41,6 +40,8 @@ input, textarea, select {
   font-size: 14px;
   transition: border-color 0.2s, box-shadow 0.2s;
   outline: none;
+  color: #0f172a;
+  background: #ffffff;
 }
 
 input:focus, textarea:focus, select:focus {
