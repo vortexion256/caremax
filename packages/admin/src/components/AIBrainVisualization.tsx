@@ -136,7 +136,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
           background: 'rgba(15, 23, 42, 0.8)',
           display: 'flex',
           alignItems: 'center',
-          justify-content: 'center',
+          justifyContent: 'center',
           overflow: 'hidden',
           boxShadow: '0 0 30px rgba(37, 99, 235, 0.4)'
         }}
@@ -151,17 +151,15 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       {/* Nodes */}
       {items.map((item, index) => {
         const angle = (item.angle * Math.PI) / 180;
-        const radius = isMobile ? 140 : 200;
-        const x = 50 + Math.cos(angle) * (radius / (isMobile ? 4 : 6)); // Percentage-based for better responsiveness
-        const y = 50 + Math.sin(angle) * (radius / (isMobile ? 4 : 6));
+        const nodeDistance = isMobile ? 40 : 35; // Percentage distance from center
 
         return (
           <div
             key={index}
             style={{
               position: 'absolute',
-              left: `${50 + Math.cos(angle) * (isMobile ? 38 : 42)}%`,
-              top: `${50 + Math.sin(angle) * (isMobile ? 38 : 42)}%`,
+              left: `${50 + Math.cos(angle) * nodeDistance}%`,
+              top: `${50 + Math.sin(angle) * nodeDistance}%`,
               transform: 'translate(-50%, -50%)',
               zIndex: 10,
               padding: isMobile ? '6px 12px' : '8px 16px',
