@@ -10,6 +10,7 @@ type Props = {
 export default function Landing({ onLogin }: Props) {
   const navigate = useNavigate();
   const [loading] = useState(false);
+  const [showVideo, setShowVideo] = useState(false);
   const { isMobile, isVerySmall } = useIsMobile();
 
   return (
@@ -177,7 +178,7 @@ export default function Landing({ onLogin }: Props) {
               Start Free Trial
             </button>
             <button
-              onClick={() => window.open('https://firebasestorage.googleapis.com/v0/b/caremax-15f69.firebasestorage.app/o/CareMAX%20-%20vid.mp4?alt=media&token=fddfcc94-74ee-4298-b983-6666e531f136', '_blank')}
+              onClick={() => setShowVideo(true)}
               disabled={loading}
               style={{
                 padding: '20px 44px',
@@ -283,6 +284,73 @@ export default function Landing({ onLogin }: Props) {
           </div>
         </div>
       </footer>
+
+      {/* Video Modal */}
+      {showVideo && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.9)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 20
+          }}
+          onClick={() => setShowVideo(false)}
+        >
+          <div 
+            style={{
+              position: 'relative',
+              width: '100%',
+              maxWidth: 1000,
+              aspectRatio: '16/9',
+              backgroundColor: '#000',
+              borderRadius: 12,
+              overflow: 'hidden',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowVideo(false)}
+              style={{
+                position: 'absolute',
+                top: 20,
+                right: 20,
+                background: 'rgba(255, 255, 255, 0.2)',
+                border: 'none',
+                color: 'white',
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                cursor: 'pointer',
+                fontSize: 24,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 10,
+                backdropFilter: 'blur(4px)'
+              }}
+            >
+              ×
+            </button>
+            <video 
+              autoPlay 
+              controls 
+              muted 
+              style={{ width: '100%', height: '100%' }}
+            >
+              <source src="https://firebasestorage.googleapis.com/v0/b/caremax-15f69.firebasestorage.app/o/CareMAX%20-%20vid.mp4?alt=media&token=fddfcc94-74ee-4298-b983-6666e531f136" type="video/mp4" />
+              Your browser does not support the video tag.
+            </video>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
