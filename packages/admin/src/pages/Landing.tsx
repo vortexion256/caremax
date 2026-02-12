@@ -26,12 +26,7 @@ export default function Landing({ onLogin }: Props) {
         backgroundColor: '#f8fafc',
       }}
     >
-      <div 
-        className="dynamic-bg" 
-        style={{ 
-          backgroundImage: "url('/assets/landing-bg.png')",
-        }} 
-      />
+      <div className="dynamic-bg" />
 
       {/* Header */}
       <header style={{ 
