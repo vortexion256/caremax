@@ -294,12 +294,14 @@ export default function Landing({ onLogin }: Props) {
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.9)',
+            backgroundColor: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 1000,
-            padding: 20
+            padding: isMobile ? 10 : 40
           }}
           onClick={() => setShowVideo(false)}
         >
