@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Brain Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 100%;
+            height: 100vh;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+
+        .container {
+            position: relative;
+            width: 90vw;
+            height: 90vh;
+            max-width: 1200px;
+            max-height: 800px;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .brain-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+        }
+
+        .brain-image {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: rgba(100, 200, 255, 0.1);
+            border: 2px solid rgba(100, 200, 255, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            box-shadow: 0 0 30px rgba(100, 200, 255, 0.3);
+        }
+
+        .brain-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .node {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .node-circle {
+            width: 100px;
+            height: 50px;
+            background: linear-gradient(135deg, rgba(100, 200, 255, 0.2), rgba(150, 100, 255, 0.2));
+            border: 2px solid rgba(100, 200, 255, 0.6);
+            border-radius: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: #64c8ff;
+            text-align: center;
+            padding: 8px;
+            box-shadow: 0 0 15px rgba(100, 200, 255, 0.2);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .node-circle:hover {
+            background: linear-gradient(135deg, rgba(100, 200, 255, 0.4), rgba(150, 100, 255, 0.4));
+            box-shadow: 0 0 25px rgba(100, 200, 255, 0.5);
+            transform: scale(1.1);
+        }
+
+        .title {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #64c8ff;
+            font-size: 28px;
+            font-weight: 700;
+            text-align: center;
+            z-index: 20;
+            text-shadow: 0 0 20px rgba(100, 200, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="title">CareMax AI Brain</div>
+    <div class="container">
+        <canvas id="canvas"></canvas>
+        <div class="brain-center">
+            <div class="brain-image">
+                <img src="caremaxbrain.png" alt="AI Brain">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const container = document.querySelector('.container');
+
+        // Set canvas size
+        function resizeCanvas() {
+            canvas.width = container.offsetWidth;
+            canvas.height = container.offsetHeight;
+            drawConnections();
+        }
+
+        // Define connected items
+        const items = [
+            { label: 'Tools', angle: 0 },
+            { label: 'Excel Sheets', angle: 45 },
+            { label: 'Agent Brain', angle: 90 },
+            { label: 'Notes', angle: 135 },
+            { label: 'Database', angle: 180 },
+            { label: 'APIs', angle: 225 },
+            { label: 'Documents', angle: 270 },
+            { label: 'Analytics', angle: 315 }
+        ];
+
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const radius = Math.min(canvas.width, canvas.height) * 0.35;
+
+        // Draw animated lines
+        function drawConnections() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const time = Date.now() * 0.0005;
+
+            items.forEach((item, index) => {
+                const angle = (item.angle * Math.PI) / 180;
+                const x = centerX + Math.cos(angle) * radius;
+                const y = centerY + Math.sin(angle) * radius;
+
+                // Draw line with gradient
+                const gradient = ctx.createLinearGradient(centerX, centerY, x, y);
+                gradient.addColorStop(0, 'rgba(100, 200, 255, 0.8)');
+                gradient.addColorStop(0.5, 'rgba(150, 100, 255, 0.4)');
+                gradient.addColorStop(1, 'rgba(100, 200, 255, 0.2)');
+
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+
+                // Draw animated particles along the line
+                const particleCount = 3;
+                for (let i = 0; i < particleCount; i++) {
+                    const progress = (time + i / particleCount) % 1;
+                    const px = centerX + Math.cos(angle) * radius * progress;
+                    const py = centerY + Math.sin(angle) * radius * progress;
+
+                    ctx.fillStyle = `rgba(100, 200, 255, ${0.6 * (1 - progress)})`;
+                    ctx.beginPath();
+                    ctx.arc(px, py, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // Draw glow effect around center
+                const glowGradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, 60);
+                glowGradient.addColorStop(0, 'rgba(100, 200, 255, 0.3)');
+                glowGradient.addColorStop(1, 'rgba(100, 200, 255, 0)');
+                ctx.fillStyle = glowGradient;
+                ctx.fillRect(centerX - 60, centerY - 60, 120, 120);
+            });
+
+            requestAnimationFrame(drawConnections);
+        }
+
+        // Position nodes
+        function positionNodes() {
+            const existingNodes = document.querySelectorAll('.node');
+            existingNodes.forEach(node => node.remove());
+
+            items.forEach(item => {
+                const angle = (item.angle * Math.PI) / 180;
+                const x = centerX + Math.cos(angle) * radius;
+                const y = centerY + Math.sin(angle) * radius;
+
+                const node = document.createElement('div');
+                node.className = 'node';
+                node.style.left = x + 'px';
+                node.style.top = y + 'px';
+                node.style.transform = 'translate(-50%, -50%)';
+
+                const circle = document.createElement('div');
+                circle.className = 'node-circle';
+                circle.textContent = item.label;
+
+                node.appendChild(circle);
+                container.appendChild(node);
+            });
+        }
+
+        // Initialize
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        positionNodes();
+    </script>
+</body>
+</html>
