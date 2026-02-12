@@ -177,7 +177,7 @@ export default function Landing({ onLogin }: Props) {
               Start Free Trial
             </button>
             <button
-              onClick={() => navigate('/login')}
+              onClick={() => window.open('https://firebasestorage.googleapis.com/v0/b/caremax-15f69.firebasestorage.app/o/CareMAX%20-%20vid.mp4?alt=media&token=fddfcc94-74ee-4298-b983-6666e531f136', '_blank')}
               disabled={loading}
               style={{
                 padding: '20px 44px',
@@ -195,7 +195,7 @@ export default function Landing({ onLogin }: Props) {
               onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
               onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
             >
-              View Demo
+              Watch Demo
             </button>
           </div>
         </div>
