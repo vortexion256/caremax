@@ -23,9 +23,16 @@ export default function Landing({ onLogin }: Props) {
         overflowX: 'hidden',
         fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
         color: 'white',
+        backgroundColor: '#0f172a', // Dark fallback background
       }}
     >
-      <div className="dynamic-bg" style={{ backgroundImage: "url('/assets/landing-bg.png')" }} />
+      <div 
+        className="dynamic-bg" 
+        style={{ 
+          backgroundImage: "url('/assets/landing-bg.png')",
+          backgroundColor: '#0f172a' 
+        }} 
+      />
 
       {/* Header */}
       <header style={{ 
