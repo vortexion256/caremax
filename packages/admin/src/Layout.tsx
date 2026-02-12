@@ -23,6 +23,8 @@ export default function Layout() {
     { path: '/embed', label: 'Embed Widget' },
   ];
 
+  const sidebarWidth = isMobile ? 280 : 240;
+
   return (
     <div className={menuOpen ? 'mobile-menu-open' : ''} style={{ display: 'flex', minHeight: '100vh', width: '100%', background: '#f8fafc' }}>
       {/* Mobile Header */}
@@ -61,13 +63,13 @@ export default function Layout() {
       {/* Sidebar */}
       <aside
         style={{
-          width: isMobile ? 280 : 240,
+          width: sidebarWidth,
           borderRight: '1px solid #e2e8f0',
           background: '#f8fafc',
           position: 'fixed',
           top: 0,
           height: '100vh',
-          left: isMobile ? (menuOpen ? 0 : -280) : 0,
+          left: isMobile ? (menuOpen ? 0 : -sidebarWidth) : 0,
           zIndex: 1000,
           transition: 'left 0.2s ease-in-out',
           display: 'flex',
@@ -169,14 +171,18 @@ export default function Layout() {
         flex: 1, 
         padding: isMobile ? '80px 20px 40px' : '40px 60px', 
         minWidth: 0,
-        marginLeft: isMobile ? 0 : 240,
-        background: '#fff',
-        margin: isMobile ? '0' : '20px',
-        borderRadius: isMobile ? '0' : '16px',
-        boxShadow: '0 4px 24px rgba(0, 0, 0, 0.05)',
-        minHeight: 'calc(100vh - 40px)'
+        marginLeft: isMobile ? 0 : sidebarWidth,
+        background: 'transparent'
       }}>
-        <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+        <div style={{ 
+          maxWidth: 1000, 
+          margin: '0 auto',
+          background: '#fff',
+          padding: isMobile ? '0' : '40px',
+          borderRadius: isMobile ? '0' : '16px',
+          boxShadow: isMobile ? 'none' : '0 4px 24px rgba(0, 0, 0, 0.05)',
+          minHeight: isMobile ? 'auto' : 'calc(100vh - 80px)'
+        }}>
           <Outlet />
         </div>
       </main>

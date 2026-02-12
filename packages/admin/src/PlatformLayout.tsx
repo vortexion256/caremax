@@ -29,6 +29,8 @@ export default function PlatformLayout() {
     { path: '/platform/usage', label: 'Usage & Billing' },
   ];
 
+  const sidebarWidth = isMobile ? 280 : 260;
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh', width: '100%', background: '#f8fafc' }}>
       {/* Mobile Header */}
@@ -66,13 +68,13 @@ export default function PlatformLayout() {
       {/* Sidebar */}
       <aside
         style={{
-          width: isMobile ? 280 : 260,
+          width: sidebarWidth,
           background: '#0f172a',
           color: '#fff',
           position: 'fixed',
           top: 0,
           height: '100vh',
-          left: isMobile ? (menuOpen ? 0 : -280) : 0,
+          left: isMobile ? (menuOpen ? 0 : -sidebarWidth) : 0,
           zIndex: 1000,
           transition: 'left 0.2s ease-in-out',
           display: 'flex',
@@ -172,7 +174,7 @@ export default function PlatformLayout() {
         flex: 1, 
         padding: isMobile ? '80px 20px 40px' : '40px 60px', 
         minWidth: 0,
-        marginLeft: isMobile ? 0 : 260
+        marginLeft: isMobile ? 0 : sidebarWidth
       }}>
         <div style={{ maxWidth: 1000, margin: '0 auto' }}>
           <Outlet />
