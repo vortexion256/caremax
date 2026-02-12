@@ -21,10 +21,8 @@
 }
 
 .feature-card {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
   border-radius: 24px;
   padding: 40px 32px;
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -32,13 +30,14 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
 
 .feature-card:hover {
   transform: translateY(-12px);
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.3);
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
 }
 
 .feature-icon {
@@ -50,14 +49,14 @@
 .feature-title {
   font-size: 22px;
   font-weight: 700;
-  color: white;
+  color: #0f172a;
   margin-bottom: 16px;
   letter-spacing: -0.01em;
 }
 
 .feature-description {
   font-size: 16px;
-  color: rgba(255, 255, 255, 0.7);
+  color: #64748b;
   line-height: 1.7;
 }
 
@@ -66,15 +65,14 @@
   align-items: center;
   gap: 8px;
   padding: 8px 20px;
-  background: rgba(255, 255, 255, 0.1);
+  background: #f0f9ff;
   border-radius: 100px;
-  color: white;
+  color: #0369a1;
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 32px;
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e0f2fe;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 @keyframes fadeIn {
@@ -108,10 +106,9 @@
   content: "";
   position: absolute;
   inset: 0;
-  /* Darker overlay to ensure white text is visible even if image fails */
-  background: linear-gradient(to bottom, rgba(15, 23, 42, 0.8), rgba(15, 23, 42, 0.6)),
-              radial-gradient(circle at 20% 30%, rgba(30, 27, 75, 0.6) 0%, transparent 60%),
-              radial-gradient(circle at 80% 70%, rgba(76, 29, 149, 0.6) 0%, transparent 60%);
+  background: radial-gradient(circle at 20% 30%, rgba(240, 249, 255, 0.8) 0%, transparent 60%),
+              radial-gradient(circle at 80% 70%, rgba(245, 243, 255, 0.8) 0%, transparent 60%),
+              rgba(255, 255, 255, 0.4);
   z-index: 1;
 }
 

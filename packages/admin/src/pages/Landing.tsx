@@ -22,24 +22,23 @@ export default function Landing({ onLogin }: Props) {
         maxWidth: '100vw',
         overflowX: 'hidden',
         fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
-        color: 'white',
-        backgroundColor: '#0f172a', // Dark fallback background
+        color: '#0f172a',
+        backgroundColor: '#f8fafc',
       }}
     >
       <div 
         className="dynamic-bg" 
         style={{ 
           backgroundImage: "url('/assets/landing-bg.png')",
-          backgroundColor: '#0f172a' 
         }} 
       />
 
       {/* Header */}
       <header style={{ 
         padding: isVerySmall ? '12px 16px' : isMobile ? '16px 24px' : '20px 48px',
-        background: 'rgba(15, 23, 42, 0.3)', 
+        background: 'rgba(255, 255, 255, 0.8)', 
         backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        borderBottom: '1px solid rgba(0, 0, 0, 0.05)',
         position: 'sticky',
         top: 0,
         zIndex: 100,
@@ -61,7 +60,7 @@ export default function Landing({ onLogin }: Props) {
             }}>C</div>
             <h1 style={{ 
               margin: 0, 
-              color: 'white', 
+              color: '#0f172a', 
               fontSize: isVerySmall ? 20 : 26,
               fontWeight: 800,
               letterSpacing: '-0.03em'
@@ -79,7 +78,7 @@ export default function Landing({ onLogin }: Props) {
                 padding: '10px 20px',
                 fontSize: 15,
                 backgroundColor: 'transparent',
-                color: 'white',
+                color: '#475569',
                 border: 'none',
                 borderRadius: 10,
                 cursor: loading ? 'not-allowed' : 'pointer',
@@ -132,8 +131,7 @@ export default function Landing({ onLogin }: Props) {
             marginBottom: 28, 
             lineHeight: 1.05,
             letterSpacing: '-0.04em',
-            textShadow: '0 10px 30px rgba(0,0,0,0.3)',
-            color: 'white'
+            color: '#0f172a'
           }}>
             Intelligent Clinical <br />
             <span style={{ color: '#38bdf8' }}>Triage for Healthcare</span>
@@ -141,7 +139,7 @@ export default function Landing({ onLogin }: Props) {
           <p style={{ 
             fontSize: isVerySmall ? 17 : 22,
             marginBottom: 56, 
-            color: 'rgba(255,255,255,0.85)', 
+            color: '#475569', 
             lineHeight: 1.6, 
             maxWidth: 750, 
             margin: '0 auto 56px',
@@ -189,18 +187,18 @@ export default function Landing({ onLogin }: Props) {
               style={{
                 padding: '20px 44px',
                 fontSize: 18,
-                backgroundColor: 'rgba(255,255,255,0.05)',
-                color: 'white',
-                border: '1px solid rgba(255,255,255,0.2)',
+                backgroundColor: 'white',
+                color: '#0f172a',
+                border: '1px solid #e2e8f0',
                 borderRadius: 14,
                 cursor: loading ? 'not-allowed' : 'pointer',
                 fontWeight: 700,
-                backdropFilter: 'blur(12px)',
                 width: isMobile ? '100%' : 'auto',
                 transition: 'all 0.3s',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
               }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
             >
               View Demo
             </button>
@@ -211,21 +209,21 @@ export default function Landing({ onLogin }: Props) {
       {/* Features Section */}
       <section style={{ 
         padding: isMobile ? '80px 24px' : '120px 24px',
-        background: 'rgba(15, 23, 42, 0.4)',
-        borderTop: '1px solid rgba(255, 255, 255, 0.05)'
+        background: '#ffffff',
+        borderTop: '1px solid #f1f5f9'
       }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', width: '100%' }}>
           <div style={{ textAlign: 'center', marginBottom: 80 }} className="animate-fade-in delay-1">
             <h3 style={{ 
               fontSize: isMobile ? 32 : 44,
               fontWeight: 800, 
-              color: 'white', 
+              color: '#0f172a', 
               marginBottom: 20,
               letterSpacing: '-0.03em'
             }}>
               Built for Modern Healthcare
             </h3>
-            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 20, maxWidth: 700, margin: '0 auto' }}>
+            <p style={{ color: '#64748b', fontSize: 20, maxWidth: 700, margin: '0 auto' }}>
               Advanced AI capabilities designed to integrate seamlessly into clinical workflows.
             </p>
           </div>
@@ -267,18 +265,18 @@ export default function Landing({ onLogin }: Props) {
       <footer style={{ 
         padding: '64px 24px',
         textAlign: 'center', 
-        color: 'rgba(255,255,255,0.5)', 
-        borderTop: '1px solid rgba(255, 255, 255, 0.05)',
-        background: 'rgba(15, 23, 42, 0.6)',
+        color: '#64748b', 
+        borderTop: '1px solid #f1f5f9',
+        background: '#f8fafc',
       }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: 'center', gap: 32 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ 
-              width: 28, height: 28, background: 'rgba(255,255,255,0.2)', borderRadius: 8, 
+              width: 28, height: 28, background: '#0ea5e9', borderRadius: 8, 
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontWeight: 800, color: 'white', fontSize: 16
             }}>C</div>
-            <span style={{ fontWeight: 700, color: 'white', fontSize: 20, letterSpacing: '-0.02em' }}>CareMax</span>
+            <span style={{ fontWeight: 700, color: '#0f172a', fontSize: 20, letterSpacing: '-0.02em' }}>CareMax</span>
           </div>
           <p style={{ margin: 0, fontSize: 15 }}>
             © 2026 CareMax Health Technologies. All rights reserved.
