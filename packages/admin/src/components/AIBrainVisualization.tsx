@@ -15,6 +15,14 @@ interface Item {
   color: string;
 }
 
+interface CommunicationEvent {
+  sourceIndex: number;
+  targetIndex: number;
+  color: string;
+  startTime: number;
+  duration: number;
+}
+
 const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -25,7 +33,75 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [handoffCount, setHandoffCount] = useState(0);
   const [activeItemIndex, setActiveItemIndex] = useState<number | null>(null);
+  const [communicationEvents, setCommunicationEvents] = useState<CommunicationEvent[]>([]);
+  const [isSimulating, setIsSimulating] = useState(false);
   const { tenantId } = useTenant();
+
+  const items: Item[] = [
+    { label: 'Knowledge Base', shortLabel: 'KB', path: '/rag', color: '#3b82f6' },
+    { label: 'Auto Brain', shortLabel: 'AB', path: '/agent-brain', color: '#8b5cf6' },
+    { label: 'Notes', shortLabel: 'NT', path: '/agent-notes', color: '#ec4899' },
+    { label: 'Handoffs', shortLabel: 'HO', path: '/handoffs', color: '#f43f5e' },
+    { label: 'Integrations', shortLabel: 'IN', path: '/integrations', color: '#10b981' },
+    { label: 'Agent Config', shortLabel: 'AC', path: '/agent', color: '#f59e0b' }
+  ];
+
+  // Generate random color
+  const getRandomColor = () => {
+    const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e', '#10b981', '#f59e0b', '#06b6d4', '#84cc16'];
+    return colors[Math.floor(Math.random() * colors.length)];
+  };
+
+  // Simulate communication between nodes
+  const simulateCommunication = () => {
+    setIsSimulating(true);
+    
+    const simulationInterval = setInterval(() => {
+      const sourceIndex = Math.floor(Math.random() * items.length);
+      const targetIndex = Math.floor(Math.random() * items.length);
+      
+      // Avoid self-communication
+      if (sourceIndex === targetIndex) {
+        return;
+      }
+
+      const newEvent: CommunicationEvent = {
+        sourceIndex,
+        targetIndex,
+        color: getRandomColor(),
+        startTime: Date.now(),
+        duration: 1500 + Math.random() * 1000 // 1.5-2.5 seconds
+      };
+
+      setCommunicationEvents(prev => [...prev, newEvent]);
+
+      // Highlight the nodes
+      setActiveItemIndex(sourceIndex);
+      setTimeout(() => {
+        setActiveItemIndex(targetIndex);
+      }, 300);
+    }, 800 + Math.random() * 700); // Fire every 0.8-1.5 seconds
+
+    return () => clearInterval(simulationInterval);
+  };
+
+  // Start simulation on mount
+  useEffect(() => {
+    const cleanup = simulateCommunication();
+    return cleanup;
+  }, []);
+
+  // Clean up old communication events
+  useEffect(() => {
+    const cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      setCommunicationEvents(prev =>
+        prev.filter(event => now - event.startTime < event.duration)
+      );
+    }, 100);
+
+    return () => clearInterval(cleanupInterval);
+  }, []);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -75,15 +151,6 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
 
     return () => unsub();
   }, [tenantId]);
-
-  const items: Item[] = [
-    { label: 'Knowledge Base', shortLabel: 'KB', path: '/rag', color: '#3b82f6' },
-    { label: 'Auto Brain', shortLabel: 'AB', path: '/agent-brain', color: '#8b5cf6' },
-    { label: 'Notes', shortLabel: 'NT', path: '/agent-notes', color: '#ec4899' },
-    { label: 'Handoffs', shortLabel: 'HO', path: '/handoffs', color: '#f43f5e' },
-    { label: 'Integrations', shortLabel: 'IN', path: '/integrations', color: '#10b981' },
-    { label: 'Agent Config', shortLabel: 'AC', path: '/agent', color: '#f59e0b' }
-  ];
 
   useEffect(() => {
     const updateDimensions = () => {
@@ -135,7 +202,8 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
 
       const time = Date.now() * 0.001;
 
-        items.forEach((_, index) => {
+      // Draw regular connections to all nodes
+      items.forEach((_, index) => {
         const nodeEl = nodeRefs.current[index];
         if (!nodeEl) return;
 
@@ -183,6 +251,86 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         ctx.fill();
       });
 
+      // Draw communication events (node-to-node connections)
+      const now = Date.now();
+      communicationEvents.forEach(event => {
+        const progress = (now - event.startTime) / event.duration;
+        
+        if (progress < 0 || progress > 1) return;
+
+        const sourceNode = nodeRefs.current[event.sourceIndex];
+        const targetNode = nodeRefs.current[event.targetIndex];
+
+        if (!sourceNode || !targetNode) return;
+
+        const sourceRect = sourceNode.getBoundingClientRect();
+        const targetRect = targetNode.getBoundingClientRect();
+
+        const sourceX = sourceRect.left - containerRect.left + sourceRect.width / 2;
+        const sourceY = sourceRect.top - containerRect.top + sourceRect.height / 2;
+        const targetX = targetRect.left - containerRect.left + targetRect.width / 2;
+        const targetY = targetRect.top - containerRect.top + targetRect.height / 2;
+
+        // Draw animated line between nodes
+        ctx.beginPath();
+        ctx.lineWidth = 3;
+        
+        const gradient = ctx.createLinearGradient(sourceX, sourceY, targetX, targetY);
+        gradient.addColorStop(0, event.color);
+        gradient.addColorStop(0.5, `${event.color}80`);
+        gradient.addColorStop(1, `${event.color}00`);
+
+        ctx.strokeStyle = gradient;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // Draw dashed line effect
+        const dashLength = 10;
+        const gapLength = 5;
+        const dx = targetX - sourceX;
+        const dy = targetY - sourceY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
+
+        let currentDist = 0;
+        let isDash = true;
+
+        while (currentDist < distance * progress) {
+          const segmentLength = isDash ? dashLength : gapLength;
+          const nextDist = Math.min(currentDist + segmentLength, distance * progress);
+
+          const x1 = sourceX + Math.cos(angle) * currentDist;
+          const y1 = sourceY + Math.sin(angle) * currentDist;
+          const x2 = sourceX + Math.cos(angle) * nextDist;
+          const y2 = sourceY + Math.sin(angle) * nextDist;
+
+          if (isDash) {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+          }
+
+          currentDist = nextDist;
+          isDash = !isDash;
+        }
+
+        // Draw glowing particle at the end of the line
+        const particleX = sourceX + Math.cos(angle) * (distance * progress);
+        const particleY = sourceY + Math.sin(angle) * (distance * progress);
+
+        ctx.fillStyle = event.color;
+        ctx.beginPath();
+        ctx.arc(particleX, particleY, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Add glow effect
+        ctx.fillStyle = `${event.color}40`;
+        ctx.beginPath();
+        ctx.arc(particleX, particleY, 12, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
       animationFrameId = requestAnimationFrame(draw);
     };
 
@@ -194,7 +342,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       window.removeEventListener('resize', resizeCanvas);
       cancelAnimationFrame(animationFrameId);
     };
-  }, [dimensions, hoveredIndex, activeItemIndex]);
+  }, [dimensions, hoveredIndex, activeItemIndex, communicationEvents]);
 
   return (
     <div 
