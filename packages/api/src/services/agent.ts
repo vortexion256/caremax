@@ -133,6 +133,18 @@ async function recordUsage(modelName: string, usage: UsageMetadata, ctx: UsageCo
   }
 }
 
+async function recordActivity(tenantId: string, type: string): Promise<void> {
+  try {
+    await db.collection('agent_activities').add({
+      tenantId,
+      type,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    console.error('Failed to record activity:', e);
+  }
+}
+
 export type GoogleSheetEntry = { spreadsheetId: string; range?: string; useWhen: string };
 
 function normalizeGoogleSheets(data: Record<string, unknown> | undefined): GoogleSheetEntry[] {
@@ -366,6 +378,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     const ragContext = lastUser ? await getRagContext(tenantId, lastUser.content) : '';
     if (ragContext) {
       systemContent += `\n\nRelevant context from this organization's knowledge base (use this for contact info, phone numbers, hours, locations, and other org-specific details):\n${ragContext}`;
+      void recordActivity(tenantId, 'rag');
     } else if (lastUser && process.env.NODE_ENV !== 'test') {
       console.log('RAG: enabled but no context returned for tenant', tenantId, '- check Agent settings "Use RAG" and that RAG documents exist and are indexed.');
     }
@@ -526,6 +539,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       if (tc.name === 'record_learned_knowledge' && tc.args && typeof tc.args.title === 'string' && typeof tc.args.content === 'string') {
         try {
           await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim());
+          void recordActivity(tenantId, 'agent-brain');
           content = 'Record saved.';
         } catch (e) {
           console.error('AutoAgentBrain createRecord error:', e);
@@ -539,6 +553,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
             content: typeof tc.args.content === 'string' ? tc.args.content : undefined,
             reason: typeof tc.args.reason === 'string' ? tc.args.reason : undefined,
           });
+          void recordActivity(tenantId, 'agent-brain');
         } catch (e) {
           console.error('request_edit_record error:', e);
           content = e instanceof Error ? e.message : 'Failed to submit edit request.';
@@ -549,6 +564,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
             recordId: tc.args.recordId,
             reason: typeof tc.args.reason === 'string' ? tc.args.reason : undefined,
           });
+          void recordActivity(tenantId, 'agent-brain');
         } catch (e) {
           console.error('request_delete_record error:', e);
           content = e instanceof Error ? e.message : 'Failed to submit delete request.';
@@ -558,6 +574,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
           const useWhen = typeof tc.args?.useWhen === 'string' ? tc.args.useWhen : googleSheetsList[0].useWhen;
           const range = typeof tc.args?.range === 'string' ? tc.args.range : undefined;
           content = await queryGoogleSheetTool.invoke({ useWhen, range });
+          void recordActivity(tenantId, 'integrations');
         } catch (e) {
           console.error('query_google_sheet error:', e);
           content = e instanceof Error ? e.message : 'Failed to fetch sheet.';
@@ -573,6 +590,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
             patientName,
             category,
           });
+          void recordActivity(tenantId, 'agent-notes');
         } catch (e) {
           console.error('create_note error:', e);
           content = e instanceof Error ? e.message : 'Failed to create note.';
@@ -762,6 +780,7 @@ If there is nothing new or nothing to update/remove, do not call any tool.`;
       if (tc.name === 'record_learned_knowledge' && tc.args && typeof tc.args.title === 'string' && typeof tc.args.content === 'string') {
         try {
           await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim());
+          void recordActivity(tenantId, 'agent-brain');
           content = 'Record saved.';
         } catch (e) {
           console.error('extractAndRecordLearningFromHistory createRecord error:', e);
@@ -775,6 +794,7 @@ If there is nothing new or nothing to update/remove, do not call any tool.`;
             content: typeof tc.args.content === 'string' ? tc.args.content : undefined,
             reason: typeof tc.args.reason === 'string' ? tc.args.reason : undefined,
           });
+          void recordActivity(tenantId, 'agent-brain');
         } catch (e) {
           console.error('extractAndRecordLearningFromHistory request_edit_record error:', e);
           content = e instanceof Error ? e.message : 'Failed to submit edit request.';
@@ -785,6 +805,7 @@ If there is nothing new or nothing to update/remove, do not call any tool.`;
             recordId: tc.args.recordId,
             reason: typeof tc.args.reason === 'string' ? tc.args.reason : undefined,
           });
+          void recordActivity(tenantId, 'agent-brain');
         } catch (e) {
           console.error('extractAndRecordLearningFromHistory request_delete_record error:', e);
           content = e instanceof Error ? e.message : 'Failed to submit delete request.';

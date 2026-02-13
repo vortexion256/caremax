@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { firestore } from '../firebase';
 import { useTenant } from '../TenantContext';
 
@@ -41,13 +41,40 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
   }, [tenantId]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      const randomIndex = Math.floor(Math.random() * items.length);
-      setActiveItemIndex(randomIndex);
-      setTimeout(() => setActiveItemIndex(null), 1500);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
+    if (!tenantId) return;
+    
+    // Listen for real-time agent activities
+    const q = query(
+      collection(firestore, 'agent_activities'),
+      where('tenantId', '==', tenantId),
+      orderBy('createdAt', 'desc'),
+      limit(1)
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      if (snap.empty) return;
+      
+      const activity = snap.docs[0].data();
+      const activityType = activity.type;
+      const createdAt = activity.createdAt?.toMillis() || 0;
+      
+      // Only trigger if the activity is very recent (within the last 5 seconds)
+      // to avoid triggering on old records when the component mounts
+      if (Date.now() - createdAt > 5000) return;
+
+      const index = items.findIndex(item => {
+        const path = item.path.replace('/', '');
+        return path === activityType || (activityType === 'rag' && path === 'rag');
+      });
+      
+      if (index !== -1) {
+        setActiveItemIndex(index);
+        setTimeout(() => setActiveItemIndex(null), 3000);
+      }
+    });
+
+    return () => unsub();
+  }, [tenantId]);
 
   const items: Item[] = [
     { label: 'Knowledge Base', shortLabel: 'KB', path: '/rag', color: '#3b82f6' },
