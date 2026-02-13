@@ -214,7 +214,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       where('status', 'in', ['handoff_requested', 'human_joined'])
     );
     
-    let animationInterval: NodeJS.Timeout | null = null;
+    let animationInterval: ReturnType<typeof setInterval> | null = null;
     
     const unsub = onSnapshot(q, (snap) => {
       const hasActiveHandoff = snap.size > 0;
