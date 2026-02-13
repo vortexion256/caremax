@@ -35,6 +35,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
   const [activeItemIndex, setActiveItemIndex] = useState<number | null>(null);
   const [communicationEvents, setCommunicationEvents] = useState<CommunicationEvent[]>([]);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [hasActiveChat, setHasActiveChat] = useState(false);
   const { tenantId } = useTenant();
 
   const items: Item[] = [
@@ -52,8 +53,33 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
     return colors[Math.floor(Math.random() * colors.length)];
   };
 
+  // Listen for active conversations
+  useEffect(() => {
+    if (!tenantId) return;
+    
+    // Query for open conversations updated in the last 5 minutes
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+    const q = query(
+      collection(firestore, 'conversations'),
+      where('tenantId', '==', tenantId),
+      where('status', 'in', ['open', 'handoff_requested', 'human_joined']),
+      where('updatedAt', '>', new Date(fiveMinutesAgo))
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      setHasActiveChat(!snap.empty);
+    });
+
+    return () => unsub();
+  }, [tenantId]);
+
   // Simulate communication between nodes
   const simulateCommunication = () => {
+    if (!hasActiveChat) {
+      setIsSimulating(false);
+      return;
+    }
+    
     setIsSimulating(true);
     
     const simulationInterval = setInterval(() => {
@@ -70,7 +96,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         targetIndex,
         color: getRandomColor(),
         startTime: Date.now(),
-        duration: 1500 + Math.random() * 1000 // 1.5-2.5 seconds
+        duration: 3000 + Math.random() * 2000 // Reduced speed: 3-5 seconds (was 1.5-2.5)
       };
 
       setCommunicationEvents(prev => [...prev, newEvent]);
@@ -79,17 +105,19 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       setActiveItemIndex(sourceIndex);
       setTimeout(() => {
         setActiveItemIndex(targetIndex);
-      }, 300);
-    }, 800 + Math.random() * 700); // Fire every 0.8-1.5 seconds
+      }, 600); // Reduced speed: 0.6s (was 0.3s)
+    }, 2000 + Math.random() * 2000); // Reduced frequency: every 2-4 seconds (was 0.8-1.5)
 
     return () => clearInterval(simulationInterval);
   };
 
-  // Start simulation on mount
+  // Start simulation when there's an active chat
   useEffect(() => {
     const cleanup = simulateCommunication();
-    return cleanup;
-  }, []);
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, [hasActiveChat]);
 
   // Clean up old communication events
   useEffect(() => {
@@ -219,9 +247,9 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         ctx.lineWidth = (isHovered || isActive) ? 3 : 1.5;
         
         // Vertical-ish Bezier curve
-        const cp1x = startX + Math.sin(time * 0.5 + index) * 20;
+        const cp1x = startX + Math.sin(time * 0.2 + index) * 20; // Reduced speed: 0.2 (was 0.5)
         const cp1y = startY + (targetY - startY) * 0.3;
-        const cp2x = targetX + Math.cos(time * 0.7 + index) * 20;
+        const cp2x = targetX + Math.cos(time * 0.3 + index) * 20; // Reduced speed: 0.3 (was 0.7)
         const cp2y = startY + (targetY - startY) * 0.7;
 
         ctx.moveTo(startX, startY);
@@ -240,15 +268,17 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         ctx.lineCap = 'round';
         ctx.stroke();
 
-        // Pulse particle
-        const t = (time * 0.6 + index * 0.4) % 1;
-        const px = Math.pow(1-t, 3) * startX + 3 * Math.pow(1-t, 2) * t * cp1x + 3 * (1-t) * Math.pow(t, 2) * cp2x + Math.pow(t, 3) * targetX;
-        const py = Math.pow(1-t, 3) * startY + 3 * Math.pow(1-t, 2) * t * cp1y + 3 * (1-t) * Math.pow(t, 2) * cp2y + Math.pow(t, 3) * targetY;
+        // Pulse particle - only if active chat
+        if (hasActiveChat || isHovered || isActive) {
+          const t = (time * 0.3 + index * 0.4) % 1; // Reduced speed: 0.3 (was 0.6)
+          const px = Math.pow(1-t, 3) * startX + 3 * Math.pow(1-t, 2) * t * cp1x + 3 * (1-t) * Math.pow(t, 2) * cp2x + Math.pow(t, 3) * targetX;
+          const py = Math.pow(1-t, 3) * startY + 3 * Math.pow(1-t, 2) * t * cp1y + 3 * (1-t) * Math.pow(t, 2) * cp2y + Math.pow(t, 3) * targetY;
 
-        ctx.fillStyle = (isHovered || isActive) ? item.color : 'rgba(100, 116, 139, 0.4)';
-        ctx.beginPath();
-        ctx.arc(px, py, (isHovered || isActive) ? 4 : 2, 0, Math.PI * 2);
-        ctx.fill();
+          ctx.fillStyle = (isHovered || isActive) ? item.color : 'rgba(100, 116, 139, 0.4)';
+          ctx.beginPath();
+          ctx.arc(px, py, (isHovered || isActive) ? 4 : 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
       });
 
       // Draw communication events (node-to-node connections)
@@ -271,6 +301,10 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         const targetX = targetRect.left - containerRect.left + targetRect.width / 2;
         const targetY = targetRect.top - containerRect.top + targetRect.height / 2;
 
+        const dx = targetX - sourceX;
+        const dy = targetY - sourceY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
         // Draw animated line between nodes
         ctx.beginPath();
         ctx.lineWidth = 3;
@@ -287,9 +321,6 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         // Draw dashed line effect
         const dashLength = 10;
         const gapLength = 5;
-        const dx = targetX - sourceX;
-        const dy = targetY - sourceY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
         const angle = Math.atan2(dy, dx);
 
         let currentDist = 0;
@@ -342,7 +373,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       window.removeEventListener('resize', resizeCanvas);
       cancelAnimationFrame(animationFrameId);
     };
-  }, [dimensions, hoveredIndex, activeItemIndex, communicationEvents]);
+  }, [dimensions, hoveredIndex, activeItemIndex, communicationEvents, hasActiveChat]);
 
   return (
     <div 
