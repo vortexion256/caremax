@@ -43,6 +43,9 @@ export interface ToolResult<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  verified?: boolean; // Whether the action was verified after execution
+  action?: 'read' | 'write' | 'delete' | 'edit' | 'query' | 'create'; // Type of action performed
+  timestamp?: Date; // When the action was executed
 }
 
 export interface BookAppointmentResult extends ToolResult {
@@ -55,6 +58,9 @@ export interface BookAppointmentResult extends ToolResult {
     action: 'created' | 'updated';
   };
   error?: string;
+  verified?: boolean;
+  action?: 'write';
+  timestamp?: Date;
 }
 
 export interface GetAppointmentResult extends ToolResult {
@@ -70,22 +76,34 @@ export interface GetAppointmentResult extends ToolResult {
     notes?: string;
   };
   error?: string;
+  verified?: boolean;
+  action?: 'read';
+  timestamp?: Date;
 }
 
 export interface QuerySheetResult extends ToolResult {
   success: boolean;
   data?: string; // Markdown table
   error?: string;
+  verified?: boolean;
+  action?: 'read';
+  timestamp?: Date;
 }
 
 export interface RecordKnowledgeResult extends ToolResult {
   success: boolean;
   error?: string;
+  verified?: boolean;
+  action?: 'write';
+  timestamp?: Date;
 }
 
 export interface CreateNoteResult extends ToolResult {
   success: boolean;
   error?: string;
+  verified?: boolean;
+  action?: 'create';
+  timestamp?: Date;
 }
 
 // ============================================================================
@@ -175,23 +193,27 @@ export class ToolExecutor {
           row
         );
         
-        if (result.success) {
-          return {
-            success: true,
-            data: {
-              appointmentId: `APT-${phoneNorm}-${targetDateNorm}`,
-              doctor: params.doctorName.trim(),
-              time: params.appointmentTime.trim(),
-              date: dateStr,
-              action: 'updated',
-            },
-          };
-        } else {
-          return {
-            success: false,
-            error: result.error,
-          };
-        }
+      if (result.success) {
+        return {
+          success: true,
+          data: {
+            appointmentId: `APT-${phoneNorm}-${targetDateNorm}`,
+            doctor: params.doctorName.trim(),
+            time: params.appointmentTime.trim(),
+            date: dateStr,
+            action: 'updated',
+          },
+          action: 'write',
+          timestamp: new Date(),
+        };
+      } else {
+        return {
+          success: false,
+          error: result.error,
+          action: 'write',
+          timestamp: new Date(),
+        };
+      }
       }
 
       const result = await appendSheetRow(
@@ -211,11 +233,15 @@ export class ToolExecutor {
             date: dateStr,
             action: 'created',
           },
+          action: 'write',
+          timestamp: new Date(),
         };
       } else {
         return {
           success: false,
           error: result.error,
+          action: 'write',
+          timestamp: new Date(),
         };
       }
     } catch (e) {
@@ -274,6 +300,8 @@ export class ToolExecutor {
             data: {
               found: false,
             },
+            action: 'read',
+            timestamp: new Date(),
           };
         }
 
@@ -317,6 +345,8 @@ export class ToolExecutor {
               time: match[timeIdx] || '',
               notes: match[notesIdx] || '',
             },
+            action: 'read',
+            timestamp: new Date(),
           };
         }
 
@@ -333,6 +363,8 @@ export class ToolExecutor {
         data: {
           found: false,
         },
+        action: 'read',
+        timestamp: new Date(),
       };
     } catch (e) {
       console.error('[ToolExecutor] Get appointment error:', e);
@@ -361,6 +393,8 @@ export class ToolExecutor {
       return {
         success: true,
         data,
+        action: 'read',
+        timestamp: new Date(),
       };
     } catch (e) {
       console.error('[ToolExecutor] Query sheet error:', e);
@@ -379,12 +413,16 @@ export class ToolExecutor {
       await createRecord(this.tenantId, params.title.trim(), params.content.trim());
       return {
         success: true,
+        action: 'write',
+        timestamp: new Date(),
       };
     } catch (e) {
       console.error('[ToolExecutor] Record knowledge error:', e);
       return {
         success: false,
         error: e instanceof Error ? e.message : 'Failed to save record',
+        action: 'write',
+        timestamp: new Date(),
       };
     }
   }
@@ -409,6 +447,8 @@ export class ToolExecutor {
       });
       return {
         success: true,
+        action: 'create',
+        timestamp: new Date(),
       };
     } catch (e) {
       console.error('[ToolExecutor] Create note error:', e);
@@ -539,8 +579,15 @@ export class AgentOrchestrator {
             // Only mark as successful if verification passes
             if (!verification.verified) {
               result = {
+                ...result,
                 success: false,
+                verified: false,
                 error: 'Booking was created but could not be verified in database',
+              };
+            } else {
+              result = {
+                ...result,
+                verified: true,
               };
             }
 
@@ -645,6 +692,8 @@ export class AgentOrchestrator {
               );
               result = {
                 success: true,
+                action: 'edit',
+                timestamp: new Date(),
               };
               // Record agent-brain activity for dashboard visualization
               void recordActivity(this.tenantId, 'agent-brain');
@@ -684,6 +733,8 @@ export class AgentOrchestrator {
               );
               result = {
                 success: true,
+                action: 'delete',
+                timestamp: new Date(),
               };
               // Record agent-brain activity for dashboard visualization
               void recordActivity(this.tenantId, 'agent-brain');

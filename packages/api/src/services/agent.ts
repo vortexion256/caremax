@@ -669,34 +669,239 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   else if (Array.isArray(response.content))
     text = (response.content as { text?: string }[]).map((c) => c?.text ?? '').join('');
   
-  // Fallback if no text - try to get a plain text response
-  if (!text || text.trim().length === 0) {
-    console.warn('[Agent] Empty response detected, attempting fallback');
+  // Check if response only contains tool calls (no text)
+  const hasToolCalls = (response as { tool_calls?: unknown[] }).tool_calls?.length > 0;
+  const isEmptyResponse = (!text || text.trim().length === 0) && !hasToolCalls;
+  const isToolOnlyResponse = (!text || text.trim().length === 0) && hasToolCalls;
+  
+  // Intelligent empty response handling with analysis and retry
+  if (isEmptyResponse || isToolOnlyResponse) {
+    console.warn(`[Agent] Empty response detected (isEmpty: ${isEmptyResponse}, toolOnly: ${isToolOnlyResponse})`);
+    
+    // Analyze the cause of empty response (if planner functions are available)
     try {
-      const plainTextPrompt = new HumanMessage({
-        content: 'Reply to the user in plain text only. Do not use any tools. If you were trying to search for appointments, explain that you need a phone number to search the system.',
+      const { analyzeEmptyResponse, createRecoveryPlan } = await import('./agent-planner.js');
+      const { extractIntent } = await import('./agent-intent.js');
+      
+      // Get tool results from execution logs if available
+      const toolResults: Array<{ success: boolean; error?: string }> = [];
+      // Extract from tool messages if available
+      const toolMessages = currentMessages
+        .filter((m) => m instanceof ToolMessage) as ToolMessage[];
+      toolMessages.forEach((tm) => {
+        const content = typeof tm.content === 'string' ? tm.content : JSON.stringify(tm.content);
+        toolResults.push({
+          success: content.includes('success') || content.includes('Record saved'),
+          error: content.includes('Failed') ? content.substring(0, 100) : undefined,
+        });
       });
-      // Add timeout for fallback LLM call (15 seconds)
-      const fallbackResponse = await Promise.race([
-        model.invoke([...currentMessages, plainTextPrompt]),
-        new Promise<BaseMessage>((_, reject) => {
-          setTimeout(() => reject(new Error('Fallback LLM timeout')), 15000);
-        }),
-      ]);
-      const fallbackUsage = extractTokenUsage(fallbackResponse);
-      accumulatedUsage.inputTokens += fallbackUsage.inputTokens;
-      accumulatedUsage.outputTokens += fallbackUsage.outputTokens;
-      accumulatedUsage.totalTokens += fallbackUsage.totalTokens;
       
-      if (typeof fallbackResponse.content === 'string') text = fallbackResponse.content;
-      else if (Array.isArray(fallbackResponse.content))
-        text = (fallbackResponse.content as { text?: string }[]).map((c) => c?.text ?? '').join('');
+      const lastUserMessage = history.filter((m) => m.role === 'user').pop()?.content ?? '';
+      const intent = await extractIntent(model, lastUserMessage, history);
       
-      if (!text || text.trim().length === 0) {
-        console.error('[Agent] Fallback response also empty');
+      const analysis = await analyzeEmptyResponse(
+        model,
+        response,
+        currentMessages,
+        null, // No execution plan in V1
+        toolResults.length > 0 ? toolResults : undefined
+      );
+      
+      console.log(`[Agent] Empty response analysis:`, {
+        cause: analysis.cause,
+        confidence: analysis.confidence,
+        reasoning: analysis.reasoning,
+        suggestedAction: analysis.suggestedAction,
+      });
+      
+      // Retry based on analysis
+      if (analysis.suggestedAction === 'retry_simple' || analysis.suggestedAction === 'retry_with_context') {
+        console.log(`[Agent] Attempting intelligent retry with strategy: ${analysis.suggestedAction}`);
+        
+        try {
+          // Build retry messages based on strategy
+          let retryMessages: BaseMessage[] = [];
+          
+          if (analysis.retryStrategy?.reduceContext) {
+            // Use only recent messages (last 5)
+            retryMessages = [
+              currentMessages[0], // System message
+              ...currentMessages.slice(-5),
+            ];
+          } else if (analysis.retryStrategy?.simplifyPrompt) {
+            // Simplified system prompt
+            const simplifiedSystem = new SystemMessage(
+              `You are a helpful assistant. Provide clear, concise responses. ` +
+              `If you executed tools, summarize what was done and the results.`
+            );
+            retryMessages = [
+              simplifiedSystem,
+              ...currentMessages.slice(-8), // Recent context
+            ];
+          } else {
+            // Use full context but add guidance
+            retryMessages = [...currentMessages];
+          }
+          
+          // Add retry instruction
+          const retryPrompt = new HumanMessage({
+            content: analysis.cause === 'tool_only'
+              ? `You executed tools but didn't provide a text response. Please summarize what was done based on the tool results above and provide a helpful response to the user.`
+              : `Please provide a clear response to the user. If tools were executed, summarize the results.`,
+          });
+          
+          retryMessages.push(retryPrompt);
+          
+          // Retry with timeout
+          const retryResponse = await Promise.race([
+            model.invoke(retryMessages),
+            new Promise<BaseMessage>((_, reject) => {
+              setTimeout(() => reject(new Error('Retry timeout')), 30000);
+            }),
+          ]);
+          
+          const retryUsage = extractTokenUsage(retryResponse);
+          accumulatedUsage.inputTokens += retryUsage.inputTokens;
+          accumulatedUsage.outputTokens += retryUsage.outputTokens;
+          accumulatedUsage.totalTokens += retryUsage.totalTokens;
+          
+          if (typeof retryResponse.content === 'string') text = retryResponse.content;
+          else if (Array.isArray(retryResponse.content))
+            text = (retryResponse.content as { text?: string }[]).map((c) => c?.text ?? '').join('');
+          
+          if (text && text.trim().length > 0) {
+            console.log(`[Agent] Retry successful, got response`);
+            response = retryResponse; // Update response for further processing
+          } else {
+            console.warn(`[Agent] Retry still produced empty response`);
+          }
+        } catch (e) {
+          console.error(`[Agent] Retry failed:`, e);
+        }
       }
     } catch (e) {
-      console.error('[Agent] Fallback response generation failed:', e);
+      console.warn(`[Agent] Could not use intelligent retry (planner not available):`, e);
+    }
+    
+    // Fallback if retry didn't work or wasn't attempted
+    if (!text || text.trim().length === 0) {
+      console.warn(`[Agent] Using fallback mechanism`);
+      
+      // First, try to generate a response based on tool execution results
+      if (isToolOnlyResponse && currentMessages.length > 0) {
+        // Check if we have tool results in the last messages
+        const lastToolMessages = currentMessages
+          .slice(-5)
+          .filter((m) => {
+            // Check if message is a ToolMessage
+            return m instanceof ToolMessage || (m as { _getType?: () => string })._getType?.() === 'tool';
+          }) as ToolMessage[];
+        
+        if (lastToolMessages.length > 0) {
+          // Try to generate a response based on tool results
+          try {
+            const toolResultsSummary = lastToolMessages
+              .map((tm) => {
+                try {
+                  const content = typeof tm.content === 'string' ? tm.content : JSON.stringify(tm.content);
+                  // Try to parse tool results
+                  if (content.includes('Record saved') || content.includes('success')) {
+                    return 'Tools executed successfully';
+                  }
+                  return content.substring(0, 100); // Truncate for context
+                } catch {
+                  return '';
+                }
+              })
+              .filter((s) => s.length > 0)
+              .join('; ');
+            
+            const contextPrompt = new HumanMessage({
+              content: `Based on the tool execution results below, provide a helpful response to the user. Summarize what was done and what the results mean.
+
+Tool results: ${toolResultsSummary}
+
+Provide a clear, user-friendly response based on these results.`,
+            });
+            
+            // Use longer timeout for fallback (30 seconds)
+            const fallbackResponse = await Promise.race([
+              model.invoke([...currentMessages.slice(-10), contextPrompt]),
+              new Promise<BaseMessage>((_, reject) => {
+                setTimeout(() => reject(new Error('Fallback LLM timeout')), 30000);
+              }),
+            ]);
+            
+            const fallbackUsage = extractTokenUsage(fallbackResponse);
+            accumulatedUsage.inputTokens += fallbackUsage.inputTokens;
+            accumulatedUsage.outputTokens += fallbackUsage.outputTokens;
+            accumulatedUsage.totalTokens += fallbackUsage.totalTokens;
+            
+            if (typeof fallbackResponse.content === 'string') text = fallbackResponse.content;
+            else if (Array.isArray(fallbackResponse.content))
+              text = (fallbackResponse.content as { text?: string }[]).map((c) => c?.text ?? '').join('');
+          } catch (e) {
+            console.warn('[Agent] Failed to generate response from tool results:', e);
+          }
+        }
+      }
+      
+      // If still no text, try standard fallback
+      if (!text || text.trim().length === 0) {
+        try {
+          const plainTextPrompt = new HumanMessage({
+            content: 'Reply to the user in plain text only. Do not use any tools. Provide a helpful response based on the conversation context.',
+          });
+          
+          // Use longer timeout for fallback (30 seconds instead of 15)
+          const fallbackResponse = await Promise.race([
+            model.invoke([...currentMessages.slice(-10), plainTextPrompt]),
+            new Promise<BaseMessage>((_, reject) => {
+              setTimeout(() => reject(new Error('Fallback LLM timeout')), 30000);
+            }),
+          ]);
+          
+          const fallbackUsage = extractTokenUsage(fallbackResponse);
+          accumulatedUsage.inputTokens += fallbackUsage.inputTokens;
+          accumulatedUsage.outputTokens += fallbackUsage.outputTokens;
+          accumulatedUsage.totalTokens += fallbackUsage.totalTokens;
+          
+          if (typeof fallbackResponse.content === 'string') text = fallbackResponse.content;
+          else if (Array.isArray(fallbackResponse.content))
+            text = (fallbackResponse.content as { text?: string }[]).map((c) => c?.text ?? '').join('');
+          
+          if (!text || text.trim().length === 0) {
+            console.error('[Agent] Fallback response also empty');
+          }
+        } catch (e) {
+          console.error('[Agent] Fallback response generation failed:', e);
+          // Generate a helpful message based on tool execution if available
+          if (currentMessages.length > 0) {
+            const lastToolMessage = currentMessages
+              .slice()
+              .reverse()
+              .find((m) => {
+                // Check if message is a ToolMessage
+                return m instanceof ToolMessage || (m as { _getType?: () => string })._getType?.() === 'tool';
+              }) as ToolMessage | undefined;
+            
+            if (lastToolMessage) {
+              const toolContent = typeof lastToolMessage.content === 'string' 
+                ? lastToolMessage.content 
+                : JSON.stringify(lastToolMessage.content);
+              
+              // Generate a simple response based on tool result
+              if (toolContent.includes('Record saved') || toolContent.includes('success')) {
+                text = 'I\'ve completed that action for you. Is there anything else I can help with?';
+              } else if (toolContent.includes('Failed') || toolContent.includes('error')) {
+                text = 'I encountered an issue while processing your request. Please try again or provide more details.';
+              } else {
+                text = 'I\'ve processed your request. Is there anything else you need?';
+              }
+            }
+          }
+        }
+      }
     }
   }
   

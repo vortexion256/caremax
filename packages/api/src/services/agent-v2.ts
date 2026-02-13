@@ -29,8 +29,26 @@ import { getAgentConfig, type GoogleSheetEntry } from './agent.js';
 import { AgentOrchestrator, ToolCall } from './agent-orchestrator.js';
 import { buildAgentContext, formatContextForPrompt, trimConversationHistory } from './agent-memory.js';
 import { extractIntent, ExtractedIntent } from './agent-intent.js';
+import {
+  decideIfNeedsPlanning,
+  createExecutionPlan,
+  updatePlanWithResult,
+  getNextStep,
+  planNeedsInfo,
+  formatMissingInfoQuestion,
+  analyzeEmptyResponse,
+  createRecoveryPlan,
+  type ExecutionPlan,
+  type EmptyResponseAnalysis,
+} from './agent-planner.js';
 
-export type AgentResult = { text: string; requestHandoff?: boolean };
+export type AgentResult = {
+  text: string;
+  requestHandoff?: boolean;
+  needsInfo?: boolean;
+  missingInfo?: string[];
+  planStatus?: ExecutionPlan['status'];
+};
 
 const HANDOFF_MARKER = '[HANDOFF]';
 
@@ -183,6 +201,52 @@ export async function runAgentV2(
         text: "I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.\n\nIf your need is urgent, please call your care team or 911 in an emergency.",
         requestHandoff: true,
       };
+    }
+
+    // ========================================================================
+    // STEP 1.5: PLANNING DECISION (Planner agent decides if planning needed)
+    // ========================================================================
+    const planningDecision = await decideIfNeedsPlanning(model, intent, lastUserMessage, history);
+    let executionPlan: ExecutionPlan | null = null;
+
+    // Create plan if needed
+    if (planningDecision.needsPlanning) {
+      const availableTools: string[] = [];
+      if (config.ragEnabled) {
+        availableTools.push('record_learned_knowledge', 'request_edit_record', 'request_delete_record');
+      }
+      const googleSheetsList = config.googleSheets ?? [];
+      if (googleSheetsList.length > 0) {
+        availableTools.push('query_google_sheet');
+        const bookingCandidates = googleSheetsList.filter((s) => (s.useWhen ?? '').toLowerCase().includes('booking'));
+        if (bookingCandidates.length > 0) {
+          availableTools.push('append_booking_row', 'get_appointment_by_phone');
+        }
+      }
+      availableTools.push('create_note');
+
+      executionPlan = await createExecutionPlan(
+        model,
+        intent,
+        lastUserMessage,
+        history,
+        availableTools
+      );
+
+      // If plan needs info, ask user
+      if (planNeedsInfo(executionPlan)) {
+        const question = await formatMissingInfoQuestion(
+          model,
+          executionPlan.missingInfo,
+          `User wants to: ${intent.intent}. ${executionPlan.description}`
+        );
+        return {
+          text: question,
+          needsInfo: true,
+          missingInfo: executionPlan.missingInfo,
+          planStatus: executionPlan.status,
+        };
+      }
     }
 
     // ========================================================================
@@ -382,6 +446,17 @@ export async function runAgentV2(
     let accumulatedUsage: UsageMetadata = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     const maxToolRounds = 3;
 
+    // If we have a plan, add plan context to system message
+    if (executionPlan) {
+      const planContext = `\n\nEXECUTION PLAN:
+Description: ${executionPlan.description}
+Steps: ${executionPlan.steps.map((s) => `${s.stepNumber}. ${s.description}${s.toolName ? ` (tool: ${s.toolName})` : ''}`).join('\n')}
+Status: ${executionPlan.status}
+
+Follow this plan step by step. Execute each step in order.`;
+      currentMessages[0] = new SystemMessage((currentMessages[0] as SystemMessage).content + planContext);
+    }
+
     let response: BaseMessage = await modelWithTools.invoke(currentMessages);
     let initialUsage = extractTokenUsage(response);
     accumulatedUsage.inputTokens += initialUsage.inputTokens;
@@ -389,52 +464,181 @@ export async function runAgentV2(
     accumulatedUsage.totalTokens += initialUsage.totalTokens;
 
     // Tool execution loop - orchestrator controls execution
-    for (let round = 0; round < maxToolRounds; round++) {
-      const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
-      if (!toolCalls?.length) break;
-
-      const toolMessages: ToolMessage[] = [];
+    // If we have a plan, execute steps sequentially
+    if (executionPlan && (executionPlan.status === 'ready' || executionPlan.status === 'executing')) {
+      if (executionPlan.status === 'ready') {
+        executionPlan.status = 'executing';
+      }
+      const planToolMessages: ToolMessage[] = [];
       
-      for (const tc of toolCalls) {
-        // Orchestrator executes deterministically
-        const toolCall: ToolCall = {
-          name: tc.name,
-          args: tc.args ?? {},
-        };
-
-        const result = await orchestrator.executeToolCall(
-          toolCall,
-          googleSheetsList,
-          options?.conversationId,
-          options?.userId
-        );
-
-        // Format result for LLM
-        let content: string;
-        if (result.success) {
-          if (result.data) {
-            content = JSON.stringify(result.data);
-          } else {
-            content = 'Success';
-          }
-        } else {
-          content = JSON.stringify({ success: false, error: result.error });
+      for (const step of executionPlan.steps) {
+        if (step.status === 'completed' || step.status === 'failed' || step.status === 'skipped') {
+          continue;
         }
 
-        toolMessages.push(new ToolMessage({ content, tool_call_id: tc.id }));
+        // Check if step needs information
+        if (step.requiredInfo && step.requiredInfo.length > 0) {
+          const missingFromStep = step.requiredInfo.filter((info) => {
+            // Check if info is available in intent entities or conversation
+            const infoLower = info.toLowerCase();
+            if (infoLower.includes('date') && !intent.entities.date) return true;
+            if (infoLower.includes('phone') && !intent.entities.phone) return true;
+            if (infoLower.includes('name') && !intent.entities.patientName) return true;
+            if (infoLower.includes('doctor') && !intent.entities.doctor) return true;
+            if (infoLower.includes('time') && !intent.entities.time) return true;
+            return false;
+          });
+
+          if (missingFromStep.length > 0) {
+            const question = await formatMissingInfoQuestion(
+              model,
+              missingFromStep,
+              step.description
+            );
+            executionPlan = updatePlanWithResult(executionPlan, step.stepNumber, {
+              success: false,
+              error: 'Missing required information',
+            });
+            return {
+              text: question,
+              needsInfo: true,
+              missingInfo: missingFromStep,
+              planStatus: executionPlan.status,
+            };
+          }
+        }
+
+        // Execute step if it has a tool
+        if (step.toolName) {
+          const toolCall: ToolCall = {
+            name: step.toolName,
+            args: step.toolArgs ?? {},
+          };
+
+          const result = await orchestrator.executeToolCall(
+            toolCall,
+            googleSheetsList,
+            options?.conversationId,
+            options?.userId
+          );
+
+          // Format result for LLM with enhanced state information
+          let content: string;
+          if (result.success) {
+            const resultData: Record<string, unknown> = {
+              success: true,
+              action: result.action,
+              verified: result.verified ?? false,
+            };
+            if (result.data) {
+              resultData.data = result.data;
+            }
+            content = JSON.stringify(resultData);
+          } else {
+            content = JSON.stringify({
+              success: false,
+              action: result.action,
+              error: result.error,
+              verified: false,
+            });
+          }
+
+          // Create a tool message for this step (using step number as ID)
+          planToolMessages.push(
+            new ToolMessage({
+              content: `Step ${step.stepNumber}: ${content}`,
+              tool_call_id: `step-${step.stepNumber}`,
+            })
+          );
+
+          // Update plan with result
+          executionPlan = updatePlanWithResult(executionPlan, step.stepNumber, {
+            success: result.success,
+            data: result.data,
+            error: result.error,
+            verified: result.verified,
+          });
+
+          // If step failed, stop execution
+          if (!result.success) {
+            break;
+          }
+        } else {
+          // Step without tool - mark as completed
+          executionPlan = updatePlanWithResult(executionPlan, step.stepNumber, {
+            success: true,
+          });
+        }
       }
 
-      currentMessages = [...currentMessages, response, ...toolMessages];
-      response = await modelWithTools.invoke(currentMessages);
-      
-      const roundUsage = extractTokenUsage(response);
-      accumulatedUsage.inputTokens += roundUsage.inputTokens;
-      accumulatedUsage.outputTokens += roundUsage.outputTokens;
-      accumulatedUsage.totalTokens += roundUsage.totalTokens;
+      // Add plan execution results to messages and get final response
+      if (planToolMessages.length > 0) {
+        currentMessages = [...currentMessages, response, ...planToolMessages];
+        response = await modelWithTools.invoke(currentMessages);
+        const planUsage = extractTokenUsage(response);
+        accumulatedUsage.inputTokens += planUsage.inputTokens;
+        accumulatedUsage.outputTokens += planUsage.outputTokens;
+        accumulatedUsage.totalTokens += planUsage.totalTokens;
+      }
+    } else {
+      // Standard execution without plan
+      for (let round = 0; round < maxToolRounds; round++) {
+        const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
+        if (!toolCalls?.length) break;
+
+        const toolMessages: ToolMessage[] = [];
+        
+        for (const tc of toolCalls) {
+          // Orchestrator executes deterministically
+          const toolCall: ToolCall = {
+            name: tc.name,
+            args: tc.args ?? {},
+          };
+
+          const result = await orchestrator.executeToolCall(
+            toolCall,
+            googleSheetsList,
+            options?.conversationId,
+            options?.userId
+          );
+
+          // Format result for LLM with enhanced state information
+          let content: string;
+          if (result.success) {
+            const resultData: Record<string, unknown> = {
+              success: true,
+              action: result.action,
+              verified: result.verified ?? false,
+            };
+            if (result.data) {
+              resultData.data = result.data;
+            }
+            content = JSON.stringify(resultData);
+          } else {
+            content = JSON.stringify({
+              success: false,
+              action: result.action,
+              error: result.error,
+              verified: false,
+            });
+          }
+
+          toolMessages.push(new ToolMessage({ content, tool_call_id: tc.id }));
+        }
+
+        currentMessages = [...currentMessages, response, ...toolMessages];
+        response = await modelWithTools.invoke(currentMessages);
+        
+        const roundUsage = extractTokenUsage(response);
+        accumulatedUsage.inputTokens += roundUsage.inputTokens;
+        accumulatedUsage.outputTokens += roundUsage.outputTokens;
+        accumulatedUsage.totalTokens += roundUsage.totalTokens;
+      }
     }
 
     // ========================================================================
     // STEP 8: FORMAT RESPONSE (LLM formats, orchestrator validates)
+    // If we have a plan, include plan status in response
     // ========================================================================
     function extractTextFromResponse(res: BaseMessage): string {
       const content = (res as { content?: string | unknown[] }).content;
@@ -453,17 +657,236 @@ export async function runAgentV2(
 
     let text = extractTextFromResponse(response);
 
-    // Fallback if no text
-    if (!text || text.trim().length === 0) {
-      const plainTextPrompt = new HumanMessage({
-        content: 'Reply to the user in plain text only. Do not use any tools.',
+    // Check if response only contains tool calls (no text)
+    const hasToolCalls = (response as { tool_calls?: unknown[] }).tool_calls?.length > 0;
+    const isEmptyResponse = (!text || text.trim().length === 0) && !hasToolCalls;
+    const isToolOnlyResponse = (!text || text.trim().length === 0) && hasToolCalls;
+
+    // Intelligent empty response handling with analysis and retry
+    if (isEmptyResponse || isToolOnlyResponse) {
+      console.warn(`[Agent V2] Empty response detected (isEmpty: ${isEmptyResponse}, toolOnly: ${isToolOnlyResponse})`);
+      
+      // Analyze the cause of empty response
+      const executionLogsForAnalysis = orchestrator.getExecutionLogs();
+      const toolResults = executionLogsForAnalysis.map((log) => ({
+        success: log.result.success,
+        error: log.result.error,
+      }));
+      
+      const analysis = await analyzeEmptyResponse(
+        model,
+        response,
+        currentMessages,
+        executionPlan,
+        toolResults
+      );
+      
+      console.log(`[Agent V2] Empty response analysis:`, {
+        cause: analysis.cause,
+        confidence: analysis.confidence,
+        reasoning: analysis.reasoning,
+        suggestedAction: analysis.suggestedAction,
       });
-      response = await model.invoke([...currentMessages, plainTextPrompt]);
-      const fallbackUsage = extractTokenUsage(response);
-      accumulatedUsage.inputTokens += fallbackUsage.inputTokens;
-      accumulatedUsage.outputTokens += fallbackUsage.outputTokens;
-      accumulatedUsage.totalTokens += fallbackUsage.totalTokens;
-      text = extractTextFromResponse(response);
+
+      // Create recovery plan if needed
+      if (analysis.suggestedAction === 'use_planner' || analysis.suggestedAction === 'retry_with_context') {
+        const recoveryPlan = await createRecoveryPlan(
+          model,
+          analysis,
+          intent,
+          lastUserMessage,
+          history,
+          toolResults
+        );
+        
+        if (recoveryPlan) {
+          console.log(`[Agent V2] Created recovery plan: ${recoveryPlan.planId}`);
+          executionPlan = recoveryPlan;
+        }
+      }
+
+      // Retry based on analysis
+      let retryAttempted = false;
+      
+      if (analysis.suggestedAction === 'retry_simple' || analysis.suggestedAction === 'retry_with_context') {
+        retryAttempted = true;
+        console.log(`[Agent V2] Attempting intelligent retry with strategy: ${analysis.suggestedAction}`);
+        
+        try {
+          // Build retry messages based on strategy
+          let retryMessages: BaseMessage[] = [];
+          
+          if (analysis.retryStrategy?.reduceContext) {
+            // Use only recent messages (last 5)
+            retryMessages = [
+              currentMessages[0], // System message
+              ...currentMessages.slice(-5),
+            ];
+          } else if (analysis.retryStrategy?.simplifyPrompt) {
+            // Simplified system prompt
+            const simplifiedSystem = new SystemMessage(
+              `You are a helpful assistant. Provide clear, concise responses. ` +
+              `If you executed tools, summarize what was done and the results.`
+            );
+            retryMessages = [
+              simplifiedSystem,
+              ...currentMessages.slice(-8), // Recent context
+            ];
+          } else {
+            // Use full context but add guidance
+            retryMessages = [...currentMessages];
+          }
+          
+          // Add retry instruction
+          const retryPrompt = new HumanMessage({
+            content: analysis.cause === 'tool_only'
+              ? `You executed tools but didn't provide a text response. Please summarize what was done based on the tool results above and provide a helpful response to the user.`
+              : `Please provide a clear response to the user. If tools were executed, summarize the results.`,
+          });
+          
+          retryMessages.push(retryPrompt);
+          
+          // Retry with timeout
+          const retryResponse = await Promise.race([
+            model.invoke(retryMessages),
+            new Promise<BaseMessage>((_, reject) => {
+              setTimeout(() => reject(new Error('Retry timeout')), 30000);
+            }),
+          ]);
+          
+          const retryUsage = extractTokenUsage(retryResponse);
+          accumulatedUsage.inputTokens += retryUsage.inputTokens;
+          accumulatedUsage.outputTokens += retryUsage.outputTokens;
+          accumulatedUsage.totalTokens += retryUsage.totalTokens;
+          
+          text = extractTextFromResponse(retryResponse);
+          
+          if (text && text.trim().length > 0) {
+            console.log(`[Agent V2] Retry successful, got response`);
+            response = retryResponse; // Update response for further processing
+          } else {
+            console.warn(`[Agent V2] Retry still produced empty response`);
+          }
+        } catch (e) {
+          console.error(`[Agent V2] Retry failed:`, e);
+        }
+      }
+      
+      // If retry didn't work or wasn't attempted, use fallback
+      if (!text || text.trim().length === 0) {
+        console.warn(`[Agent V2] ${retryAttempted ? 'Retry failed, using' : 'Using'} fallback mechanism`);
+        
+        // First, try to generate a response based on tool execution results
+        if (isToolOnlyResponse && currentMessages.length > 0) {
+          // Check if we have tool results in the last messages
+          const lastToolMessages = currentMessages
+            .slice(-5)
+            .filter((m) => {
+              // Check if message is a ToolMessage
+              return m instanceof ToolMessage || (m as { _getType?: () => string })._getType?.() === 'tool';
+            }) as ToolMessage[];
+          
+          if (lastToolMessages.length > 0) {
+            // Try to generate a response based on tool results
+            try {
+              const toolResultsSummary = lastToolMessages
+                .map((tm) => {
+                  try {
+                    const content = typeof tm.content === 'string' ? tm.content : JSON.stringify(tm.content);
+                    // Try to parse tool results
+                    if (content.includes('success') || content.includes('"success":true')) {
+                      return 'Tools executed successfully';
+                    }
+                    return content.substring(0, 100); // Truncate for context
+                  } catch {
+                    return '';
+                  }
+                })
+                .filter((s) => s.length > 0)
+                .join('; ');
+              
+              const contextPrompt = new HumanMessage({
+                content: `Based on the tool execution results below, provide a helpful response to the user. Summarize what was done and what the results mean.
+
+Tool results: ${toolResultsSummary}
+
+Provide a clear, user-friendly response based on these results.`,
+              });
+              
+              // Use timeout wrapper for fallback (30 seconds)
+              const fallbackResponse = await Promise.race([
+                model.invoke([...currentMessages.slice(-10), contextPrompt]),
+                new Promise<BaseMessage>((_, reject) => {
+                  setTimeout(() => reject(new Error('Fallback LLM timeout')), 30000);
+                }),
+              ]);
+              
+              const fallbackUsage = extractTokenUsage(fallbackResponse);
+              accumulatedUsage.inputTokens += fallbackUsage.inputTokens;
+              accumulatedUsage.outputTokens += fallbackUsage.outputTokens;
+              accumulatedUsage.totalTokens += fallbackUsage.totalTokens;
+              
+              text = extractTextFromResponse(fallbackResponse);
+            } catch (e) {
+              console.warn('[Agent V2] Failed to generate response from tool results:', e);
+            }
+          }
+        }
+        
+        // If still no text, try standard fallback
+        if (!text || text.trim().length === 0) {
+          try {
+            const plainTextPrompt = new HumanMessage({
+              content: 'Reply to the user in plain text only. Do not use any tools. Provide a helpful response based on the conversation context.',
+            });
+            
+            // Use timeout wrapper for fallback (30 seconds)
+            response = await Promise.race([
+              model.invoke([...currentMessages.slice(-10), plainTextPrompt]),
+              new Promise<BaseMessage>((_, reject) => {
+                setTimeout(() => reject(new Error('Fallback LLM timeout')), 30000);
+              }),
+            ]);
+            
+            const fallbackUsage = extractTokenUsage(response);
+            accumulatedUsage.inputTokens += fallbackUsage.inputTokens;
+            accumulatedUsage.outputTokens += fallbackUsage.outputTokens;
+            accumulatedUsage.totalTokens += fallbackUsage.totalTokens;
+            text = extractTextFromResponse(response);
+            
+            if (!text || text.trim().length === 0) {
+              console.error('[Agent V2] Fallback response also empty');
+            }
+          } catch (e) {
+            console.error('[Agent V2] Fallback response generation failed:', e);
+            // Generate a helpful message based on tool execution if available
+            if (currentMessages.length > 0) {
+              const lastToolMessage = currentMessages
+                .slice()
+                .reverse()
+                .find((m) => {
+                  // Check if message is a ToolMessage
+                  return m instanceof ToolMessage || (m as { _getType?: () => string })._getType?.() === 'tool';
+                }) as ToolMessage | undefined;
+              
+              if (lastToolMessage) {
+                const toolContent = typeof lastToolMessage.content === 'string' 
+                  ? lastToolMessage.content 
+                  : JSON.stringify(lastToolMessage.content);
+                
+                // Generate a simple response based on tool result
+                if (toolContent.includes('success') || toolContent.includes('"success":true')) {
+                  text = 'I\'ve completed that action for you. Is there anything else I can help with?';
+                } else if (toolContent.includes('Failed') || toolContent.includes('error') || toolContent.includes('"success":false')) {
+                  text = 'I encountered an issue while processing your request. Please try again or provide more details.';
+                } else {
+                  text = 'I\'ve processed your request. Is there anything else you need?';
+                }
+              }
+            }
+          }
+        }
+      }
     }
 
     // ========================================================================
@@ -506,7 +929,23 @@ export async function runAgentV2(
       console.error('Failed to record usage:', e);
     }
 
-    return { text: textWithoutMarker || 'I could not generate a response. Please try rephrasing.', requestHandoff };
+    const finalResult: AgentResult = {
+      text: textWithoutMarker || 'I could not generate a response. Please try rephrasing.',
+      requestHandoff,
+    };
+
+    // Include plan status if we have a plan
+    if (executionPlan) {
+      finalResult.planStatus = executionPlan.status;
+      
+      // If plan needs info, include it
+      if (planNeedsInfo(executionPlan)) {
+        finalResult.needsInfo = true;
+        finalResult.missingInfo = executionPlan.missingInfo;
+      }
+    }
+
+    return finalResult;
   } catch (e) {
     console.error('[Agent V2] Error:', e);
     throw e;
