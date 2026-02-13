@@ -670,7 +670,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     text = (response.content as { text?: string }[]).map((c) => c?.text ?? '').join('');
   
   // Check if response only contains tool calls (no text)
-  const hasToolCalls = (response as { tool_calls?: unknown[] }).tool_calls?.length > 0;
+  const hasToolCalls = response != null && ((response as { tool_calls?: unknown[] }).tool_calls?.length ?? 0) > 0;
   const isEmptyResponse = (!text || text.trim().length === 0) && !hasToolCalls;
   const isToolOnlyResponse = (!text || text.trim().length === 0) && hasToolCalls;
   

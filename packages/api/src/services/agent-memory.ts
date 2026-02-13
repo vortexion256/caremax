@@ -129,7 +129,7 @@ export async function loadStructuredState(
       state.notes = notes.map((n) => ({
         category: n.category,
         content: n.content,
-        patientName: n.patientName,
+        patientName: n.patientName ?? undefined,
       }));
     } catch (e) {
       console.warn('[Memory] Failed to load notes:', e);

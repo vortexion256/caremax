@@ -177,9 +177,9 @@ export class ToolExecutor {
       const dataRows = rows.slice(1);
       const targetDateNorm = this.normalizeDateForComparison(dateStr) || dateStr;
       
-      const existingIndex = dataRows.findIndex((r) => {
-        const rowHasPhone = r.some((cell) => this.normalizePhone(String(cell ?? '')) === phoneNorm);
-        const rowHasDate = r.some((cell) => this.normalizeDateForComparison(cell) === targetDateNorm);
+      const existingIndex = dataRows.findIndex((r: string[]) => {
+        const rowHasPhone = r.some((cell: string) => this.normalizePhone(String(cell ?? '')) === phoneNorm);
+        const rowHasDate = r.some((cell: string) => this.normalizeDateForComparison(cell) === targetDateNorm);
         return rowHasPhone && rowHasDate;
       });
 
@@ -570,10 +570,11 @@ export class AgentOrchestrator {
 
           // CRITICAL: Verify booking was actually persisted
           if (result.success && result.data) {
+            const bookingData = result as BookAppointmentResult;
             const verification = await this.stateVerifier.verifyBooking({
               phone: toolCall.args.phone as string,
               date: toolCall.args.date as string,
-              expectedAppointmentId: result.data.appointmentId,
+              expectedAppointmentId: bookingData.data?.appointmentId,
             });
 
             // Only mark as successful if verification passes

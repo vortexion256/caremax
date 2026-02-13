@@ -4,7 +4,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 const TOKENS_COLLECTION = 'tenant_google_tokens';
 const SCOPES = [
-  'https://www.googleapis.com/auth/spreadsheets.readonly',
+  'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.readonly',
 ];
 
@@ -148,4 +148,89 @@ export async function fetchSheetData(
     return '| ' + padded.slice(0, header.length).map(escape).join(' | ') + ' |';
   });
   return [headerLine, sep, ...bodyLines].join('\n');
+}
+
+/** Resolve range to A1 notation (e.g. "Sheet1!A:Z"). */
+function resolveRange(range: string): string {
+  const rangeToUse = range && range.trim() ? range.trim() : 'Sheet1';
+  const hasColon = rangeToUse.includes(':');
+  const hasExclamation = rangeToUse.includes('!');
+  if (!hasExclamation && !hasColon) return `${rangeToUse}!A:Z`;
+  if (hasColon && !hasExclamation) return `Sheet1!${rangeToUse}`;
+  return rangeToUse;
+}
+
+/** Get raw sheet rows for a range. */
+export async function getSheetRows(
+  tenantId: string,
+  spreadsheetId: string,
+  range?: string
+): Promise<string[][]> {
+  const { accessToken } = await getValidTokens(tenantId);
+  const auth = new google.auth.OAuth2();
+  auth.setCredentials({ access_token: accessToken });
+  const sheets = google.sheets({ version: 'v4', auth });
+  const rangeToUse = resolveRange(range ?? 'Sheet1');
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: rangeToUse });
+  return (res.data.values ?? []) as string[][];
+}
+
+/** Append a row to a sheet. */
+export async function appendSheetRow(
+  tenantId: string,
+  spreadsheetId: string,
+  range: string,
+  row: string[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { accessToken } = await getValidTokens(tenantId);
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: accessToken });
+    const sheets = google.sheets({ version: 'v4', auth });
+    const rangeToUse = resolveRange(range);
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: rangeToUse,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [row] },
+    });
+    return { success: true };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : 'Failed to append row',
+    };
+  }
+}
+
+/** Update a single row by 1-based row index. */
+export async function updateSheetRow(
+  tenantId: string,
+  spreadsheetId: string,
+  range: string,
+  rowIndex1Based: number,
+  row: string[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { accessToken } = await getValidTokens(tenantId);
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: accessToken });
+    const sheets = google.sheets({ version: 'v4', auth });
+    const baseRange = resolveRange(range);
+    const sheetName = baseRange.includes('!') ? baseRange.split('!')[0] : 'Sheet1';
+    const rowRange = `${sheetName}!A${rowIndex1Based}:${rowIndex1Based}`;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: rowRange,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [row] },
+    });
+    return { success: true };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : 'Failed to update row',
+    };
+  }
 }

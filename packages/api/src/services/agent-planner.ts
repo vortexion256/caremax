@@ -416,7 +416,7 @@ export async function analyzeEmptyResponse(
   const hasText = typeof response.content === 'string' 
     ? response.content.trim().length > 0 
     : Array.isArray(response.content) 
-      ? (response.content as { text?: string }[]).some((c) => c?.text?.trim().length > 0)
+      ? (response.content as { text?: string }[]).some((c) => (c?.text ?? '').trim().length > 0)
       : false;
   
   const messageCount = currentMessages.length;

@@ -194,9 +194,10 @@ export async function runAgentV2(
     // ========================================================================
     const lastUserMessage = history.filter((m) => m.role === 'user').pop()?.content ?? '';
     const intent = await extractIntent(model, lastUserMessage, history);
+    const wantsHumanHandoff = intent.intent === 'request_human';
 
     // Early exit for human handoff
-    if (intent.intent === 'request_human') {
+    if (wantsHumanHandoff) {
       return {
         text: "I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.\n\nIf your need is urgent, please call your care team or 911 in an emergency.",
         requestHandoff: true,
@@ -658,7 +659,7 @@ Follow this plan step by step. Execute each step in order.`;
     let text = extractTextFromResponse(response);
 
     // Check if response only contains tool calls (no text)
-    const hasToolCalls = (response as { tool_calls?: unknown[] }).tool_calls?.length > 0;
+    const hasToolCalls = response != null && ((response as { tool_calls?: unknown[] }).tool_calls?.length ?? 0) > 0;
     const isEmptyResponse = (!text || text.trim().length === 0) && !hasToolCalls;
     const isToolOnlyResponse = (!text || text.trim().length === 0) && hasToolCalls;
 
@@ -917,7 +918,7 @@ Provide a clear, user-friendly response based on these results.`,
 
     const requestHandoff =
       markerPresent ||
-      intent.intent === 'request_human' ||
+      wantsHumanHandoff ||
       /speak with (a )?(care )?(coordinator|team|human|agent)/i.test(text);
 
     // ========================================================================
