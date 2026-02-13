@@ -20,7 +20,7 @@ export default function Embed() {
   };
 
   return (
-    <div>
+    <div style={{ padding: isMobile ? '16px 0' : 0 }}>
       <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Embed Widget</h1>
       <p style={{ color: '#64748b', marginBottom: 32, maxWidth: 600 }}>
         Integrate the CareMax chat widget into your website by adding this small script snippet.

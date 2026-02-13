@@ -128,7 +128,7 @@ export default function AutoAgentBrain() {
   if (loading) return <div style={{ color: '#64748b' }}>Loading memory...</div>;
 
   return (
-    <div>
+    <div style={{ padding: isMobile ? '16px 0' : 0 }}>
       <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Auto Agent Brain</h1>
       <p style={{ color: '#64748b', marginBottom: 32, maxWidth: 800 }}>
         The agent's dynamic memory. It automatically learns from interactions and care team feedback.

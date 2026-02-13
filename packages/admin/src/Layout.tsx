@@ -178,7 +178,7 @@ export default function Layout() {
           maxWidth: 1000, 
           margin: '0 auto',
           background: '#fff',
-          padding: isMobile ? '0' : '40px',
+          padding: isMobile ? '20px' : '40px',
           borderRadius: isMobile ? '0' : '16px',
           boxShadow: isMobile ? 'none' : '0 4px 24px rgba(0, 0, 0, 0.05)',
           minHeight: isMobile ? 'auto' : 'calc(100vh - 80px)'

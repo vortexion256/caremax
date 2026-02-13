@@ -76,7 +76,7 @@ export default function AgentSettings() {
   };
 
   return (
-    <div style={{ paddingBottom: 40 }}>
+    <div style={{ paddingBottom: 40, padding: isMobile ? '16px 0' : 0 }}>
       <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Agent Settings</h1>
       <p style={{ color: '#64748b', marginBottom: 32 }}>Configure your AI agent's personality and behavior.</p>
       

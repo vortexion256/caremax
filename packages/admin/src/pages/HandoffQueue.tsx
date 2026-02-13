@@ -64,7 +64,7 @@ export default function HandoffQueue() {
   if (loading) return <div style={{ color: '#64748b' }}>Loading queue...</div>;
 
   return (
-    <div>
+    <div style={{ padding: isMobile ? '16px 0' : 0 }}>
       <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Handoff Queue</h1>
       <p style={{ color: '#64748b', marginBottom: 32, maxWidth: 800 }}>
         Conversations waiting for a human agent. Active requests are prioritized.
