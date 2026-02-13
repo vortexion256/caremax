@@ -135,13 +135,14 @@ async function recordUsage(modelName: string, usage: UsageMetadata, ctx: UsageCo
 
 async function recordActivity(tenantId: string, type: string): Promise<void> {
   try {
-    await db.collection('agent_activities').add({
+    const docRef = await db.collection('agent_activities').add({
       tenantId,
       type,
       createdAt: FieldValue.serverTimestamp(),
     });
+    console.log(`[Agent] ✅ Recorded activity: type="${type}", tenantId="${tenantId}", docId="${docRef.id}"`);
   } catch (e) {
-    console.error('Failed to record activity:', e);
+    console.error(`[Agent] ❌ Failed to record activity: type="${type}", tenantId="${tenantId}"`, e);
   }
 }
 
@@ -375,14 +376,44 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notes: As you interact with users, observe patterns and create notes for admin review. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. Create notes periodically when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points). These notes help admins understand user needs and improve the service.${existingNotesContext}`;
   if (config.ragEnabled) {
     const lastUser = history.filter((m) => m.role === 'user').pop();
-    const ragContext = lastUser ? await getRagContext(tenantId, lastUser.content) : '';
+    // Add timeout for RAG context retrieval (5 seconds)
+    let ragContext = '';
+    if (lastUser) {
+      try {
+        ragContext = await Promise.race([
+          getRagContext(tenantId, lastUser.content),
+          new Promise<string>((_, reject) => {
+            setTimeout(() => reject(new Error('RAG context timeout')), 5000);
+          }),
+        ]).catch((e) => {
+          console.warn('[Agent] RAG context retrieval timeout or error:', e);
+          return '';
+        });
+      } catch (e) {
+        console.warn('[Agent] RAG context error:', e);
+      }
+    }
     if (ragContext) {
       systemContent += `\n\nRelevant context from this organization's knowledge base (use this for contact info, phone numbers, hours, locations, and other org-specific details):\n${ragContext}`;
       void recordActivity(tenantId, 'rag');
     } else if (lastUser && process.env.NODE_ENV !== 'test') {
       console.log('RAG: enabled but no context returned for tenant', tenantId, '- check Agent settings "Use RAG" and that RAG documents exist and are indexed.');
     }
-    const existingRecords = await listRecords(tenantId);
+    // Add timeout for listRecords (3 seconds)
+    let existingRecords: Awaited<ReturnType<typeof listRecords>> = [];
+    try {
+      existingRecords = await Promise.race([
+        listRecords(tenantId),
+        new Promise<typeof existingRecords>((_, reject) => {
+          setTimeout(() => reject(new Error('listRecords timeout')), 3000);
+        }),
+      ]).catch((e) => {
+        console.warn('[Agent] listRecords timeout or error:', e);
+        return [];
+      });
+    } catch (e) {
+      console.warn('[Agent] listRecords error:', e);
+    }
     systemContent += `\n\n--- Current Auto Agent Brain records (check these before adding anything) ---\n${formatExistingRecordsForPrompt(existingRecords)}\n--- End of existing records ---`;
     systemContent += `\n\nWhen the user or care team provides information to remember, you MUST decide based on the existing records above:\n1) If it UPDATES or CORRECTS an existing record (e.g. new phone number for the same branch, changed hours, corrected detail)—use request_edit_record with that record's recordId; do NOT add a new record (that causes duplicates).\n2) If a record is obsolete or should be removed—use request_delete_record with that recordId.\n3) Only use record_learned_knowledge for genuinely NEW information that does not overlap any existing record (no similar title/topic).\nUse short, clear titles and key facts. To edit or delete you must use the recordId from the list above; an admin will approve before the change is applied.`;
   }
@@ -521,10 +552,27 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
   
+  // Add timeout wrapper for LLM calls (30 seconds per call)
+  const invokeWithTimeout = async (messages: BaseMessage[], timeoutMs = 30000): Promise<BaseMessage> => {
+    return Promise.race([
+      modelWithTools.invoke(messages),
+      new Promise<BaseMessage>((_, reject) => {
+        setTimeout(() => reject(new Error(`LLM API timeout after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  };
+  
   // Accumulate tokens from all invocations (initial + tool call rounds)
   let accumulatedUsage: UsageMetadata = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
   
-  let response: BaseMessage = await modelWithTools.invoke(currentMessages);
+  let response: BaseMessage;
+  try {
+    response = await invokeWithTimeout(currentMessages);
+  } catch (e) {
+    console.error('[Agent] Initial LLM call timeout or error:', e);
+    return { text: 'I apologize, but I\'m experiencing delays. Please try again in a moment.' };
+  }
+  
   const initialUsage = extractTokenUsage(response);
   accumulatedUsage.inputTokens += initialUsage.inputTokens;
   accumulatedUsage.outputTokens += initialUsage.outputTokens;
@@ -601,7 +649,13 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       toolMessages.push(new ToolMessage({ content, tool_call_id: tc.id }));
     }
     currentMessages = [...currentMessages, response, ...toolMessages];
-    response = await modelWithTools.invoke(currentMessages);
+    try {
+      response = await invokeWithTimeout(currentMessages);
+    } catch (e) {
+      console.error(`[Agent] LLM call timeout in tool round ${round + 1}:`, e);
+      // If timeout during tool execution, return a helpful message
+      return { text: 'I encountered a delay while processing your request. Please try rephrasing or try again in a moment.' };
+    }
     
     // Accumulate tokens from this tool call round
     const roundUsage = extractTokenUsage(response);
@@ -614,6 +668,38 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   if (typeof response.content === 'string') text = response.content;
   else if (Array.isArray(response.content))
     text = (response.content as { text?: string }[]).map((c) => c?.text ?? '').join('');
+  
+  // Fallback if no text - try to get a plain text response
+  if (!text || text.trim().length === 0) {
+    console.warn('[Agent] Empty response detected, attempting fallback');
+    try {
+      const plainTextPrompt = new HumanMessage({
+        content: 'Reply to the user in plain text only. Do not use any tools. If you were trying to search for appointments, explain that you need a phone number to search the system.',
+      });
+      // Add timeout for fallback LLM call (15 seconds)
+      const fallbackResponse = await Promise.race([
+        model.invoke([...currentMessages, plainTextPrompt]),
+        new Promise<BaseMessage>((_, reject) => {
+          setTimeout(() => reject(new Error('Fallback LLM timeout')), 15000);
+        }),
+      ]);
+      const fallbackUsage = extractTokenUsage(fallbackResponse);
+      accumulatedUsage.inputTokens += fallbackUsage.inputTokens;
+      accumulatedUsage.outputTokens += fallbackUsage.outputTokens;
+      accumulatedUsage.totalTokens += fallbackUsage.totalTokens;
+      
+      if (typeof fallbackResponse.content === 'string') text = fallbackResponse.content;
+      else if (Array.isArray(fallbackResponse.content))
+        text = (fallbackResponse.content as { text?: string }[]).map((c) => c?.text ?? '').join('');
+      
+      if (!text || text.trim().length === 0) {
+        console.error('[Agent] Fallback response also empty');
+      }
+    } catch (e) {
+      console.error('[Agent] Fallback response generation failed:', e);
+    }
+  }
+  
   const markerPresent = text.includes(HANDOFF_MARKER);
   const textWithoutMarker = markerPresent
     ? text.replace(new RegExp(`\\s*${HANDOFF_MARKER.replace(/[\]\[]/g, '\\$&')}\\s*$`, 'i'), '').trim()

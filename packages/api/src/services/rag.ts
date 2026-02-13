@@ -27,11 +27,22 @@ function scoreChunk(chunkText: string, queryTerms: string[]): number {
 }
 
 export async function getRagContext(tenantId: string, query: string, limit = 8): Promise<string> {
-  const snap = await db
-    .collection(RAG_CHUNKS)
-    .where('tenantId', '==', tenantId)
-    .limit(100)
-    .get();
+  // Add timeout for Firestore query (3 seconds)
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('RAG query timeout')), 3000);
+  });
+  
+  const snap = await Promise.race([
+    db
+      .collection(RAG_CHUNKS)
+      .where('tenantId', '==', tenantId)
+      .limit(100)
+      .get(),
+    timeoutPromise,
+  ]).catch((e) => {
+    console.warn('[RAG] Query timeout or error:', e);
+    return { empty: true, docs: [] } as { empty: boolean; docs: never[] };
+  });
 
   if (snap.empty) {
     if (process.env.NODE_ENV !== 'test') {

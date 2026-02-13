@@ -108,14 +108,32 @@ export async function fetchSheetData(
   auth.setCredentials({ access_token: accessToken });
   const sheets = google.sheets({ version: 'v4', auth });
   let rangeToUse = range && range.trim() ? range.trim() : 'Sheet1';
-  // Sheets API requires A1 notation (e.g. "Sheet1!A:Z"). If only a sheet name is given, append range.
-  if (!rangeToUse.includes('!')) {
+  // Sheets API requires A1 notation (e.g. "Sheet1!A:Z"). 
+  // If the range already contains a colon (like "A6:F20"), it's already a valid A1 range - use as-is.
+  // If it contains '!', it's already in "SheetName!Range" format - use as-is.
+  // Otherwise, treat it as a sheet name and append "!A:Z"
+  const hasColon = rangeToUse.includes(':');
+  const hasExclamation = rangeToUse.includes('!');
+  if (!hasExclamation && !hasColon) {
+    // It's just a sheet name, append the default range
     rangeToUse = `${rangeToUse}!A:Z`;
+  } else if (hasColon && !hasExclamation) {
+    // It's a range like "A6:F20" but no sheet name - assume Sheet1
+    rangeToUse = `Sheet1!${rangeToUse}`;
   }
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: rangeToUse,
+  // If it already has '!', it's in correct format, use as-is
+  // Add timeout to prevent hanging (10 seconds)
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('Google Sheets API timeout after 10 seconds')), 10000);
   });
+  
+  const res = await Promise.race([
+    sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: rangeToUse,
+    }),
+    timeoutPromise,
+  ]);
   const rows = (res.data.values ?? []) as string[][];
   if (rows.length === 0) return 'No data in the specified range.';
   // Build markdown table: first row as header, rest as body

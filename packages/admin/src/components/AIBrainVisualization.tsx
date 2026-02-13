@@ -33,9 +33,11 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [handoffCount, setHandoffCount] = useState(0);
   const [activeItemIndex, setActiveItemIndex] = useState<number | null>(null);
+  const [pulseBorderOnly, setPulseBorderOnly] = useState(false);
   const [communicationEvents, setCommunicationEvents] = useState<CommunicationEvent[]>([]);
   const [isSimulating, setIsSimulating] = useState(false);
   const [hasActiveChat, setHasActiveChat] = useState(false);
+  const hasActiveChatRef = useRef(false);
   const { tenantId } = useTenant();
 
   const items: Item[] = [
@@ -57,38 +59,85 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
   useEffect(() => {
     if (!tenantId) return;
     
-    // Query for open conversations updated in the last 5 minutes
-    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+    let conversations: any[] = [];
+    
+    // Query for open conversations - filter by time in memory to avoid index issues
+    // Query all matching conversations and filter by recent updates in memory
     const q = query(
       collection(firestore, 'conversations'),
       where('tenantId', '==', tenantId),
-      where('status', 'in', ['open', 'handoff_requested', 'human_joined']),
-      where('updatedAt', '>', new Date(fiveMinutesAgo))
+      where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
     );
 
-    const unsub = onSnapshot(q, (snap) => {
-      setHasActiveChat(!snap.empty);
-    });
+    const checkActiveChat = () => {
+      // Filter by time in memory to check for recent activity (last 30 seconds)
+      const now = Date.now();
+      const thirtySecondsAgoMs = now - 30 * 1000;
+      const hasActive = conversations.some(doc => {
+        const data = doc.data ? doc.data() : doc;
+        const updatedAt = data.updatedAt;
+        if (!updatedAt) return false;
+        // Handle both Timestamp objects and plain numbers
+        const updatedAtMs = updatedAt.toMillis ? updatedAt.toMillis() : (typeof updatedAt === 'number' ? updatedAt : Date.now());
+        const isRecent = updatedAtMs > thirtySecondsAgoMs;
+        return isRecent;
+      });
+      console.log(`[Dashboard] Active chat check: ${conversations.length} conversations, hasActive=${hasActive}`);
+      setHasActiveChat(hasActive);
+      hasActiveChatRef.current = hasActive;
+    };
 
-    return () => unsub();
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        conversations = snap.docs;
+        checkActiveChat();
+      },
+      (error) => {
+        console.error('Error listening to active conversations:', error);
+        conversations = [];
+        setHasActiveChat(false);
+        hasActiveChatRef.current = false;
+      }
+    );
+
+    // Check every 5 seconds to re-evaluate the 30-second timeout
+    // This ensures animations stop even if no Firestore updates occur
+    const intervalId = setInterval(checkActiveChat, 5000);
+
+    return () => {
+      unsub();
+      clearInterval(intervalId);
+    };
   }, [tenantId]);
 
   // Simulate communication between nodes
   const simulateCommunication = () => {
-    if (!hasActiveChat) {
+    if (!hasActiveChatRef.current) {
+      console.log('[Dashboard] No active chat, stopping simulation');
       setIsSimulating(false);
-      return;
+      // Return no-op cleanup function
+      return () => {};
     }
     
+    console.log('[Dashboard] Starting animation simulation');
     setIsSimulating(true);
     
     const simulationInterval = setInterval(() => {
+      // Check current value via ref to avoid stale closure
+      if (!hasActiveChatRef.current) {
+        console.log('[Dashboard] Active chat ended, stopping interval');
+        setIsSimulating(false);
+        clearInterval(simulationInterval);
+        return;
+      }
+      
       const sourceIndex = Math.floor(Math.random() * items.length);
-      const targetIndex = Math.floor(Math.random() * items.length);
+      let targetIndex = Math.floor(Math.random() * items.length);
       
       // Avoid self-communication
-      if (sourceIndex === targetIndex) {
-        return;
+      while (targetIndex === sourceIndex) {
+        targetIndex = Math.floor(Math.random() * items.length);
       }
 
       const newEvent: CommunicationEvent = {
@@ -99,6 +148,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         duration: 3000 + Math.random() * 2000 // Reduced speed: 3-5 seconds (was 1.5-2.5)
       };
 
+      console.log(`[Dashboard] Creating animation event: ${items[sourceIndex].label} -> ${items[targetIndex].label}`);
       setCommunicationEvents(prev => [...prev, newEvent]);
 
       // Highlight the nodes
@@ -108,16 +158,21 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       }, 600); // Reduced speed: 0.6s (was 0.3s)
     }, 2000 + Math.random() * 2000); // Reduced frequency: every 2-4 seconds (was 0.8-1.5)
 
-    return () => clearInterval(simulationInterval);
+    return () => {
+      console.log('[Dashboard] Cleaning up animation simulation');
+      clearInterval(simulationInterval);
+      setIsSimulating(false);
+    };
   };
 
   // Start simulation when there's an active chat
-  useEffect(() => {
-    const cleanup = simulateCommunication();
-    return () => {
-      if (cleanup) cleanup();
-    };
-  }, [hasActiveChat]);
+  // DISABLED: Automatic animations are currently disabled
+  // useEffect(() => {
+  //   const cleanup = simulateCommunication();
+  //   return () => {
+  //     if (cleanup) cleanup();
+  //   };
+  // }, [hasActiveChat]);
 
   // Clean up old communication events
   useEffect(() => {
@@ -144,6 +199,72 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
     return () => unsub();
   }, [tenantId]);
 
+  // Animate handoff card when handoff requests occur or handoff conversations are active
+  useEffect(() => {
+    if (!tenantId) return;
+    
+    // Find handoff card index
+    const handoffIndex = items.findIndex(item => item.path === '/handoffs');
+    if (handoffIndex === -1) return;
+    
+    // Listen for conversations with handoff status
+    const q = query(
+      collection(firestore, 'conversations'),
+      where('tenantId', '==', tenantId),
+      where('status', 'in', ['handoff_requested', 'human_joined'])
+    );
+    
+    let animationInterval: NodeJS.Timeout | null = null;
+    
+    const unsub = onSnapshot(q, (snap) => {
+      const hasActiveHandoff = snap.size > 0;
+      
+      if (hasActiveHandoff) {
+        // Check if any conversations are in 'human_joined' status
+        const hasHumanJoined = snap.docs.some(doc => doc.data().status === 'human_joined');
+        const hasHandoffRequested = snap.docs.some(doc => doc.data().status === 'handoff_requested');
+        
+        // When human has joined, only pulse border/line; when just requested, pulse full card
+        setPulseBorderOnly(hasHumanJoined && !hasHandoffRequested);
+        
+        console.log(`[Dashboard] Active handoff detected: ${snap.size} conversations, human_joined=${hasHumanJoined}, animating handoff card`);
+        
+        // Start pulsing animation for handoff card with smooth transitions
+        if (!animationInterval) {
+          // Create smooth pulsing animation by gradually highlighting and unhighlighting
+          const pulse = () => {
+            // Fade in (soft start) - highlight over 400ms
+            setActiveItemIndex(handoffIndex);
+            // Fade out (soft end) - unhighlight after 700ms, giving 400ms fade in + 300ms hold
+            setTimeout(() => {
+              setActiveItemIndex(null);
+            }, 700);
+          };
+          
+          // Start immediately, then pulse every 1500ms
+          pulse();
+          animationInterval = setInterval(pulse, 1500);
+        }
+      } else {
+        console.log('[Dashboard] No active handoffs, stopping handoff card animation');
+        // Stop animation when no active handoffs
+        if (animationInterval) {
+          clearInterval(animationInterval);
+          animationInterval = null;
+        }
+        setActiveItemIndex(null);
+        setPulseBorderOnly(false);
+      }
+    });
+    
+    return () => {
+      unsub();
+      if (animationInterval) {
+        clearInterval(animationInterval);
+      }
+    };
+  }, [tenantId]);
+
   useEffect(() => {
     if (!tenantId) return;
     
@@ -155,27 +276,54 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       limit(1)
     );
 
-    const unsub = onSnapshot(q, (snap) => {
-      if (snap.empty) return;
-      
-      const activity = snap.docs[0].data();
-      const activityType = activity.type;
-      const createdAt = activity.createdAt?.toMillis() || 0;
-      
-      // Only trigger if the activity is very recent (within the last 5 seconds)
-      // to avoid triggering on old records when the component mounts
-      if (Date.now() - createdAt > 5000) return;
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        if (snap.empty) {
+          console.log('[Dashboard] No agent activities found');
+          return;
+        }
+        
+        const activity = snap.docs[0].data();
+        const activityType = activity.type;
+        const createdAt = activity.createdAt?.toMillis() || 0;
+        
+        console.log(`[Dashboard] Activity detected: type="${activityType}", createdAt=${new Date(createdAt).toISOString()}, age=${Date.now() - createdAt}ms`);
+        
+        // Only trigger if the activity is very recent (within the last 5 seconds)
+        // to avoid triggering on old records when the component mounts
+        if (Date.now() - createdAt > 5000) {
+          console.log(`[Dashboard] Activity too old (${Date.now() - createdAt}ms), ignoring`);
+          return;
+        }
 
-      const index = items.findIndex(item => {
-        const path = item.path.replace('/', '');
-        return path === activityType || (activityType === 'rag' && path === 'rag');
-      });
-      
-      if (index !== -1) {
-        setActiveItemIndex(index);
-        setTimeout(() => setActiveItemIndex(null), 3000);
+        const index = items.findIndex(item => {
+          const path = item.path.replace('/', '');
+          // Map activity types to card paths
+          const matches = path === activityType || 
+                 (activityType === 'rag' && path === 'rag') ||
+                 (activityType === 'agent-brain' && path === 'agent-brain');
+          if (matches) {
+            console.log(`[Dashboard] Matched activity "${activityType}" to item "${item.label}" (path="${path}", index=${items.indexOf(item)})`);
+          }
+          return matches;
+        });
+        
+        if (index !== -1) {
+          console.log(`[Dashboard] ✅ Agent activity detected: ${activityType}, highlighting item ${index} (${items[index].label})`);
+          setActiveItemIndex(index);
+          setTimeout(() => {
+            console.log(`[Dashboard] Clearing highlight for item ${index}`);
+            setActiveItemIndex(null);
+          }, 3000);
+        } else {
+          console.log(`[Dashboard] ❌ No match found for activity type "${activityType}". Available paths: ${items.map(i => i.path.replace('/', '')).join(', ')}`);
+        }
+      },
+      (error) => {
+        console.error('Error listening to agent activities:', error);
       }
-    });
+    );
 
     return () => unsub();
   }, [tenantId]);
@@ -373,7 +521,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       window.removeEventListener('resize', resizeCanvas);
       cancelAnimationFrame(animationFrameId);
     };
-  }, [dimensions, hoveredIndex, activeItemIndex, communicationEvents, hasActiveChat]);
+  }, [dimensions, hoveredIndex, activeItemIndex, communicationEvents, hasActiveChat, pulseBorderOnly]);
 
   return (
     <div 
@@ -443,7 +591,10 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
           marginTop: 'auto'
         }}
       >
-        {items.map((item, index) => (
+        {items.map((item, index) => {
+          const handoffIndex = items.findIndex(i => i.path === '/handoffs');
+          const isHandoffCard = index === handoffIndex;
+          return (
           <button
             key={index}
             ref={el => nodeRefs.current[index] = el}
@@ -453,10 +604,16 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
             style={{
               position: 'relative',
               padding: isMobile ? '12px 8px' : '16px 12px',
-              background: (hoveredIndex === index || activeItemIndex === index) ? item.color : '#fff',
+              // When pulseBorderOnly is true and this is the handoff card, keep background white
+              background: (pulseBorderOnly && isHandoffCard && activeItemIndex === index) 
+                ? '#fff' 
+                : ((hoveredIndex === index || activeItemIndex === index) ? item.color : '#fff'),
               border: `1.5px solid ${(hoveredIndex === index || activeItemIndex === index) ? item.color : '#e2e8f0'}`,
               borderRadius: '16px',
-              color: (hoveredIndex === index || activeItemIndex === index) ? '#fff' : '#475569',
+              // When pulseBorderOnly is true, keep text color dark
+              color: (pulseBorderOnly && isHandoffCard && activeItemIndex === index)
+                ? '#475569'
+                : ((hoveredIndex === index || activeItemIndex === index) ? '#fff' : '#475569'),
               fontSize: isMobile ? '11px' : '14px',
               fontWeight: 600,
               boxShadow: (hoveredIndex === index || activeItemIndex === index)
@@ -501,11 +658,17 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
               width: isMobile ? '24px' : '32px', 
               height: isMobile ? '24px' : '32px', 
               borderRadius: '50%', 
-              background: (hoveredIndex === index || activeItemIndex === index) ? 'rgba(255,255,255,0.2)' : `${item.color}15`,
+              // When pulseBorderOnly is true, keep icon background light
+              background: (pulseBorderOnly && isHandoffCard && activeItemIndex === index)
+                ? `${item.color}15`
+                : ((hoveredIndex === index || activeItemIndex === index) ? 'rgba(255,255,255,0.2)' : `${item.color}15`),
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: (hoveredIndex === index || activeItemIndex === index) ? '#fff' : item.color,
+              // When pulseBorderOnly is true, keep icon color as item color
+              color: (pulseBorderOnly && isHandoffCard && activeItemIndex === index)
+                ? item.color
+                : ((hoveredIndex === index || activeItemIndex === index) ? '#fff' : item.color),
               fontSize: isMobile ? '10px' : '12px'
             }}>
               {item.shortLabel}
@@ -520,7 +683,8 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
               {item.label}
             </span>
           </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
