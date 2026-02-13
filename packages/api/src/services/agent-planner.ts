@@ -412,7 +412,7 @@ export async function analyzeEmptyResponse(
   executionPlan: ExecutionPlan | null,
   toolResults?: Array<{ success: boolean; error?: string }>
 ): Promise<EmptyResponseAnalysis> {
-  const hasToolCalls = (response as { tool_calls?: unknown[] }).tool_calls?.length > 0;
+  const hasToolCalls = response != null && ((response as { tool_calls?: unknown[] }).tool_calls?.length ?? 0) > 0;
   const hasText = typeof response.content === 'string' 
     ? response.content.trim().length > 0 
     : Array.isArray(response.content) 
