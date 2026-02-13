@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { firestore } from '../firebase';
+import { useTenant } from '../TenantContext';
 
 interface AIBrainVisualizationProps {
   isMobile: boolean;
@@ -20,11 +23,37 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
   const navigate = useNavigate();
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [handoffCount, setHandoffCount] = useState(0);
+  const [activeItemIndex, setActiveItemIndex] = useState<number | null>(null);
+  const { tenantId } = useTenant();
+
+  useEffect(() => {
+    if (!tenantId) return;
+    const q = query(
+      collection(firestore, 'conversations'),
+      where('tenantId', '==', tenantId),
+      where('status', '==', 'handoff_requested')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setHandoffCount(snap.size);
+    });
+    return () => unsub();
+  }, [tenantId]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const randomIndex = Math.floor(Math.random() * items.length);
+      setActiveItemIndex(randomIndex);
+      setTimeout(() => setActiveItemIndex(null), 1500);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
 
   const items: Item[] = [
     { label: 'Knowledge Base', shortLabel: 'KB', path: '/rag', color: '#3b82f6' },
     { label: 'Auto Brain', shortLabel: 'AB', path: '/agent-brain', color: '#8b5cf6' },
     { label: 'Notes', shortLabel: 'NT', path: '/agent-notes', color: '#ec4899' },
+    { label: 'Handoffs', shortLabel: 'HO', path: '/handoffs', color: '#f43f5e' },
     { label: 'Integrations', shortLabel: 'IN', path: '/integrations', color: '#10b981' },
     { label: 'Agent Config', shortLabel: 'AC', path: '/agent', color: '#f59e0b' }
   ];
@@ -79,7 +108,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
 
       const time = Date.now() * 0.001;
 
-      items.forEach((_, index) => {
+        items.forEach((_, index) => {
         const nodeEl = nodeRefs.current[index];
         if (!nodeEl) return;
 
@@ -88,10 +117,11 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         const targetY = nodeRect.top - containerRect.top; // Connect to top of card
 
         const isHovered = hoveredIndex === index;
+        const isActive = activeItemIndex === index;
         const item = items[index];
         
         ctx.beginPath();
-        ctx.lineWidth = isHovered ? 3 : 1.5;
+        ctx.lineWidth = (isHovered || isActive) ? 3 : 1.5;
         
         // Vertical-ish Bezier curve
         const cp1x = startX + Math.sin(time * 0.5 + index) * 20;
@@ -103,7 +133,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, targetX, targetY);
 
         const gradient = ctx.createLinearGradient(startX, startY, targetX, targetY);
-        if (isHovered) {
+        if (isHovered || isActive) {
           gradient.addColorStop(0, item.color);
           gradient.addColorStop(1, `${item.color}44`);
         } else {
@@ -120,9 +150,9 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         const px = Math.pow(1-t, 3) * startX + 3 * Math.pow(1-t, 2) * t * cp1x + 3 * (1-t) * Math.pow(t, 2) * cp2x + Math.pow(t, 3) * targetX;
         const py = Math.pow(1-t, 3) * startY + 3 * Math.pow(1-t, 2) * t * cp1y + 3 * (1-t) * Math.pow(t, 2) * cp2y + Math.pow(t, 3) * targetY;
 
-        ctx.fillStyle = isHovered ? item.color : 'rgba(100, 116, 139, 0.4)';
+        ctx.fillStyle = (isHovered || isActive) ? item.color : 'rgba(100, 116, 139, 0.4)';
         ctx.beginPath();
-        ctx.arc(px, py, isHovered ? 4 : 2, 0, Math.PI * 2);
+        ctx.arc(px, py, (isHovered || isActive) ? 4 : 2, 0, Math.PI * 2);
         ctx.fill();
       });
 
@@ -137,7 +167,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       window.removeEventListener('resize', resizeCanvas);
       cancelAnimationFrame(animationFrameId);
     };
-  }, [dimensions, hoveredIndex]);
+  }, [dimensions, hoveredIndex, activeItemIndex]);
 
   return (
     <div 
@@ -200,7 +230,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)',
+          gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(6, 1fr)',
           gap: isMobile ? '8px' : '20px',
           width: '100%',
           zIndex: 10,
@@ -215,14 +245,15 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
             onMouseEnter={() => setHoveredIndex(index)}
             onMouseLeave={() => setHoveredIndex(null)}
             style={{
+              position: 'relative',
               padding: isMobile ? '12px 8px' : '16px 12px',
-              background: hoveredIndex === index ? item.color : '#fff',
-              border: `1.5px solid ${hoveredIndex === index ? item.color : '#e2e8f0'}`,
+              background: (hoveredIndex === index || activeItemIndex === index) ? item.color : '#fff',
+              border: `1.5px solid ${(hoveredIndex === index || activeItemIndex === index) ? item.color : '#e2e8f0'}`,
               borderRadius: '16px',
-              color: hoveredIndex === index ? '#fff' : '#475569',
+              color: (hoveredIndex === index || activeItemIndex === index) ? '#fff' : '#475569',
               fontSize: isMobile ? '11px' : '14px',
               fontWeight: 600,
-              boxShadow: hoveredIndex === index 
+              boxShadow: (hoveredIndex === index || activeItemIndex === index)
                 ? `0 10px 15px -3px ${item.color}44` 
                 : '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
               cursor: 'pointer',
@@ -238,15 +269,37 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
               minWidth: 0
             }}
           >
+            {item.path === '/handoffs' && handoffCount > 0 && (
+              <div style={{
+                position: 'absolute',
+                top: -8,
+                right: -8,
+                background: '#ef4444',
+                color: 'white',
+                borderRadius: '50%',
+                width: '20px',
+                height: '20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                border: '2px solid white',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                zIndex: 20
+              }}>
+                {handoffCount}
+              </div>
+            )}
             <div style={{ 
               width: isMobile ? '24px' : '32px', 
               height: isMobile ? '24px' : '32px', 
               borderRadius: '50%', 
-              background: hoveredIndex === index ? 'rgba(255,255,255,0.2)' : `${item.color}15`,
+              background: (hoveredIndex === index || activeItemIndex === index) ? 'rgba(255,255,255,0.2)' : `${item.color}15`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: hoveredIndex === index ? '#fff' : item.color,
+              color: (hoveredIndex === index || activeItemIndex === index) ? '#fff' : item.color,
               fontSize: isMobile ? '10px' : '12px'
             }}>
               {item.shortLabel}
