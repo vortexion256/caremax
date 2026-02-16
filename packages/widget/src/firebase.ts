@@ -11,6 +11,10 @@ const config = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+if (!config.apiKey || config.apiKey === '') {
+  console.error('Firebase Error: VITE_FIREBASE_API_KEY is missing. Check .env in root.');
+}
+
 export const app = initializeApp(config);
 export const auth = getAuth(app);
 export const firestore = getFirestore(app);

@@ -19,9 +19,10 @@ const config = {
 };
 
 if (!config.apiKey || config.apiKey === '') {
-  console.warn(
-    'Firebase: Missing VITE_FIREBASE_API_KEY (or NEXT_PUBLIC_FIREBASE_API_KEY in root .env). Admin sign-in will fail.'
-  );
+  const msg = 'Firebase Error: VITE_FIREBASE_API_KEY is missing or empty. Please check your .env file in the repository root.';
+  console.error(msg);
+  // Optional: throw error to stop initialization if API key is critical
+  // throw new Error(msg);
 }
 
 export const app = initializeApp(config);
