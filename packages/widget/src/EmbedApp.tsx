@@ -238,7 +238,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             border: `1px dashed ${border}`,
             margin: '20px 0'
           }}>
-            👋 How can we help you today? Ask about symptoms or medical advice.
+            Hello, how can I be of service?
           </div>
         )}
         {messages.map((m, index) => {
