@@ -13,7 +13,7 @@ export default function Layout() {
   const nav = [
     { path: '/', label: 'Dashboard' },
     { path: '/agent', label: 'Agent Settings' },
-    { path: '/advanced-prompts', label: 'Advanced Prompts' },
+    ...(isPlatformAdmin ? [{ path: '/advanced-prompts', label: 'Advanced Prompts' }] : []),
     { path: '/conversations', label: 'Conversations' },
     { path: '/handoffs', label: 'Handoff Queue' },
     { path: '/agent-notes', label: 'Notes' },

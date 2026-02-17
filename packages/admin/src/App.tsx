@@ -170,7 +170,9 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="agent" element={<AgentSettings />} />
-          <Route path="advanced-prompts" element={<AdvancedPromptSettings />} />
+          {userProfile.isPlatformAdmin && (
+            <Route path="advanced-prompts" element={<AdvancedPromptSettings />} />
+          )}
           <Route path="conversations" element={<Conversations />} />
           <Route path="conversations/:conversationId" element={<ConversationView />} />
           <Route path="handoffs" element={<HandoffQueue />} />
