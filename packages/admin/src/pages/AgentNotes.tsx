@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { useTenant } from '../TenantContext';
 import { api } from '../api';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -261,8 +262,8 @@ export default function AgentNotes() {
                 </div>
               </div>
               
-              <div style={{ fontSize: 15, color: '#1e293b', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: 16 }}>
-                {note.content}
+              <div style={{ fontSize: 15, color: '#1e293b', lineHeight: 1.6, marginBottom: 16 }}>
+                <ReactMarkdown>{note.content}</ReactMarkdown>
               </div>
               
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>

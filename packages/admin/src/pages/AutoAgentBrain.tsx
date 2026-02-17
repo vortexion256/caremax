@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { api, type AgentRecord, type AgentBrainModificationRequest } from '../api';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -211,7 +212,7 @@ export default function AutoAgentBrain() {
                     {req.type === 'edit' && (req.title != null || req.content != null) && (
                       <div style={{ fontSize: 14, color: '#1e293b', marginBottom: 8 }}>
                         {req.title != null && <div style={{ fontWeight: 600 }}>{req.title}</div>}
-                        {req.content != null && <div style={{ marginTop: 4, color: '#475569' }}>{req.content}</div>}
+                        {req.content != null && <div style={{ marginTop: 4, color: '#475569' }}><ReactMarkdown>{req.content}</ReactMarkdown></div>}
                       </div>
                     )}
                     {req.reason && <div style={{ fontSize: 13, color: '#64748b', fontStyle: 'italic' }}>Reason: {req.reason}</div>}
@@ -265,9 +266,9 @@ export default function AutoAgentBrain() {
                   <h4 style={{ margin: 0, fontSize: 15, color: '#0f172a', fontWeight: 600 }}>{r.title}</h4>
                   <span style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(r.createdAt)}</span>
                 </div>
-                <p style={{ margin: '0 0 20px 0', color: '#475569', fontSize: 14, lineHeight: 1.5, flex: 1 }}>
-                  {r.content.length > 150 ? `${r.content.slice(0, 150)}...` : r.content}
-                </p>
+                <div style={{ margin: '0 0 20px 0', color: '#475569', fontSize: 14, lineHeight: 1.5, flex: 1 }}>
+                  <ReactMarkdown>{r.content.length > 150 ? `${r.content.slice(0, 150)}...` : r.content}</ReactMarkdown>
+                </div>
                 <div style={{ display: 'flex', gap: 8, borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>
                   <button type="button" onClick={() => setEditingId(r.recordId)} style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', color: '#475569' }}>
                     Edit
