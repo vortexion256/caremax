@@ -260,3 +260,28 @@ conversationRouter.post('/:conversationId/agent-message', requireAuth, requireAd
   });
   res.status(201).json({ ok: true });
 });
+
+conversationRouter.delete('/:conversationId', requireAuth, requireAdmin, async (req, res) => {
+  const { conversationId } = req.params;
+  const tenantId = res.locals.tenantId as string;
+  const convRef = db.collection(CONVERSATIONS).doc(conversationId);
+  const conv = await convRef.get();
+  if (!conv.exists || (conv.data()?.tenantId as string) !== tenantId) {
+    res.status(404).json({ error: 'Conversation not found' });
+    return;
+  }
+
+  // Delete all messages in the conversation
+  const messagesSnap = await db.collection(MESSAGES).where('conversationId', '==', conversationId).get();
+  const batch = db.batch();
+  messagesSnap.docs.forEach((doc) => {
+    batch.delete(doc.ref);
+  });
+  
+  // Delete the conversation itself
+  batch.delete(convRef);
+  
+  await batch.commit();
+  
+  res.json({ ok: true, message: 'Conversation and messages deleted' });
+});

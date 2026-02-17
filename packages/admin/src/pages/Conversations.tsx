@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { collection, query, where, orderBy, limit, startAfter, getDocs, type DocumentSnapshot } from 'firebase/firestore';
 import { firestore } from '../firebase';
+import { api } from '../api';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 
@@ -14,6 +15,8 @@ type ConversationItem = {
   status: 'open' | 'handoff_requested' | 'human_joined';
   createdAt: number | null;
   updatedAt: number | null;
+  lastMessage?: string;
+  hasHumanParticipant?: boolean;
 };
 
 export default function Conversations() {
@@ -54,10 +57,31 @@ export default function Conversations() {
     }
 
     getDocs(q)
-      .then((snap) => {
+      .then(async (snap) => {
         const docs = snap.docs;
-        const conversations: ConversationItem[] = docs.map((d) => {
+        const conversations: ConversationItem[] = await Promise.all(docs.map(async (d) => {
           const data = d.data();
+          
+          // Fetch last message and check for human participation
+          const messagesRef = collection(firestore, 'messages');
+          const lastMsgQuery = query(
+            messagesRef,
+            where('conversationId', '==', d.id),
+            orderBy('createdAt', 'desc'),
+            limit(1)
+          );
+          const lastMsgSnap = await getDocs(lastMsgQuery);
+          const lastMessage = lastMsgSnap.docs[0]?.data()?.content ?? 'No messages yet';
+
+          const humanMsgQuery = query(
+            messagesRef,
+            where('conversationId', '==', d.id),
+            where('role', '==', 'human_agent'),
+            limit(1)
+          );
+          const humanMsgSnap = await getDocs(humanMsgQuery);
+          const hasHumanParticipant = !humanMsgSnap.empty;
+
           return {
             conversationId: d.id,
             tenantId: data.tenantId ?? '',
@@ -65,8 +89,10 @@ export default function Conversations() {
             status: (data.status ?? 'open') as ConversationItem['status'],
             createdAt: data.createdAt?.toMillis?.() ?? null,
             updatedAt: data.updatedAt?.toMillis?.() ?? null,
+            lastMessage,
+            hasHumanParticipant,
           };
-        });
+        }));
         setList(conversations);
         setHasMore(docs.length === PAGE_SIZE);
         setLastDoc(docs.length > 0 ? docs[docs.length - 1] : null);
@@ -104,10 +130,31 @@ export default function Conversations() {
     }
 
     getDocs(q)
-      .then((snap) => {
+      .then(async (snap) => {
         const docs = snap.docs;
-        const moreConversations: ConversationItem[] = docs.map((d) => {
+        const moreConversations: ConversationItem[] = await Promise.all(docs.map(async (d) => {
           const data = d.data();
+          
+          // Fetch last message and check for human participation
+          const messagesRef = collection(firestore, 'messages');
+          const lastMsgQuery = query(
+            messagesRef,
+            where('conversationId', '==', d.id),
+            orderBy('createdAt', 'desc'),
+            limit(1)
+          );
+          const lastMsgSnap = await getDocs(lastMsgQuery);
+          const lastMessage = lastMsgSnap.docs[0]?.data()?.content ?? 'No messages yet';
+
+          const humanMsgQuery = query(
+            messagesRef,
+            where('conversationId', '==', d.id),
+            where('role', '==', 'human_agent'),
+            limit(1)
+          );
+          const humanMsgSnap = await getDocs(humanMsgQuery);
+          const hasHumanParticipant = !humanMsgSnap.empty;
+
           return {
             conversationId: d.id,
             tenantId: data.tenantId ?? '',
@@ -115,8 +162,10 @@ export default function Conversations() {
             status: (data.status ?? 'open') as ConversationItem['status'],
             createdAt: data.createdAt?.toMillis?.() ?? null,
             updatedAt: data.updatedAt?.toMillis?.() ?? null,
+            lastMessage,
+            hasHumanParticipant,
           };
-        });
+        }));
         setList((prev) => [...prev, ...moreConversations]);
         setHasMore(docs.length === PAGE_SIZE);
         setLastDoc(docs.length > 0 ? docs[docs.length - 1] : null);
@@ -129,13 +178,10 @@ export default function Conversations() {
       });
   };
 
-  const getStatusBadge = (status: string) => {
-    const styles: Record<string, { bg: string; color: string; label: string }> = {
-      open: { bg: '#eff6ff', color: '#2563eb', label: 'AI Only' },
-      handoff_requested: { bg: '#fffbeb', color: '#d97706', label: 'Handoff' },
-      human_joined: { bg: '#f0fdf4', color: '#166534', label: 'Care Team' },
-    };
-    const style = styles[status] || styles.open;
+  const getStatusBadge = (conv: ConversationItem) => {
+    const label = conv.hasHumanParticipant ? 'AI + Human' : 'AI Only';
+    const isHuman = conv.hasHumanParticipant;
+    
     return (
       <span
         style={{
@@ -143,15 +189,25 @@ export default function Conversations() {
           borderRadius: 6,
           fontSize: 12,
           fontWeight: 600,
-          background: style.bg,
-          color: style.color,
+          background: isHuman ? '#f0fdf4' : '#eff6ff',
+          color: isHuman ? '#166534' : '#2563eb',
           textTransform: 'uppercase',
           letterSpacing: '0.02em'
         }}
       >
-        {style.label}
+        {label}
       </span>
     );
+  };
+
+  const deleteConversation = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this conversation? This will remove all messages and cannot be undone.')) return;
+    try {
+      await api(`/tenants/${tenantId}/conversations/${id}`, { method: 'DELETE' });
+      setList((prev) => prev.filter((c) => c.conversationId !== id));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete conversation');
+    }
   };
 
   if (loading) return <div style={{ color: '#64748b' }}>Loading conversations...</div>;
@@ -215,34 +271,54 @@ export default function Conversations() {
             >
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                  {getStatusBadge(conv.status)}
+                  {getStatusBadge(conv)}
                   <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>#{conv.conversationId.slice(0, 8)}</span>
                 </div>
-                <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 500 }}>
-                  User: <span style={{ color: '#475569' }}>{conv.userId}</span>
+                <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 500, marginBottom: 4 }}>
+                  {conv.lastMessage && conv.lastMessage.length > 100 ? `${conv.lastMessage.slice(0, 100)}...` : conv.lastMessage}
                 </div>
-                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
-                  Updated {conv.updatedAt ? new Date(conv.updatedAt).toLocaleString() : '-'}
+                <div style={{ fontSize: 12, color: '#64748b' }}>
+                  User: {conv.userId.slice(0, 8)}... • {conv.updatedAt ? new Date(conv.updatedAt).toLocaleString() : '-'}
                 </div>
               </div>
               
-              <Link
-                to={`/conversations/${conv.conversationId}`}
-                style={{
-                  padding: '8px 16px',
-                  background: '#f8fafc',
-                  color: '#2563eb',
-                  textDecoration: 'none',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  border: '1px solid #e2e8f0',
-                  borderRadius: 8,
-                  textAlign: 'center',
-                  minWidth: isMobile ? '100%' : 120
-                }}
-              >
-                View Chat
-              </Link>
+              <div style={{ display: 'flex', gap: 8, width: isMobile ? '100%' : 'auto' }}>
+                <Link
+                  to={`/conversations/${conv.conversationId}`}
+                  style={{
+                    padding: '8px 16px',
+                    background: '#f8fafc',
+                    color: '#2563eb',
+                    textDecoration: 'none',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 8,
+                    textAlign: 'center',
+                    flex: 1,
+                    minWidth: isMobile ? 0 : 100
+                  }}
+                >
+                  View
+                </Link>
+                <button
+                  onClick={() => deleteConversation(conv.conversationId)}
+                  style={{
+                    padding: '8px 16px',
+                    background: '#fff',
+                    color: '#ef4444',
+                    border: '1px solid #fee2e2',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    flex: 1,
+                    minWidth: isMobile ? 0 : 100
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))}
           
