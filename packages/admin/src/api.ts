@@ -39,6 +39,7 @@ export type AgentConfig = {
   agentName: string;
   chatTitle?: string;
   welcomeText?: string;
+  suggestedQuestions?: string[];
   systemPrompt: string;
   thinkingInstructions: string;
   model: string;

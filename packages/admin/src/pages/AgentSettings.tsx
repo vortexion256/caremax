@@ -30,6 +30,7 @@ export default function AgentSettings() {
           agentName: config.agentName,
           chatTitle: config.chatTitle ?? '',
           welcomeText: config.welcomeText ?? '',
+          suggestedQuestions: config.suggestedQuestions ?? [],
           systemPrompt: config.systemPrompt,
           thinkingInstructions: config.thinkingInstructions,
           model: config.model,
@@ -126,6 +127,63 @@ export default function AgentSettings() {
             placeholder="e.g. Hello, how can I be of service?"
           />
           <span style={helperStyle}>The first message the user sees when opening the widget.</span>
+        </div>
+
+        <div>
+          <label style={labelStyle}>Suggested Questions</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {(config?.suggestedQuestions ?? []).map((q, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8 }}>
+                <input
+                  value={q}
+                  onChange={(e) => {
+                    const newQs = [...(config?.suggestedQuestions ?? [])];
+                    newQs[i] = e.target.value;
+                    setConfig((c) => (c ? { ...c, suggestedQuestions: newQs } : c));
+                  }}
+                  style={inputStyle}
+                  placeholder="Enter a question..."
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const newQs = (config?.suggestedQuestions ?? []).filter((_, idx) => idx !== i);
+                    setConfig((c) => (c ? { ...c, suggestedQuestions: newQs } : c));
+                  }}
+                  style={{
+                    padding: '0 12px',
+                    backgroundColor: '#fee2e2',
+                    color: '#ef4444',
+                    border: 'none',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                const newQs = [...(config?.suggestedQuestions ?? []), ''];
+                setConfig((c) => (c ? { ...c, suggestedQuestions: newQs } : c));
+              }}
+              style={{
+                padding: '10px',
+                backgroundColor: '#f1f5f9',
+                color: '#475569',
+                border: '1px dashed #cbd5e1',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              + Add Question
+            </button>
+          </div>
+          <span style={helperStyle}>Quick questions users can click to start a conversation.</span>
         </div>
 
         <div>

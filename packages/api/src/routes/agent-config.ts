@@ -18,6 +18,7 @@ const updateBody = z.object({
   agentName: z.string().optional(),
   chatTitle: z.string().optional(),
   welcomeText: z.string().optional(),
+  suggestedQuestions: z.array(z.string()).optional(),
   systemPrompt: z.string().optional(),
   thinkingInstructions: z.string().optional(),
   model: z.string().optional(),
@@ -40,6 +41,7 @@ agentConfigRouter.get('/widget', async (req, res) => {
     chatTitle: (data.chatTitle ?? '').trim(),
     agentName: data.agentName ?? 'CareMax Assistant',
     welcomeText: data.welcomeText ?? 'Hello, how can I be of service?',
+    suggestedQuestions: data.suggestedQuestions ?? [],
   });
 });
 

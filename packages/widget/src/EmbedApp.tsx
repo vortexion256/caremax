@@ -14,7 +14,7 @@ type Message = {
 
 type EmbedAppProps = { tenantId: string; theme: string };
 
-type WidgetConfig = { chatTitle: string; agentName: string; welcomeText: string };
+type WidgetConfig = { chatTitle: string; agentName: string; welcomeText: string; suggestedQuestions: string[] };
 
 export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -43,12 +43,14 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
       .then((data: WidgetConfig) => setWidgetConfig({ 
         chatTitle: data.chatTitle ?? '', 
         agentName: data.agentName ?? 'CareMax Assistant',
-        welcomeText: data.welcomeText ?? 'Hello, how can I be of service?'
+        welcomeText: data.welcomeText ?? 'Hello, how can I be of service?',
+        suggestedQuestions: data.suggestedQuestions ?? []
       }))
       .catch(() => setWidgetConfig({ 
         chatTitle: '', 
         agentName: 'CareMax Assistant',
-        welcomeText: 'Hello, how can I be of service?'
+        welcomeText: 'Hello, how can I be of service?',
+        suggestedQuestions: []
       }));
   }, [tenantId]);
 
@@ -265,6 +267,42 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             >
               <ReactMarkdown>{widgetConfig?.welcomeText || 'Hello, how can I be of service?'}</ReactMarkdown>
             </div>
+          </div>
+        )}
+        {messages.length === 0 && !loading && (widgetConfig?.suggestedQuestions?.length ?? 0) > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+            {widgetConfig?.suggestedQuestions.map((q, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  setInput(q);
+                  // Trigger send next tick to allow state update if needed, 
+                  // or just call sendMessage with q
+                  const inputEv = { target: { value: q, style: { height: 'auto' } } } as any;
+                  setInput(q);
+                  setTimeout(() => {
+                    const btn = document.querySelector('button[style*="background-color: rgb(37, 99, 235)"]') as HTMLButtonElement;
+                    btn?.click();
+                  }, 0);
+                }}
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: 18,
+                  backgroundColor: isDark ? '#1f2937' : '#ffffff',
+                  color: '#2563eb',
+                  border: `1px solid ${border}`,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.2s',
+                  width: 'fit-content',
+                  maxWidth: '100%',
+                }}
+              >
+                {q}
+              </button>
+            ))}
           </div>
         )}
         {messages.map((m, index) => {
