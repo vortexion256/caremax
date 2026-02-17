@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
-export const uploadRouter = Router({ mergeParams: true });
+export const uploadRouter: Router = Router({ mergeParams: true });
 uploadRouter.use(requireTenantParam);
 
 uploadRouter.post('/', upload.single('file'), async (req, res) => {

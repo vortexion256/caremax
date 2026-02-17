@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../config/firebase.js';
 import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/auth.js';
 
-export const handoffRouter = Router({ mergeParams: true });
+export const handoffRouter: Router = Router({ mergeParams: true });
 
 handoffRouter.use(requireTenantParam);
 

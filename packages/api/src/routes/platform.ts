@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db, auth, bucket } from '../config/firebase.js';
 import { requireAuth, requirePlatformAdmin } from '../middleware/auth.js';
 
-export const platformRouter = Router();
+export const platformRouter: Router = Router();
 
 // All platform routes require authentication and platform admin role
 platformRouter.use(requireAuth, requirePlatformAdmin);

@@ -5,7 +5,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
 import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/auth.js';
 
-export const agentFlowRouter = Router({ mergeParams: true });
+export const agentFlowRouter: Router = Router({ mergeParams: true });
 
 agentFlowRouter.use(requireTenantParam);
 

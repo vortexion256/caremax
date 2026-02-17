@@ -4,7 +4,7 @@ import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/aut
 import { listNotes, getNote, updateNoteStatus, deleteNote } from '../services/agent-notes.js';
 import { consolidateNotes } from '../services/agent-notes-consolidation.js';
 
-export const agentNotesRouter = Router({ mergeParams: true });
+export const agentNotesRouter: Router = Router({ mergeParams: true });
 
 agentNotesRouter.use(requireTenantParam);
 agentNotesRouter.use(requireAuth);

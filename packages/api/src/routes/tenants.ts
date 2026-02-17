@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireTenantParam } from '../middleware/auth.js';
 import { db } from '../config/firebase.js';
 
-export const tenantRouter = Router();
+export const tenantRouter: Router = Router();
 
 tenantRouter.use(requireAuth);
 tenantRouter.use(requireTenantParam);

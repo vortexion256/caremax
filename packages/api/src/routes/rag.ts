@@ -5,7 +5,7 @@ import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/aut
 import { indexDocument, deleteChunksForDocument } from '../services/rag.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
-export const ragRouter = Router({ mergeParams: true });
+export const ragRouter: Router = Router({ mergeParams: true });
 const DOCUMENTS = 'rag_documents';
 
 ragRouter.use(requireTenantParam);

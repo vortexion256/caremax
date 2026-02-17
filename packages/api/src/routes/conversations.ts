@@ -6,7 +6,7 @@ import { runAgent, extractAndRecordLearningFromHistory } from '../services/agent
 import type { ConversationStatus } from '../types/index.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
-export const conversationRouter = Router({ mergeParams: true });
+export const conversationRouter: Router = Router({ mergeParams: true });
 
 const MESSAGES = 'messages';
 const CONVERSATIONS = 'conversations';

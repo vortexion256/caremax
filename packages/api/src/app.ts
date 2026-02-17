@@ -16,7 +16,7 @@ import { integrationsCallbackRouter, tenantIntegrationsRouter } from './routes/i
 import { rateLimit } from './middleware/rateLimit.js';
 import { domainAllowlist } from './middleware/allowlist.js';
 
-const app = express();
+const app: express.Application = express();
 const PORT = process.env.PORT ?? 3001;
 
 const allowedFromEnv = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean);

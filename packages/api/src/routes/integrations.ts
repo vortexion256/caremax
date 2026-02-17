@@ -8,7 +8,7 @@ import {
 import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/auth.js';
 
 /** Callback from Google OAuth - no auth; state = tenantId. Redirects to admin. */
-export const integrationsCallbackRouter = Router();
+export const integrationsCallbackRouter: Router = Router();
 
 integrationsCallbackRouter.get('/google/callback', async (req: Request, res: Response) => {
   const { code, state: tenantId, error } = req.query;
@@ -31,7 +31,7 @@ integrationsCallbackRouter.get('/google/callback', async (req: Request, res: Res
 });
 
 /** Tenant-scoped integration routes (auth, status, disconnect). */
-export const tenantIntegrationsRouter = Router({ mergeParams: true });
+export const tenantIntegrationsRouter: Router = Router({ mergeParams: true });
 
 tenantIntegrationsRouter.use(requireTenantParam);
 

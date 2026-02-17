@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { auth } from '../config/firebase.js';
 import { requireAuth, type AuthLocals } from '../middleware/auth.js';
 
-export const authRouter = Router();
+export const authRouter: Router = Router();
 
 const googleBody = z.object({ idToken: z.string() });
 

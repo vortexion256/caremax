@@ -13,7 +13,7 @@ import {
 } from '../services/auto-agent-brain.js';
 import { runConsolidation } from '../services/agent.js';
 
-export const agentRecordsRouter = Router({ mergeParams: true });
+export const agentRecordsRouter: Router = Router({ mergeParams: true });
 
 agentRecordsRouter.use(requireTenantParam);
 

@@ -4,7 +4,7 @@ import { auth, db } from '../config/firebase.js';
 import { requireAuth } from '../middleware/auth.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
-export const registerRouter = Router();
+export const registerRouter: Router = Router();
 
 const slugRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 const registerBody = z.object({
