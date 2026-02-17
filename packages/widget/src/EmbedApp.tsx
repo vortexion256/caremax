@@ -234,10 +234,10 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           flex: 1,
           overflowY: 'auto',
           WebkitOverflowScrolling: 'touch',
-          padding: '20px 16px',
+          padding: '16px 12px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 16,
+          gap: 12,
           backgroundColor: isDark ? '#111827' : '#f9fafb',
         }}
       >
@@ -256,9 +256,9 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             </span>
             <div
               style={{
-                padding: '10px 14px',
-                borderRadius: 18,
-                borderTopRightRadius: 18,
+                padding: '8px 12px',
+                borderRadius: 12,
+                borderTopRightRadius: 12,
                 borderTopLeftRadius: 4,
                 backgroundColor: isDark ? '#374151' : '#ffffff',
                 color: text,
@@ -268,7 +268,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
                 border: `1px solid ${border}`,
               }}
             >
-              <ReactMarkdown>{widgetConfig?.welcomeText || 'Hello, how can I be of service?'}</ReactMarkdown>
+              <div className="caremax-markdown"><ReactMarkdown>{widgetConfig?.welcomeText || 'Hello, how can I be of service?'}</ReactMarkdown></div>
             </div>
           </div>
         )}
@@ -328,10 +328,10 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
               )}
               <div
                 style={{
-                  padding: '10px 14px',
-                  borderRadius: 18,
-                  borderTopRightRadius: isUser ? 4 : 18,
-                  borderTopLeftRadius: isUser ? 18 : 4,
+                  padding: '8px 12px',
+                  borderRadius: 12,
+                  borderTopRightRadius: isUser ? 4 : 12,
+                  borderTopLeftRadius: isUser ? 12 : 4,
                   backgroundColor: isUser ? primaryColor : (isDark ? '#374151' : '#ffffff'),
                   color: isUser ? '#ffffff' : text,
                   fontSize: 14,
@@ -340,7 +340,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
                   border: isUser ? 'none' : `1px solid ${border}`,
                 }}
               >
-                <ReactMarkdown>{m.content}</ReactMarkdown>
+                <div className="caremax-markdown"><ReactMarkdown>{m.content}</ReactMarkdown></div>
                 {m.imageUrls?.length ? (
                   <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {m.imageUrls.map((url) => (
@@ -474,6 +474,13 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           0% { opacity: 0.4; transform: scale(0.8); }
           50% { opacity: 1; transform: scale(1); }
           100% { opacity: 0.4; transform: scale(0.8); }
+        }
+        .caremax-markdown p {
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        .caremax-markdown p + p {
+          margin-top: 8px !important;
         }
       `}</style>
     </div>
