@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { firestore, auth, ensureAnonymousAuth, collection, query, where, orderBy, onSnapshot, doc } from './firebase';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
@@ -269,12 +270,11 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
                   color: isUser ? '#ffffff' : text,
                   fontSize: 14,
                   lineHeight: 1.5,
-                  whiteSpace: 'pre-wrap',
                   boxShadow: isUser ? 'none' : '0 1px 2px 0 rgba(0,0,0,0.05)',
                   border: isUser ? 'none' : `1px solid ${border}`,
                 }}
               >
-                {m.content}
+                <ReactMarkdown>{m.content}</ReactMarkdown>
                 {m.imageUrls?.length ? (
                   <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {m.imageUrls.map((url) => (

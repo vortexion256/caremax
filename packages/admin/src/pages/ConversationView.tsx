@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { useParams, Link } from 'react-router-dom';
 import { collection, query, where, orderBy, limit, startAfter, getDocs, doc, getDoc, type DocumentSnapshot } from 'firebase/firestore';
 import { firestore } from '../firebase';
@@ -253,12 +254,11 @@ export default function ConversationView() {
                     color: msg.role === 'human_agent' ? '#fff' : '#1e293b',
                     fontSize: 14,
                     lineHeight: 1.5,
-                    whiteSpace: 'pre-wrap',
                     boxShadow: isUser ? '0 1px 2px 0 rgb(0 0 0 / 0.05)' : 'none',
                     border: isUser ? '1px solid #e2e8f0' : 'none'
                   }}
                 >
-                  {msg.content}
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
                   {msg.imageUrls && msg.imageUrls.length > 0 && (
                     <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {msg.imageUrls.map((url, idx) => (

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { firestore } from '../firebase';
@@ -184,12 +185,11 @@ export default function HandoffChat() {
                 color: m.role === 'human_agent' ? '#fff' : '#1e293b',
                 fontSize: 14,
                 lineHeight: 1.5,
-                whiteSpace: 'pre-wrap',
                 boxShadow: m.role === 'user' ? '0 1px 2px 0 rgb(0 0 0 / 0.05)' : 'none',
                 border: m.role === 'user' ? '1px solid #e2e8f0' : 'none'
               }}
             >
-              {m.content}
+              <ReactMarkdown>{m.content}</ReactMarkdown>
               {m.imageUrls?.length ? (
                 <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {m.imageUrls.map((url) => (
