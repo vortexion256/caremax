@@ -14,7 +14,7 @@ type Message = {
 
 type EmbedAppProps = { tenantId: string; theme: string };
 
-type WidgetConfig = { chatTitle: string; agentName: string; welcomeText: string; suggestedQuestions: string[] };
+type WidgetConfig = { chatTitle: string; agentName: string; welcomeText: string; suggestedQuestions: string[]; widgetColor: string };
 
 export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -44,13 +44,15 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
         chatTitle: data.chatTitle ?? '', 
         agentName: data.agentName ?? 'CareMax Assistant',
         welcomeText: data.welcomeText ?? 'Hello, how can I be of service?',
-        suggestedQuestions: data.suggestedQuestions ?? []
+        suggestedQuestions: data.suggestedQuestions ?? [],
+        widgetColor: data.widgetColor ?? '#2563eb'
       }))
       .catch(() => setWidgetConfig({ 
         chatTitle: '', 
         agentName: 'CareMax Assistant',
         welcomeText: 'Hello, how can I be of service?',
-        suggestedQuestions: []
+        suggestedQuestions: [],
+        widgetColor: '#2563eb'
       }));
   }, [tenantId]);
 
@@ -181,6 +183,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   const text = isDark ? '#f3f4f6' : '#1f2937';
   const border = isDark ? '#374151' : '#e5e7eb';
   const secondaryText = isDark ? '#9ca3af' : '#6b7280';
+  const primaryColor = widgetConfig?.widgetColor || '#2563eb';
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 480;
   
@@ -281,7 +284,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
                   const inputEv = { target: { value: q, style: { height: 'auto' } } } as any;
                   setInput(q);
                   setTimeout(() => {
-                    const btn = document.querySelector('button[style*="background-color: rgb(37, 99, 235)"]') as HTMLButtonElement;
+                    const btn = document.querySelector('button[data-send-btn]') as HTMLButtonElement;
                     btn?.click();
                   }, 0);
                 }}
@@ -289,7 +292,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
                   padding: '10px 14px',
                   borderRadius: 18,
                   backgroundColor: isDark ? '#1f2937' : '#ffffff',
-                  color: '#2563eb',
+                  color: primaryColor,
                   border: `1px solid ${border}`,
                   fontSize: 13,
                   fontWeight: 500,
@@ -329,7 +332,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
                   borderRadius: 18,
                   borderTopRightRadius: isUser ? 4 : 18,
                   borderTopLeftRadius: isUser ? 18 : 4,
-                  backgroundColor: isUser ? '#2563eb' : (isDark ? '#374151' : '#ffffff'),
+                  backgroundColor: isUser ? primaryColor : (isDark ? '#374151' : '#ffffff'),
                   color: isUser ? '#ffffff' : text,
                   fontSize: 14,
                   lineHeight: 1.5,
@@ -408,12 +411,13 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             {/* Image upload temporarily removed */}
           </div>
           <button
+            data-send-btn
             onClick={sendMessage}
             disabled={!input.trim()}
             style={{
               padding: '10px',
               borderRadius: '50%',
-              backgroundColor: '#2563eb',
+              backgroundColor: primaryColor,
               color: '#ffffff',
               border: 'none',
               cursor: 'pointer',

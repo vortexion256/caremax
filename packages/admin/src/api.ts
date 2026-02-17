@@ -40,6 +40,7 @@ export type AgentConfig = {
   chatTitle?: string;
   welcomeText?: string;
   suggestedQuestions?: string[];
+  widgetColor?: string;
   systemPrompt: string;
   thinkingInstructions: string;
   model: string;

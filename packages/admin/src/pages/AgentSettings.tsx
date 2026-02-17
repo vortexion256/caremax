@@ -31,6 +31,7 @@ export default function AgentSettings() {
           chatTitle: config.chatTitle ?? '',
           welcomeText: config.welcomeText ?? '',
           suggestedQuestions: config.suggestedQuestions ?? [],
+          widgetColor: config.widgetColor ?? '#2563eb',
           systemPrompt: config.systemPrompt,
           thinkingInstructions: config.thinkingInstructions,
           model: config.model,
@@ -184,6 +185,25 @@ export default function AgentSettings() {
             </button>
           </div>
           <span style={helperStyle}>Quick questions users can click to start a conversation.</span>
+        </div>
+
+        <div>
+          <label style={labelStyle}>Widget Theme Color (Hex)</label>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <input
+              type="color"
+              value={config?.widgetColor ?? '#2563eb'}
+              onChange={(e) => setConfig((c) => (c ? { ...c, widgetColor: e.target.value } : c))}
+              style={{ width: 44, height: 44, padding: 0, border: 'none', borderRadius: 8, cursor: 'pointer', backgroundColor: 'transparent' }}
+            />
+            <input
+              value={config?.widgetColor ?? '#2563eb'}
+              onChange={(e) => setConfig((c) => (c ? { ...c, widgetColor: e.target.value } : c))}
+              style={{ ...inputStyle, width: 140 }}
+              placeholder="#2563eb"
+            />
+          </div>
+          <span style={helperStyle}>Changes the color of user messages, buttons, and icons.</span>
         </div>
 
         <div>
