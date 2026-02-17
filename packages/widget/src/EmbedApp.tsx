@@ -14,7 +14,7 @@ type Message = {
 
 type EmbedAppProps = { tenantId: string; theme: string };
 
-type WidgetConfig = { chatTitle: string; agentName: string };
+type WidgetConfig = { chatTitle: string; agentName: string; welcomeText: string };
 
 export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -40,8 +40,16 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   useEffect(() => {
     fetch(`${API_URL}/tenants/${tenantId}/agent-config/widget`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to load'))))
-      .then((data: WidgetConfig) => setWidgetConfig({ chatTitle: data.chatTitle ?? '', agentName: data.agentName ?? 'CareMax Assistant' }))
-      .catch(() => setWidgetConfig({ chatTitle: '', agentName: 'CareMax Assistant' }));
+      .then((data: WidgetConfig) => setWidgetConfig({ 
+        chatTitle: data.chatTitle ?? '', 
+        agentName: data.agentName ?? 'CareMax Assistant',
+        welcomeText: data.welcomeText ?? 'Hello, how can I be of service?'
+      }))
+      .catch(() => setWidgetConfig({ 
+        chatTitle: '', 
+        agentName: 'CareMax Assistant',
+        welcomeText: 'Hello, how can I be of service?'
+      }));
   }, [tenantId]);
 
   const createConversation = async () => {
@@ -229,17 +237,34 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
         }}
       >
         {messages.length === 0 && !loading && (
-          <div style={{ 
-            padding: 20, 
-            textAlign: 'center', 
-            color: secondaryText, 
-            fontSize: 14,
-            backgroundColor: isDark ? '#1f2937' : '#ffffff',
-            borderRadius: 12,
-            border: `1px dashed ${border}`,
-            margin: '20px 0'
-          }}>
-            Hello, how can I be of service?
+          <div
+            style={{
+              alignSelf: 'flex-start',
+              maxWidth: '85%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start',
+            }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 600, color: secondaryText, marginBottom: 4, marginLeft: 4 }}>
+              {widgetConfig?.agentName || 'AI'}
+            </span>
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: 18,
+                borderTopRightRadius: 18,
+                borderTopLeftRadius: 4,
+                backgroundColor: isDark ? '#374151' : '#ffffff',
+                color: text,
+                fontSize: 14,
+                lineHeight: 1.5,
+                boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)',
+                border: `1px solid ${border}`,
+              }}
+            >
+              <ReactMarkdown>{widgetConfig?.welcomeText || 'Hello, how can I be of service?'}</ReactMarkdown>
+            </div>
           </div>
         )}
         {messages.map((m, index) => {

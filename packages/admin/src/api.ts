@@ -38,6 +38,7 @@ export type AgentConfig = {
   tenantId: string;
   agentName: string;
   chatTitle?: string;
+  welcomeText?: string;
   systemPrompt: string;
   thinkingInstructions: string;
   model: string;

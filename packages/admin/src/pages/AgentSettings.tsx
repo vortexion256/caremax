@@ -29,6 +29,7 @@ export default function AgentSettings() {
         body: JSON.stringify({
           agentName: config.agentName,
           chatTitle: config.chatTitle ?? '',
+          welcomeText: config.welcomeText ?? '',
           systemPrompt: config.systemPrompt,
           thinkingInstructions: config.thinkingInstructions,
           model: config.model,
@@ -114,6 +115,17 @@ export default function AgentSettings() {
             />
             <span style={helperStyle}>Shown in the widget header.</span>
           </div>
+        </div>
+
+        <div>
+          <label style={labelStyle}>Welcome Text (Chat Bubble)</label>
+          <input
+            value={config?.welcomeText ?? ''}
+            onChange={(e) => setConfig((c) => (c ? { ...c, welcomeText: e.target.value } : c))}
+            style={inputStyle}
+            placeholder="e.g. Hello, how can I be of service?"
+          />
+          <span style={helperStyle}>The first message the user sees when opening the widget.</span>
         </div>
 
         <div>
