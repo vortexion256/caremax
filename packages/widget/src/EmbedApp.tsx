@@ -210,7 +210,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             {widgetConfig?.chatTitle?.trim() || 'CareMax'}
           </div>
           <div style={{ fontSize: 11, color: secondaryText, marginTop: 2 }}>
-            {humanJoined ? '🟢 Care team online' : '⚡ AI Assistant'}
+            {humanJoined ? '🟢 Care team online' : '⚡ Online'}
           </div>
         </div>
       </div>
@@ -294,153 +294,148 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
         {loading && (
           <div style={{ alignSelf: 'flex-start', display: 'flex', gap: 4, padding: '8px 12px' }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite' }}></span>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite 0.2s' }}></span>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite 0.4s' }}></span>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite', animationDelay: '0.2s' }}></span>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite', animationDelay: '0.4s' }}></span>
           </div>
         )}
       </div>
 
       <div
-        className="caremax-input-area"
+        ref={inputContainerRef}
         style={{
-          padding: `12px 16px calc(${isMobile ? '72px' : '24px'} + env(safe-area-inset-bottom))`,
+          padding: '16px 12px',
           borderTop: `1px solid ${border}`,
-          backgroundColor: card,
+          backgroundColor: isDark ? '#111827' : '#ffffff',
           flexShrink: 0,
         }}
       >
-        {images.length > 0 && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-            {images.map((f, i) => (
-              <div
-                key={i}
-                style={{
-                  position: 'relative',
-                  width: 50,
-                  height: 50,
-                  borderRadius: 8,
-                  overflow: 'hidden',
-                  border: `1px solid ${border}`
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <textarea
+              ref={inputRef}
+              rows={1}
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+              placeholder="Type your message..."
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                paddingRight: 40,
+                borderRadius: 20,
+                border: `1px solid ${border}`,
+                backgroundColor: isDark ? '#1f2937' : '#f9fafb',
+                color: text,
+                fontSize: 14,
+                outline: 'none',
+                resize: 'none',
+                maxHeight: 120,
+                lineHeight: 1.5,
+              }}
+            />
+            <label
+              style={{
+                position: 'absolute',
+                right: 12,
+                bottom: 10,
+                cursor: 'pointer',
+                color: secondaryText,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 24,
+                height: 24,
+                borderRadius: '50%',
+              }}
+            >
+              <input
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={(e) => {
+                  if (e.target.files) setImages(Array.from(e.target.files));
                 }}
-              >
-                <div style={{ width: '100%', height: '100%', background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10 }}>IMG</div>
+                style={{ display: 'none' }}
+              />
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+            </label>
+          </div>
+          <button
+            onClick={sendMessage}
+            disabled={!input.trim() && images.length === 0}
+            style={{
+              padding: '10px',
+              borderRadius: '50%',
+              backgroundColor: '#2563eb',
+              color: '#ffffff',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background-color 0.2s',
+              opacity: !input.trim() && images.length === 0 ? 0.5 : 1,
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          </button>
+        </div>
+        {images.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            {images.map((f, i) => (
+              <div key={i} style={{ position: 'relative' }}>
+                <img
+                  src={URL.createObjectURL(f)}
+                  alt=""
+                  style={{ width: 48, height: 48, borderRadius: 8, objectFit: 'cover', border: `1px solid ${border}` }}
+                />
                 <button
-                  type="button"
-                  onClick={() => setImages((p) => p.filter((_, j) => j !== i))}
-                  style={{ 
-                    position: 'absolute', top: 2, right: 2, width: 16, height: 16, borderRadius: '50%', 
-                    background: 'rgba(0,0,0,0.5)', color: '#fff', border: 'none', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12
+                  onClick={() => setImages(images.filter((_, idx) => idx !== i))}
+                  style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -6,
+                    width: 18,
+                    height: 18,
+                    borderRadius: '50%',
+                    backgroundColor: '#ef4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    fontSize: 10,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
-                  ×
+                  ✕
                 </button>
               </div>
             ))}
           </div>
         )}
-        
-        <div style={{ 
-          display: 'flex', 
-          gap: 8, 
-          alignItems: 'flex-end',
-          backgroundColor: isDark ? '#374151' : '#f3f4f6',
-          borderRadius: 24,
-          padding: '4px 4px 4px 12px',
-          border: `1px solid ${border}`
-        }}>
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(e) => setImages((p) => [...p, ...Array.from(e.target.files ?? [])])}
-            style={{ display: 'none' }}
-            id="caremax-file"
-          />
-          <label
-            htmlFor="caremax-file"
-            style={{
-              padding: '8px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: secondaryText,
-              transition: 'color 0.2s'
-            }}
-            title="Attach images"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
-            </svg>
-          </label>
-          
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              e.target.style.height = 'auto';
-              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-              }
-            }}
-            placeholder="Type a message..."
-            rows={1}
-            style={{
-              flex: 1,
-              padding: '10px 0',
-              border: 'none',
-              background: 'transparent',
-              color: text,
-              fontSize: 15,
-              outline: 'none',
-              resize: 'none',
-              maxHeight: 120,
-              fontFamily: 'inherit'
-            }}
-          />
-          
-          <button
-            type="button"
-            onClick={sendMessage}
-            disabled={loading || (!input.trim() && images.length === 0)}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              background: (loading || (!input.trim() && images.length === 0)) ? 'transparent' : '#2563eb',
-              color: (loading || (!input.trim() && images.length === 0)) ? secondaryText : '#ffffff',
-              border: 'none',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'all 0.2s',
-              flexShrink: 0,
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-            </svg>
-          </button>
-        </div>
       </div>
       <style>{`
         @keyframes pulse {
-          0%, 100% { opacity: 0.4; }
-          50% { opacity: 1; }
-        }
-        .caremax-input-area textarea::-webkit-scrollbar {
-          width: 4px;
-        }
-        .caremax-input-area textarea::-webkit-scrollbar-thumb {
-          background-color: ${border};
-          border-radius: 4px;
+          0% { opacity: 0.4; transform: scale(0.8); }
+          50% { opacity: 1; transform: scale(1); }
+          100% { opacity: 0.4; transform: scale(0.8); }
         }
       `}</style>
     </div>
