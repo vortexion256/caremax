@@ -17,8 +17,8 @@ agentNotesRouter.get('/', async (req, res) => {
 
   try {
     const conversationId = typeof req.query.conversationId === 'string' ? req.query.conversationId : undefined;
-    const status = typeof req.query.status === 'string' && ['pending', 'reviewed', 'archived'].includes(req.query.status)
-      ? (req.query.status as 'pending' | 'reviewed' | 'archived')
+    const status = typeof req.query.status === 'string' && ['unread', 'read', 'archived'].includes(req.query.status)
+      ? (req.query.status as 'unread' | 'read' | 'archived')
       : undefined;
     const patientName = typeof req.query.patientName === 'string' ? req.query.patientName : undefined;
     const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : undefined;
@@ -77,7 +77,7 @@ agentNotesRouter.patch('/:noteId', requireAdmin, async (req, res) => {
   const reviewerId = res.locals.userId as string;
 
   const body = z.object({
-    status: z.enum(['pending', 'reviewed', 'archived']),
+    status: z.enum(['unread', 'read', 'archived']),
   });
 
   const parsed = body.safeParse(req.body);

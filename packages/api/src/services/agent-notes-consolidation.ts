@@ -40,7 +40,7 @@ export async function consolidateNotes(tenantId: string): Promise<{ notesConsoli
   });
 
   const notesBlock = formatNotesForConsolidation(notes);
-  const defaultConsolidationPrompt = `You are consolidating agent notes: analytics and insights tracked during conversations. Your task is to find notes that are about the SAME topic, are duplicates, or contain overlapping information (e.g. multiple notes about "users asking about appointment booking" or "keyword trend: insurance").
+  const defaultConsolidationPrompt = `You are consolidating the Agent Notebook: analytics and insights tracked during conversations. Your task is to find notes that are about the SAME topic, are duplicates, or contain overlapping information (e.g. multiple notes about "users asking about appointment booking" or "keyword trend: insurance").
 
 Below are the current notes (noteId, category, content, user, createdAt).
 
