@@ -7,7 +7,7 @@ import { db } from '../config/firebase.js';
 import { getRagContext } from './rag.js';
 import { createRecord, createModificationRequest, getRecord, listRecords } from './auto-agent-brain.js';
 import { isGoogleConnected, fetchSheetData } from './google-sheets.js';
-import { createNote, listNotes as listAgentNotes } from './agent-notes.js';
+import { createNote, listNotes as listAgentNotes, updateNoteContent, getNote } from './agent-notes.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
@@ -373,7 +373,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     }
   }
 
-  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notes: As you interact with users, observe patterns and create notes for admin review. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. Create notes periodically when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points). These notes help admins understand user needs and improve the service.${existingNotesContext}`;
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes periodically when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points). These notes help admins understand user needs and improve the service.${existingNotesContext}`;
   if (config.ragEnabled) {
     const lastUser = history.filter((m) => m.role === 'user').pop();
     // Add timeout for RAG context retrieval (5 seconds)
@@ -537,15 +537,53 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
         });
         return 'Note created successfully.';
       } catch (e) {
-        console.error('create_doctor_note error:', e);
+        console.error('create_note error:', e);
         return e instanceof Error ? e.message : 'Failed to create note.';
       }
     },
   });
 
+  const listNotesTool = new DynamicStructuredTool({
+    name: 'list_notes',
+    description: 'List existing notes in the Agent Notebook for the current conversation. Use this to see what has already been recorded so you can decide whether to create a new note or update an existing one.',
+    schema: z.object({}),
+    func: async () => {
+      if (!options?.conversationId) return 'Cannot list notes: conversation ID not available.';
+      try {
+        const notes = await listAgentNotes(tenantId, { conversationId: options.conversationId });
+        if (notes.length === 0) return 'No notes found for this conversation.';
+        return notes.map((n) => `noteId: ${n.noteId}\ncategory: ${n.category}\ncontent: ${n.content}${n.patientName ? `\nuser: ${n.patientName}` : ''}`).join('\n\n');
+      } catch (e) {
+        console.error('list_notes error:', e);
+        return e instanceof Error ? e.message : 'Failed to list notes.';
+      }
+    },
+  });
+
+  const updateNoteTool = new DynamicStructuredTool({
+    name: 'update_note',
+    description: 'Update the content of an existing note in the Agent Notebook. Use this to refine an insight, add more details to a pattern, or correct information in a note you previously created.',
+    schema: z.object({
+      noteId: z.string().describe('The ID of the note to update'),
+      content: z.string().describe('The new consolidated content for the note'),
+    }),
+    func: async ({ noteId, content }) => {
+      try {
+        const note = await getNote(tenantId, noteId);
+        if (!note) return 'Note not found.';
+        if (note.conversationId !== options?.conversationId) return 'Access denied: note belongs to a different conversation.';
+        await updateNoteContent(tenantId, noteId, content.trim());
+        return 'Note updated successfully.';
+      } catch (e) {
+        console.error('update_note error:', e);
+        return e instanceof Error ? e.message : 'Failed to update note.';
+      }
+    },
+  });
+
   const tools: unknown[] = [];
-  // Always include note tool - it's essential for tracking analytics, insights, and patterns
-  tools.push(createNoteTool);
+  // Always include notebook tools - essential for tracking analytics, insights, and patterns
+  tools.push(createNoteTool, listNotesTool, updateNoteTool);
   if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
   if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
   const modelWithTools = tools.length ? model.bindTools(tools as Parameters<typeof model.bindTools>[0]) : model;
@@ -642,6 +680,25 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
         } catch (e) {
           console.error('create_note error:', e);
           content = e instanceof Error ? e.message : 'Failed to create note.';
+        }
+      } else if (tc.name === 'list_notes') {
+        try {
+          content = await listNotesTool.invoke({});
+          void recordActivity(tenantId, 'agent-notes');
+        } catch (e) {
+          console.error('list_notes error:', e);
+          content = e instanceof Error ? e.message : 'Failed to list notes.';
+        }
+      } else if (tc.name === 'update_note' && tc.args && typeof tc.args.noteId === 'string' && typeof tc.args.content === 'string') {
+        try {
+          content = await updateNoteTool.invoke({
+            noteId: tc.args.noteId,
+            content: tc.args.content,
+          });
+          void recordActivity(tenantId, 'agent-notes');
+        } catch (e) {
+          console.error('update_note error:', e);
+          content = e instanceof Error ? e.message : 'Failed to update note.';
         }
       } else {
         content = 'Invalid arguments.';
