@@ -18,7 +18,7 @@ import { getAgentConfig } from './agent.js';
 import { getRagContext } from './rag.js';
 import { createRecord, createModificationRequest, getRecord, listRecords } from './auto-agent-brain.js';
 import { isGoogleConnected, fetchSheetData, appendSheetRow, getSheetRows, updateSheetRow } from './google-sheets.js';
-import { createNote } from './agent-notes.js';
+import { createNote, listNotes as listAgentNotes, AgentNote } from './agent-notes.js';
 import { db } from '../config/firebase.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -393,7 +393,7 @@ export class ToolExecutor {
         const notes = await listAgentNotes(this.tenantId, { patientName: params.phone }); // Using phone as a fallback identifier in notes if needed, or just search by patientName if we had it
         // Better: search for notes containing the phone number
         const allNotes = await listAgentNotes(this.tenantId, { limit: 50 });
-        const bookingNote = allNotes.find(n => n.content.includes(phoneNorm) && (n.content.includes('Booking') || n.content.includes('Appointment')));
+        const bookingNote = allNotes.find((n: AgentNote) => n.content.includes(phoneNorm) && (n.content.includes('Booking') || n.content.includes('Appointment')));
         
         if (bookingNote) {
           // Extract info from note content if possible
