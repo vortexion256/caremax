@@ -751,7 +751,7 @@ Follow this plan step by step. Execute each step in order.`;
           const retryResponse = await Promise.race([
             model.invoke(retryMessages),
             new Promise<BaseMessage>((_, reject) => {
-              setTimeout(() => reject(new Error('Retry timeout')), 30000);
+              setTimeout(() => reject(new Error('Retry timeout')), 60000);
             }),
           ]);
           
@@ -814,11 +814,11 @@ Tool results: ${toolResultsSummary}
 Provide a clear, user-friendly response based on these results.`,
               });
               
-              // Use timeout wrapper for fallback (30 seconds)
+              // Use timeout wrapper for fallback (60 seconds)
               const fallbackResponse = await Promise.race([
                 model.invoke([...currentMessages.slice(-10), contextPrompt]),
                 new Promise<BaseMessage>((_, reject) => {
-                  setTimeout(() => reject(new Error('Fallback LLM timeout')), 30000);
+                  setTimeout(() => reject(new Error('Fallback LLM timeout')), 60000);
                 }),
               ]);
               
@@ -841,11 +841,11 @@ Provide a clear, user-friendly response based on these results.`,
               content: 'Reply to the user in plain text only. Do not use any tools. Provide a helpful response based on the conversation context.',
             });
             
-            // Use timeout wrapper for fallback (30 seconds)
+            // Use timeout wrapper for fallback (60 seconds)
             response = await Promise.race([
               model.invoke([...currentMessages.slice(-10), plainTextPrompt]),
               new Promise<BaseMessage>((_, reject) => {
-                setTimeout(() => reject(new Error('Fallback LLM timeout')), 30000);
+                setTimeout(() => reject(new Error('Fallback LLM timeout')), 60000);
               }),
             ]);
             

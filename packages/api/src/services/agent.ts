@@ -590,8 +590,8 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
   
-  // Add timeout wrapper for LLM calls (30 seconds per call)
-  const invokeWithTimeout = async (messages: BaseMessage[], timeoutMs = 30000): Promise<BaseMessage> => {
+  // Add timeout wrapper for LLM calls (60 seconds per call)
+  const invokeWithTimeout = async (messages: BaseMessage[], timeoutMs = 60000): Promise<BaseMessage> => {
     return Promise.race([
       modelWithTools.invoke(messages),
       new Promise<BaseMessage>((_, reject) => {
@@ -813,7 +813,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
           const retryResponse = await Promise.race([
             model.invoke(retryMessages),
             new Promise<BaseMessage>((_, reject) => {
-              setTimeout(() => reject(new Error('Retry timeout')), 30000);
+              setTimeout(() => reject(new Error('Retry timeout')), 60000);
             }),
           ]);
           
@@ -881,11 +881,11 @@ Tool results: ${toolResultsSummary}
 Provide a clear, user-friendly response based on these results.`,
             });
             
-            // Use longer timeout for fallback (30 seconds)
+            // Use longer timeout for fallback (60 seconds)
             const fallbackResponse = await Promise.race([
               model.invoke([...currentMessages.slice(-10), contextPrompt]),
               new Promise<BaseMessage>((_, reject) => {
-                setTimeout(() => reject(new Error('Fallback LLM timeout')), 30000);
+                setTimeout(() => reject(new Error('Fallback LLM timeout')), 60000);
               }),
             ]);
             
@@ -910,11 +910,11 @@ Provide a clear, user-friendly response based on these results.`,
             content: 'Reply to the user in plain text only. Do not use any tools. Provide a helpful response based on the conversation context.',
           });
           
-          // Use longer timeout for fallback (30 seconds instead of 15)
+          // Use longer timeout for fallback (60 seconds instead of 15)
           const fallbackResponse = await Promise.race([
             model.invoke([...currentMessages.slice(-10), plainTextPrompt]),
             new Promise<BaseMessage>((_, reject) => {
-              setTimeout(() => reject(new Error('Fallback LLM timeout')), 30000);
+              setTimeout(() => reject(new Error('Fallback LLM timeout')), 60000);
             }),
           ]);
           
