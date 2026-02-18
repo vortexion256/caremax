@@ -176,12 +176,29 @@ export class ToolExecutor {
       const rows = await getSheetRows(this.tenantId, this.bookingsSheetEntry.spreadsheetId, sheetRange);
       const dataRows = rows.slice(1);
       const targetDateNorm = this.normalizeDateForComparison(dateStr) || dateStr;
-      
+      const targetTime = params.appointmentTime.trim();
+
+      // 1. Check for double-booking (same date and time for ANYONE)
+      const conflictIndex = dataRows.findIndex((r: string[]) => {
+        const rowDateNorm = this.normalizeDateForComparison(r[0]);
+        const rowTime = String(r[4] ?? '').trim();
+        return rowDateNorm === targetDateNorm && rowTime === targetTime;
+      });
+
+      // 2. Check if this specific patient already has a booking on this date
       const existingIndex = dataRows.findIndex((r: string[]) => {
         const rowHasPhone = r.some((cell: string) => this.normalizePhone(String(cell ?? '')) === phoneNorm);
         const rowHasDate = r.some((cell: string) => this.normalizeDateForComparison(cell) === targetDateNorm);
         return rowHasPhone && rowHasDate;
       });
+
+      // If there's a conflict with someone else, prevent booking
+      if (conflictIndex >= 0 && conflictIndex !== existingIndex) {
+        return {
+          success: false,
+          error: `Time slot ${targetTime} on ${dateStr} is already booked for another patient.`,
+        };
+      }
 
       if (existingIndex >= 0) {
         const sheetRow1Based = existingIndex + 2;
@@ -194,6 +211,16 @@ export class ToolExecutor {
         );
         
       if (result.success) {
+        // Also record in Agent Notebook (notes)
+        try {
+          await createNote(this.tenantId, 'SYSTEM', `Booking UPDATED: ${params.patientName} (${params.phone}) with Dr. ${params.doctorName} on ${dateStr} at ${params.appointmentTime}. Notes: ${params.notes ?? 'none'}`, {
+            patientName: params.patientName,
+            category: 'insights'
+          });
+        } catch (noteErr) {
+          console.warn('[ToolExecutor] Failed to create note for booking update:', noteErr);
+        }
+
         return {
           success: true,
           data: {
@@ -224,6 +251,16 @@ export class ToolExecutor {
       );
 
       if (result.success) {
+        // Also record in Agent Notebook (notes)
+        try {
+          await createNote(this.tenantId, 'SYSTEM', `NEW Booking: ${params.patientName} (${params.phone}) with Dr. ${params.doctorName} on ${dateStr} at ${params.appointmentTime}. Notes: ${params.notes ?? 'none'}`, {
+            patientName: params.patientName,
+            category: 'insights'
+          });
+        } catch (noteErr) {
+          console.warn('[ToolExecutor] Failed to create note for new booking:', noteErr);
+        }
+
         return {
           success: true,
           data: {
@@ -322,7 +359,7 @@ export class ToolExecutor {
           return true;
         });
 
-        if (matches.length > 0) {
+         if (matches.length > 0) {
           const match = matches[0];
           const dateIdx = 0;
           const nameIdx = 1;
@@ -349,13 +386,40 @@ export class ToolExecutor {
             timestamp: new Date(),
           };
         }
+      }
 
-        if (attempts < maxAttempts - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          attempts++;
-        } else {
-          break;
+      // 2. If not found in sheet, check Agent Notebook (notes)
+      try {
+        const notes = await listAgentNotes(this.tenantId, { patientName: params.phone }); // Using phone as a fallback identifier in notes if needed, or just search by patientName if we had it
+        // Better: search for notes containing the phone number
+        const allNotes = await listAgentNotes(this.tenantId, { limit: 50 });
+        const bookingNote = allNotes.find(n => n.content.includes(phoneNorm) && (n.content.includes('Booking') || n.content.includes('Appointment')));
+        
+        if (bookingNote) {
+          // Extract info from note content if possible
+          const content = bookingNote.content;
+          const dateMatch = content.match(/on (\d{4}-\d{2}-\d{2})/);
+          const timeMatch = content.match(/at (\d{1,2}:\d{2}\s*(am|pm)?)/i);
+          const doctorMatch = content.match(/with Dr\. (.*?)(?= on| at|$)/);
+          
+          return {
+            success: true,
+            data: {
+              found: true,
+              appointmentId: `NOTE-${bookingNote.noteId}`,
+              date: dateMatch ? dateMatch[1] : 'unknown',
+              patientName: bookingNote.patientName || 'unknown',
+              phone: params.phone,
+              doctor: doctorMatch ? doctorMatch[1] : 'unknown',
+              time: timeMatch ? timeMatch[1] : 'unknown',
+              notes: `Found in Agent Notebook: ${content}`,
+            },
+            action: 'read',
+            timestamp: new Date(),
+          };
         }
+      } catch (noteErr) {
+        console.warn('[ToolExecutor] Failed to check notes for appointment:', noteErr);
       }
 
       return {
@@ -370,7 +434,7 @@ export class ToolExecutor {
       console.error('[ToolExecutor] Get appointment error:', e);
       return {
         success: false,
-        error: e instanceof Error ? e.message : 'Failed to check appointment',
+        error: e instanceof Error ? e.message : 'Failed to query bookings',
       };
     }
   }

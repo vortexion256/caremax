@@ -125,19 +125,41 @@ export async function loadStructuredState(
   // Load notes for this conversation
   if (conversationId) {
     try {
-      const notes = await listNotes(tenantId, { conversationId, limit: 10 });
+      const notes = await listNotes(tenantId, { conversationId, limit: 20 });
       state.notes = notes.map((n) => ({
         category: n.category,
         content: n.content,
         patientName: n.patientName ?? undefined,
       }));
+
+      // Extract bookings from notes
+      for (const note of notes) {
+        if (note.content.includes('Booking') || note.content.includes('Appointment')) {
+          const content = note.content;
+          const dateMatch = content.match(/on (\d{4}-\d{2}-\d{2})/);
+          const timeMatch = content.match(/at (\d{1,2}:\d{2}\s*(am|pm)?)/i);
+          const doctorMatch = content.match(/with Dr\. (.*?)(?= on| at|$)/);
+          const phoneMatch = content.match(/\((\d{10,})\)/);
+
+          if (dateMatch && timeMatch) {
+            state.appointments.push({
+              appointmentId: `NOTE-${note.noteId}`,
+              date: dateMatch[1],
+              patientName: note.patientName || 'unknown',
+              phone: phoneMatch ? phoneMatch[1] : 'unknown',
+              doctor: doctorMatch ? doctorMatch[1] : 'unknown',
+              time: timeMatch[1],
+            });
+          }
+        }
+      }
     } catch (e) {
       console.warn('[Memory] Failed to load notes:', e);
     }
   }
 
-  // Appointments would be loaded from database if we had a proper appointments table
-  // For now, we rely on execution logs
+  // Appointments from Excel are handled by the orchestrator tools, 
+  // but we've now added notes-based tracking to the state as well.
 
   return state;
 }

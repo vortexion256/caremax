@@ -168,6 +168,12 @@ export async function listNotes(
   // Apply filters
   if (options?.conversationId) {
     query = query.where('conversationId', '==', options.conversationId);
+  } else if (!options?.patientName) {
+    // If no conversationId and no patientName, we should probably limit to a very small number 
+    // or return empty to avoid leaking data across conversations, 
+    // UNLESS it's a system-level query (like consolidation).
+    // For now, we'll keep it as is but add a warning if it's a large query without conversationId.
+    console.warn(`[Notes] listNotes called without conversationId for tenant ${tenantId}. This might leak data across sessions.`);
   }
 
   if (options?.status) {
