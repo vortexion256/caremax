@@ -240,19 +240,22 @@ Create a detailed execution plan. Use create_plan to structure your response.`
 
   // Fallback: create a simple plan based on intent
   const steps: PlanStep[] = [];
-  if (intent.intent === 'book_appointment') {
+  if (intent.intent === 'book_appointment' || intent.intent === 'check_availability') {
     steps.push(
       {
         stepNumber: 1,
-        description: 'Check appointment availability',
+        description: 'Check current bookings and availability from records and sheets',
         toolName: 'query_google_sheet',
         toolArgs: { useWhen: 'booking' },
         status: 'pending',
         requiredInfo: intent.entities.date ? undefined : ['date'],
-      },
-      {
+      }
+    );
+
+    if (intent.intent === 'book_appointment') {
+      steps.push({
         stepNumber: 2,
-        description: 'Book the appointment',
+        description: 'Book the appointment after confirming availability',
         toolName: 'append_booking_row',
         toolArgs: {
           date: intent.entities.date,
@@ -269,8 +272,8 @@ Create a detailed execution plan. Use create_plan to structure your response.`
           ...(intent.entities.doctor ? [] : ['doctor']),
           ...(intent.entities.time ? [] : ['time']),
         ],
-      }
-    );
+      });
+    }
   }
 
   const missingInfo: string[] = [];

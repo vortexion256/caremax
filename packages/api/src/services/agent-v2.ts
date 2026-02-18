@@ -221,7 +221,7 @@ export async function runAgentV2(
         availableTools.push('query_google_sheet');
         const bookingCandidates = googleSheetsList.filter((s) => (s.useWhen ?? '').toLowerCase().includes('booking'));
         if (bookingCandidates.length > 0) {
-          availableTools.push('append_booking_row', 'get_appointment_by_phone');
+          availableTools.push('append_booking_row', 'get_appointment_by_phone', 'check_availability');
         }
       }
       availableTools.push('create_note');
@@ -436,6 +436,17 @@ export async function runAgentV2(
           func: async () => 'Appointment query requested.',
         });
         tools.push(getAppointmentByPhoneTool);
+
+        const checkAvailabilityTool = new DynamicStructuredTool({
+          name: 'check_availability',
+          description: `Check if a doctor or time slot is available by querying the bookings sheet.`,
+          schema: z.object({
+            date: z.string(),
+            range: z.string().optional(),
+          }),
+          func: async () => 'Availability check requested.',
+        });
+        tools.push(checkAvailabilityTool);
       }
     }
 

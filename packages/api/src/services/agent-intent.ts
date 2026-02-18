@@ -11,7 +11,7 @@ import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 
 export interface ExtractedIntent {
-  intent: 'book_appointment' | 'query_information' | 'create_note' | 'general_conversation' | 'request_human';
+  intent: 'book_appointment' | 'check_availability' | 'query_information' | 'create_note' | 'general_conversation' | 'request_human';
   confidence: number;
   entities: {
     patientName?: string;
@@ -44,7 +44,8 @@ You do NOT execute tools or make decisions - you only extract information.
 
 Intents:
 - book_appointment: User wants to schedule/book an appointment
-- query_information: User wants to look up information (schedules, availability, etc.)
+- check_availability: User wants to check if a doctor or time slot is free/available
+- query_information: User wants to look up information (general facts, policies, etc.)
 - create_note: User or system wants to create a note/record
 - general_conversation: General chat, questions, greetings
 - request_human: User wants to speak with a human
@@ -56,7 +57,7 @@ Extract entities like: patientName, phone, date, time, doctor, notes, query.`;
     description: 'Extract intent and entities from user message',
     schema: z.object({
       intent: z
-        .enum(['book_appointment', 'query_information', 'create_note', 'general_conversation', 'request_human'])
+        .enum(['book_appointment', 'check_availability', 'query_information', 'create_note', 'general_conversation', 'request_human'])
         .describe('The primary intent of the user'),
       confidence: z.number().min(0).max(1).describe('Confidence level (0-1)'),
       entities: z
@@ -115,7 +116,11 @@ Extract the intent and entities. Use extract_intent to structure your response.`
     intent = 'book_appointment';
     requiresTools = true;
     suggestedTools.push('query_google_sheet', 'append_booking_row', 'get_appointment_by_phone');
-  } else if (/\b(available|schedule|time|slot|when)\b/i.test(userMessage)) {
+  } else if (/\b(available|free|slot|when|is dr|is doctor)\b/i.test(userMessage)) {
+    intent = 'check_availability';
+    requiresTools = true;
+    suggestedTools.push('query_google_sheet', 'get_appointment_by_phone');
+  } else if (/\b(schedule|time|info|policy|hours)\b/i.test(userMessage)) {
     intent = 'query_information';
     requiresTools = true;
     suggestedTools.push('query_google_sheet');

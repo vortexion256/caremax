@@ -696,6 +696,27 @@ export class AgentOrchestrator {
         }
         break;
 
+      case 'check_availability':
+        if (typeof toolCall.args.date === 'string') {
+          result = await this.toolExecutor.executeQuerySheet(
+            {
+              useWhen: 'booking',
+              range: typeof toolCall.args.range === 'string' ? toolCall.args.range : undefined,
+            },
+            googleSheetsList
+          );
+          // Record integration activity for dashboard visualization
+          if (result.success) {
+            void recordActivity(this.tenantId, 'integrations');
+          }
+        } else {
+          result = {
+            success: false,
+            error: 'Invalid arguments for check_availability',
+          };
+        }
+        break;
+
       case 'query_google_sheet':
         if (typeof toolCall.args.useWhen === 'string') {
           result = await this.toolExecutor.executeQuerySheet(
