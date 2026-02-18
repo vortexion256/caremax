@@ -16,7 +16,7 @@ export default function Layout() {
     ...(isPlatformAdmin ? [{ path: '/advanced-prompts', label: 'Advanced Prompts' }] : []),
     { path: '/conversations', label: 'Conversations' },
     { path: '/handoffs', label: 'Handoff Queue' },
-    { path: '/agent-notes', label: 'Notes' },
+    { path: '/agent-notes', label: 'Agent Notebook' },
     { path: '/rag', label: 'Knowledge Base' },
     { path: '/agent-brain', label: 'Auto Brain' },
     { path: '/integrations', label: 'Integrations' },

@@ -14,7 +14,7 @@ import AgentSettings from './pages/AgentSettings';
 import AdvancedPromptSettings from './pages/AdvancedPromptSettings';
 import HandoffQueue from './pages/HandoffQueue';
 import HandoffChat from './pages/HandoffChat';
-import AgentNotes from './pages/AgentNotes';
+import AgentNotebook from './pages/AgentNotebook';
 import Conversations from './pages/Conversations';
 import ConversationView from './pages/ConversationView';
 import PlatformTenants from './pages/PlatformTenants';
@@ -177,7 +177,7 @@ export default function App() {
           <Route path="conversations/:conversationId" element={<ConversationView />} />
           <Route path="handoffs" element={<HandoffQueue />} />
           <Route path="handoffs/:conversationId" element={<HandoffChat />} />
-          <Route path="agent-notes" element={<AgentNotes />} />
+          <Route path="agent-notes" element={<AgentNotebook />} />
           <Route path="rag" element={<RAG />} />
           <Route path="agent-brain" element={<AutoAgentBrain />} />
           <Route path="integrations" element={<Integrations />} />

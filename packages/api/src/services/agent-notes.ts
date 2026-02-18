@@ -12,7 +12,7 @@ export type AgentNote = {
   patientName: string | null;
   content: string;
   category: 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'other';
-  status: 'pending' | 'reviewed' | 'archived';
+  status: 'unread' | 'read' | 'archived';
   createdAt: number | null;
   updatedAt: number | null;
   reviewedBy: string | null;
@@ -75,7 +75,7 @@ async function findSimilarNote(
           patientName: data.patientName as string | null,
           content: data.content as string,
           category: (data.category as AgentNote['category']) || 'other',
-          status: (data.status as AgentNote['status']) || 'pending',
+          status: (data.status as AgentNote['status']) || 'unread',
           createdAt: data.createdAt?.toMillis?.() ?? null,
           updatedAt: data.updatedAt?.toMillis?.() ?? null,
           reviewedBy: data.reviewedBy as string | null,
@@ -126,7 +126,7 @@ export async function createNote(
     patientName: options?.patientName?.trim() || null,
     content: content.trim(),
     category: options?.category ?? 'other',
-    status: 'pending',
+    status: 'unread',
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
     reviewedBy: null,
@@ -143,7 +143,7 @@ export async function createNote(
     patientName: data.patientName as string | null,
     content: data.content as string,
     category: (data.category as AgentNote['category']) || 'other',
-    status: (data.status as AgentNote['status']) || 'pending',
+    status: (data.status as AgentNote['status']) || 'unread',
     createdAt: data.createdAt?.toMillis?.() ?? null,
     updatedAt: data.updatedAt?.toMillis?.() ?? null,
     reviewedBy: data.reviewedBy as string | null,
@@ -195,7 +195,7 @@ export async function listNotes(
         patientName: data.patientName as string | null,
         content: data.content as string,
         category: (data.category as AgentNote['category']) || 'other',
-        status: (data.status as AgentNote['status']) || 'pending',
+        status: (data.status as AgentNote['status']) || 'unread',
         createdAt: data.createdAt?.toMillis?.() ?? null,
         updatedAt: data.updatedAt?.toMillis?.() ?? null,
         reviewedBy: data.reviewedBy as string | null,
@@ -220,7 +220,7 @@ export async function listNotes(
           patientName: data.patientName as string | null,
           content: data.content as string,
           category: (data.category as AgentNote['category']) || 'other',
-          status: (data.status as AgentNote['status']) || 'pending',
+          status: (data.status as AgentNote['status']) || 'unread',
           createdAt: data.createdAt?.toMillis?.() ?? null,
           updatedAt: data.updatedAt?.toMillis?.() ?? null,
           reviewedBy: data.reviewedBy as string | null,
@@ -253,7 +253,7 @@ export async function getNote(tenantId: string, noteId: string): Promise<AgentNo
     patientName: data.patientName as string | null,
     content: data.content as string,
     category: (data.category as AgentNote['category']) || 'other',
-    status: (data.status as AgentNote['status']) || 'pending',
+    status: (data.status as AgentNote['status']) || 'unread',
     createdAt: data.createdAt?.toMillis?.() ?? null,
     updatedAt: data.updatedAt?.toMillis?.() ?? null,
     reviewedBy: data.reviewedBy as string | null,
@@ -303,10 +303,10 @@ export async function updateNoteStatus(
     updatedAt: FieldValue.serverTimestamp(),
   };
 
-  if (status === 'reviewed' && reviewedBy) {
+  if (status === 'read' && reviewedBy) {
     updates.reviewedBy = reviewedBy;
     updates.reviewedAt = FieldValue.serverTimestamp();
-  } else if (status !== 'reviewed') {
+  } else if (status !== 'read') {
     updates.reviewedBy = null;
     updates.reviewedAt = null;
   }
