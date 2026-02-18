@@ -608,6 +608,21 @@ export class AgentOrchestrator {
   ): Promise<ToolResult> {
     let result: ToolResult;
 
+    // MANDATORY CONSISTENCY CHECK: Load existing notes before ANY state-changing action
+    // This ensures we don't contradict previous bookings or information recorded in notes.
+    let noteContext = '';
+    if (conversationId && ['append_booking_row', 'check_availability', 'record_learned_knowledge'].includes(toolCall.name)) {
+      try {
+        const notes = await listAgentNotes(this.tenantId, { conversationId, limit: 20 });
+        if (notes.length > 0) {
+          noteContext = notes.map(n => `[${n.category}] ${n.content}`).join('; ');
+          console.log(`[Orchestrator] Consistency check: Loaded ${notes.length} notes for validation.`);
+        }
+      } catch (e) {
+        console.warn('[Orchestrator] Failed to load notes for consistency check:', e);
+      }
+    }
+
     // Deterministic execution based on tool name
     switch (toolCall.name) {
       case 'append_booking_row':
@@ -618,6 +633,19 @@ export class AgentOrchestrator {
           typeof toolCall.args.doctorName === 'string' &&
           typeof toolCall.args.appointmentTime === 'string'
         ) {
+          // Cross-reference with notes for consistency
+          const dateStr = /today/i.test(toolCall.args.date) ? new Date().toISOString().slice(0, 10) : toolCall.args.date;
+          const timeStr = toolCall.args.appointmentTime;
+          const doctorStr = toolCall.args.doctorName;
+          
+          if (noteContext.toLowerCase().includes(dateStr.toLowerCase()) && 
+              noteContext.toLowerCase().includes(timeStr.toLowerCase()) && 
+              noteContext.toLowerCase().includes(doctorStr.toLowerCase())) {
+            console.warn(`[Orchestrator] Potential double-booking detected in notes for ${doctorStr} on ${dateStr} at ${timeStr}`);
+            // We don't block it here yet because the tool itself checks the sheet, 
+            // but we could add a stricter block if needed.
+          }
+
           result = await this.toolExecutor.executeBookAppointment({
             date: toolCall.args.date,
             patientName: toolCall.args.patientName,

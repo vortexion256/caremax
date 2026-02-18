@@ -244,7 +244,7 @@ Create a detailed execution plan. Use create_plan to structure your response.`
     steps.push(
       {
         stepNumber: 1,
-        description: 'Check current bookings and availability from records and sheets',
+        description: 'Cross-reference current conversation notes and bookings sheet for availability',
         toolName: 'query_google_sheet',
         toolArgs: { useWhen: 'booking' },
         status: 'pending',

@@ -291,11 +291,12 @@ export async function runAgentV2(
     
     // Add tool instructions
     systemContent += `CRITICAL RULES:
-1. NEVER assume any action succeeded unless a tool explicitly returns success=true.
-2. NEVER confirm bookings unless the tool returned success=true AND verification passed.
-3. Trust the database, not your memory. Always verify state from tool results.
-4. If a tool returns success=false, inform the user the action failed.
-5. Binary state only: things either exist in the database or they don't.\n\n`;
+1. CONSISTENCY IS TOP PRIORITY: Before answering availability or confirming bookings, ALWAYS check the "Existing notes in this conversation" section. If a booking is mentioned in the notes, it is REAL and must be respected even if not yet in the knowledge base.
+2. NEVER assume any action succeeded unless a tool explicitly returns success=true.
+3. NEVER confirm bookings unless the tool returned success=true AND verification passed.
+4. Trust the database and conversation notes, not your internal memory. Always verify state from tool results and the provided notes context.
+5. If a tool returns success=false, inform the user the action failed.
+6. Binary state only: things either exist in the database/notes or they don't.\n\n`;
 
     // Add RAG records if enabled
     if (config.ragEnabled) {
