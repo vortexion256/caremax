@@ -215,7 +215,7 @@ export class ToolExecutor {
         try {
           await createNote(this.tenantId, 'SYSTEM', `Booking UPDATED: ${params.patientName} (${params.phone}) with Dr. ${params.doctorName} on ${dateStr} at ${params.appointmentTime}. Notes: ${params.notes ?? 'none'}`, {
             patientName: params.patientName,
-            category: 'insights'
+            category: 'bookings'
           });
         } catch (noteErr) {
           console.warn('[ToolExecutor] Failed to create note for booking update:', noteErr);
@@ -255,7 +255,7 @@ export class ToolExecutor {
         try {
           await createNote(this.tenantId, 'SYSTEM', `NEW Booking: ${params.patientName} (${params.phone}) with Dr. ${params.doctorName} on ${dateStr} at ${params.appointmentTime}. Notes: ${params.notes ?? 'none'}`, {
             patientName: params.patientName,
-            category: 'insights'
+            category: 'bookings'
           });
         } catch (noteErr) {
           console.warn('[ToolExecutor] Failed to create note for new booking:', noteErr);

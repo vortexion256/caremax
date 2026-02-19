@@ -307,12 +307,11 @@ export async function runAgentV2(
     
     // Add tool instructions
     systemContent += `CRITICAL RULES:
-1. CONSISTENCY IS TOP PRIORITY: Before answering availability or confirming bookings, ALWAYS check the "Existing notes in this conversation" section. If a booking is mentioned in the notes, it is REAL and must be respected even if not yet in the knowledge base.
-2. NEVER assume any action succeeded unless a tool explicitly returns success=true.
-3. NEVER confirm bookings unless the tool returned success=true AND verification passed.
-4. Trust the database and conversation notes, not your internal memory. Always verify state from tool results and the provided notes context.
-5. If a tool returns success=false, inform the user the action failed.
-6. Binary state only: things either exist in the database/notes or they don't.\n\n`;
+1. CONSISTENCY IS TOP PRIORITY: Before answering availability or confirming bookings, ALWAYS check the "Existing notes in this conversation" section. If a booking is mentioned in the notes, it is REAL and must be respected.
+2. TOOL EXECUTION IS MANDATORY: You are NOT allowed to confirm a booking, update, or deletion in your response unless you have JUST received a successful tool result (success=true) in the current turn.
+3. NO HALLUCINATIONS: If you do not call a tool, or if the tool fails, you MUST NOT tell the user the action was successful. Instead, explain the error or ask for missing information.
+4. VERIFICATION: Only confirm bookings if the tool returned success=true AND verification passed.
+5. Trust the database and conversation notes, not your internal memory. Always verify state from tool results and the provided notes context.\n\n`;
 
     // Add RAG records if enabled
     if (config.ragEnabled) {

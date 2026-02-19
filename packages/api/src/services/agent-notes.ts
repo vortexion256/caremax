@@ -11,7 +11,7 @@ export type AgentNote = {
   userId: string | null;
   patientName: string | null;
   content: string;
-  category: 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'other';
+  category: 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'bookings' | 'other';
   status: 'unread' | 'read' | 'archived';
   createdAt: number | null;
   updatedAt: number | null;
