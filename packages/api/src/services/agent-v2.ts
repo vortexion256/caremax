@@ -29,6 +29,7 @@ import { getAgentConfig, type GoogleSheetEntry } from './agent.js';
 import { AgentOrchestrator, ToolCall } from './agent-orchestrator.js';
 import { buildAgentContext, formatContextForPrompt, trimConversationHistory } from './agent-memory.js';
 import { extractIntent, ExtractedIntent } from './agent-intent.js';
+import { decomposeQuestion, DecomposedQuestion } from './agent-decomposer.js';
 import {
   decideIfNeedsPlanning,
   createExecutionPlan,
@@ -190,10 +191,25 @@ export async function runAgentV2(
     });
 
     // ========================================================================
-    // STEP 1: INTENT EXTRACTION (LLM suggests)
+    // STEP 1: DECOMPOSITION (Decomposer layer)
     // ========================================================================
     const lastUserMessage = history.filter((m) => m.role === 'user').pop()?.content ?? '';
-    const intent = await extractIntent(model, lastUserMessage, history);
+    const decomposition = await decomposeQuestion(model, lastUserMessage, history);
+    
+    // If complex, we handle the first part and inform the user about the rest
+    // This prevents the agent from getting lost in multi-part questions
+    let currentTask = lastUserMessage;
+    let decompositionNote = '';
+    if (decomposition.isComplex && decomposition.subQuestions.length > 1) {
+      currentTask = decomposition.subQuestions[0];
+      decompositionNote = `[Decomposer] Handling first part: "${currentTask}". Remaining: ${decomposition.subQuestions.slice(1).join(', ')}`;
+      console.log(decompositionNote);
+    }
+
+    // ========================================================================
+    // STEP 1.1: INTENT EXTRACTION (LLM suggests)
+    // ========================================================================
+    const intent = await extractIntent(model, currentTask, history);
     const wantsHumanHandoff = intent.intent === 'request_human';
 
     // Early exit for human handoff
@@ -207,7 +223,7 @@ export async function runAgentV2(
     // ========================================================================
     // STEP 1.5: PLANNING DECISION (Planner agent decides if planning needed)
     // ========================================================================
-    const planningDecision = await decideIfNeedsPlanning(model, intent, lastUserMessage, history);
+    const planningDecision = await decideIfNeedsPlanning(model, intent, currentTask, history);
     let executionPlan: ExecutionPlan | null = null;
 
     // Create plan if needed
@@ -229,7 +245,7 @@ export async function runAgentV2(
       executionPlan = await createExecutionPlan(
         model,
         intent,
-        lastUserMessage,
+        currentTask,
         history,
         availableTools
       );
