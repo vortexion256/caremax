@@ -37,6 +37,8 @@ import {
   getNextStep,
   planNeedsInfo,
   formatMissingInfoQuestion,
+  formatConfirmationQuestion,
+  confirmStep,
   analyzeEmptyResponse,
   createRecoveryPlan,
   type ExecutionPlan,
@@ -223,11 +225,29 @@ export async function runAgentV2(
     // ========================================================================
     // STEP 1.5: PLANNING DECISION (Planner agent decides if planning needed)
     // ========================================================================
-    const planningDecision = await decideIfNeedsPlanning(model, intent, currentTask, history);
-    let executionPlan: ExecutionPlan | null = null;
+    const memory = await buildAgentContext(tenantId, options?.conversationId, history, []);
+    let executionPlan: ExecutionPlan | null = memory.structuredState.activePlan || null;
 
-    // Create plan if needed
-    if (planningDecision.needsPlanning) {
+    // Handle confirmation intent
+    if (intent.intent === 'confirm_action' && executionPlan && executionPlan.status === 'awaiting_confirmation') {
+      const stepToConfirm = executionPlan.steps.find(s => s.status === 'awaiting_confirmation');
+      if (stepToConfirm) {
+        executionPlan = confirmStep(executionPlan, stepToConfirm.stepNumber);
+        // Update plan in database
+        if (options?.conversationId) {
+          await db.collection('execution_plans').doc(executionPlan.planId).update({
+            steps: executionPlan.steps,
+            status: executionPlan.status,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+      }
+    }
+
+    const planningDecision = await decideIfNeedsPlanning(model, intent, currentTask, history);
+
+    // Create plan if needed and no active plan exists
+    if (planningDecision.needsPlanning && !executionPlan) {
       const availableTools: string[] = [];
       if (config.ragEnabled) {
         availableTools.push('record_learned_knowledge', 'request_edit_record', 'request_delete_record');
@@ -250,6 +270,17 @@ export async function runAgentV2(
         availableTools
       );
 
+      // Save new plan to database
+      if (options?.conversationId) {
+        await db.collection('execution_plans').doc(executionPlan.planId).set({
+          ...executionPlan,
+          tenantId,
+          conversationId: options.conversationId,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+
       // If plan needs info, ask user
       if (planNeedsInfo(executionPlan)) {
         const question = await formatMissingInfoQuestion(
@@ -263,6 +294,22 @@ export async function runAgentV2(
           missingInfo: executionPlan.missingInfo,
           planStatus: executionPlan.status,
         };
+      }
+
+      // If plan is awaiting confirmation, ask user
+      if (executionPlan.status === 'awaiting_confirmation') {
+        const stepToConfirm = executionPlan.steps.find(s => s.status === 'awaiting_confirmation');
+        if (stepToConfirm) {
+          const question = await formatConfirmationQuestion(
+            model,
+            stepToConfirm,
+            `User wants to: ${intent.intent}. ${executionPlan.description}`
+          );
+          return {
+            text: question,
+            planStatus: executionPlan.status,
+          };
+        }
       }
     }
 
@@ -586,6 +633,15 @@ Follow this plan step by step. Execute each step in order.`;
             error: result.error,
             verified: result.verified,
           });
+
+          // Update plan in database
+          if (options?.conversationId) {
+            await db.collection('execution_plans').doc(executionPlan.planId).update({
+              steps: executionPlan.steps,
+              status: executionPlan.status,
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+          }
 
           // If step failed, stop execution
           if (!result.success) {

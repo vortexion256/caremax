@@ -20,13 +20,15 @@ export interface PlanStep {
   toolName?: string;
   toolArgs?: Record<string, unknown>;
   requiredInfo?: string[]; // List of information needed to execute this step
-  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
+  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped' | 'awaiting_confirmation';
   result?: {
     success: boolean;
     data?: unknown;
     error?: string;
   };
   verified?: boolean;
+  requiresConfirmation?: boolean;
+  confirmed?: boolean;
 }
 
 export interface ExecutionPlan {
@@ -36,7 +38,7 @@ export interface ExecutionPlan {
   description: string;
   steps: PlanStep[];
   missingInfo: string[]; // Information needed from user before execution
-  status: 'planning' | 'ready' | 'executing' | 'completed' | 'failed' | 'needs_info';
+  status: 'planning' | 'ready' | 'executing' | 'completed' | 'failed' | 'needs_info' | 'awaiting_confirmation';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -173,6 +175,7 @@ Each step should be clear, actionable, and specify:
           toolName: z.string().optional(),
           toolArgs: z.record(z.unknown()).optional(),
           requiredInfo: z.array(z.string()).optional(),
+          requiresConfirmation: z.boolean().optional().describe('Whether this step requires explicit user confirmation before execution (e.g. for bookings)'),
         })
       ),
       missingInfo: z.array(z.string()).describe('Information needed from user before execution can start'),
@@ -222,7 +225,10 @@ Create a detailed execution plan. Use create_plan to structure your response.`
       const steps: PlanStep[] = planData.steps.map((s) => ({
         ...s,
         status: 'pending' as const,
+        confirmed: s.requiresConfirmation ? false : undefined,
       }));
+
+      const hasImmediateConfirmationNeeded = steps.some(s => s.stepNumber === 1 && s.requiresConfirmation && !s.confirmed);
 
       return {
         planId,
@@ -231,7 +237,7 @@ Create a detailed execution plan. Use create_plan to structure your response.`
         description: planData.description,
         steps,
         missingInfo: planData.missingInfo,
-        status: planData.missingInfo.length > 0 ? 'needs_info' : 'ready',
+        status: planData.missingInfo.length > 0 ? 'needs_info' : (hasImmediateConfirmationNeeded ? 'awaiting_confirmation' : 'ready'),
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -319,9 +325,10 @@ export function updatePlanWithResult(
     }
     // Mark next step as in_progress if previous step completed
     if (step.stepNumber === stepNumber + 1 && result.success) {
+      const nextStepRequiresConfirmation = step.requiresConfirmation && !step.confirmed;
       return {
         ...step,
-        status: 'in_progress' as const,
+        status: nextStepRequiresConfirmation ? ('awaiting_confirmation' as const) : ('in_progress' as const),
       };
     }
     return step;
@@ -329,12 +336,15 @@ export function updatePlanWithResult(
 
   const allCompleted = updatedSteps.every((s) => s.status === 'completed' || s.status === 'skipped');
   const hasFailures = updatedSteps.some((s) => s.status === 'failed');
+  const awaitingConfirmation = updatedSteps.some((s) => s.status === 'awaiting_confirmation');
 
   let status: ExecutionPlan['status'] = plan.status;
   if (hasFailures) {
     status = 'failed';
   } else if (allCompleted) {
     status = 'completed';
+  } else if (awaitingConfirmation) {
+    status = 'awaiting_confirmation';
   } else {
     status = 'executing';
   }
@@ -351,6 +361,9 @@ export function updatePlanWithResult(
  * Get the next step to execute from the plan.
  */
 export function getNextStep(plan: ExecutionPlan): PlanStep | null {
+  // If we are awaiting confirmation, don't return a next step for execution
+  if (plan.status === 'awaiting_confirmation') return null;
+  
   return plan.steps.find((step) => step.status === 'pending' || step.status === 'in_progress') || null;
 }
 
@@ -536,4 +549,57 @@ export async function createRecoveryPlan(
     createdAt: new Date(),
     updatedAt: new Date(),
   };
+}
+
+/**
+ * Confirm a step in the plan.
+ */
+export function confirmStep(plan: ExecutionPlan, stepNumber: number): ExecutionPlan {
+  const updatedSteps = plan.steps.map((step) => {
+    if (step.stepNumber === stepNumber) {
+      return {
+        ...step,
+        confirmed: true,
+        status: 'in_progress' as const,
+      };
+    }
+    return step;
+  });
+
+  return {
+    ...plan,
+    steps: updatedSteps,
+    status: 'executing',
+    updatedAt: new Date(),
+  };
+}
+
+/**
+ * Format a confirmation question for the user.
+ */
+export async function formatConfirmationQuestion(
+  model: ChatGoogleGenerativeAI,
+  step: PlanStep,
+  context: string
+): Promise<string> {
+  const systemPrompt = `You are a helpful assistant. Format a confirmation request for a specific action as a natural, friendly question to ask the user.
+  
+The user needs to confirm this action before you can proceed. Be clear about what you are going to do and what information you are using.`;
+
+  const messages: BaseMessage[] = [
+    new SystemMessage(systemPrompt),
+    new HumanMessage(
+      `Context: ${context}
+      
+Action to confirm: ${step.description}
+Tool: ${step.toolName}
+Arguments: ${JSON.stringify(step.toolArgs)}
+
+Format this as a friendly confirmation question to ask the user before executing the action.`
+    ),
+  ];
+
+  const response = await model.invoke(messages);
+  const content = (response as { content?: string }).content;
+  return typeof content === 'string' ? content : `I'm ready to ${step.description}. Should I proceed?`;
 }

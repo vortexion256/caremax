@@ -15,6 +15,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
 import { listNotes } from './agent-notes.js';
 import { ExecutionLog } from './agent-orchestrator.js';
+import { ExecutionPlan } from './agent-planner.js';
 
 // ============================================================================
 // CONVERSATION MEMORY - Aggressively trimmed short-term window
@@ -105,6 +106,7 @@ export interface StructuredState {
     content: string;
     patientName?: string;
   }>;
+  activePlan?: ExecutionPlan;
   lastUpdated: Date;
 }
 
@@ -122,7 +124,7 @@ export async function loadStructuredState(
     lastUpdated: new Date(),
   };
 
-  // Load notes for this conversation
+  // Load notes and active plan for this conversation
   if (conversationId) {
     try {
       const notes = await listNotes(tenantId, { conversationId, limit: 20 });
@@ -131,6 +133,24 @@ export async function loadStructuredState(
         content: n.content,
         patientName: n.patientName ?? undefined,
       }));
+
+      // Load active plan
+      const planSnap = await db.collection('execution_plans')
+        .where('conversationId', '==', conversationId)
+        .where('status', 'in', ['ready', 'executing', 'needs_info', 'awaiting_confirmation'])
+        .orderBy('createdAt', 'desc')
+        .limit(1)
+        .get();
+      
+      if (!planSnap.empty) {
+        const planData = planSnap.docs[0].data();
+        state.activePlan = {
+          ...planData,
+          planId: planSnap.docs[0].id,
+          createdAt: planData.createdAt?.toDate(),
+          updatedAt: planData.updatedAt?.toDate(),
+        } as ExecutionPlan;
+      }
 
       // Extract bookings from notes
       for (const note of notes) {
@@ -154,7 +174,7 @@ export async function loadStructuredState(
         }
       }
     } catch (e) {
-      console.warn('[Memory] Failed to load notes:', e);
+      console.warn('[Memory] Failed to load conversation state:', e);
     }
   }
 
