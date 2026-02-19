@@ -20,6 +20,7 @@ agentNotesRouter.get('/', async (req, res) => {
       ? (req.query.status as 'unread' | 'read' | 'archived')
       : undefined;
     const patientName = typeof req.query.patientName === 'string' ? req.query.patientName : undefined;
+    const category = typeof req.query.category === 'string' ? (req.query.category as any) : undefined;
     const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : undefined;
 
     // If not admin, filter by userId
@@ -27,6 +28,7 @@ agentNotesRouter.get('/', async (req, res) => {
       conversationId,
       status,
       patientName,
+      category,
       limit,
     });
 
