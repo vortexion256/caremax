@@ -226,7 +226,7 @@ Create a detailed execution plan. Use create_plan to structure your response.`
       const steps: PlanStep[] = planData.steps.map((s) => {
         // Force confirmation for any step that uses a tool and isn't just a query
         const isExecutionTool = s.toolName && !['query_google_sheet', 'list_notes', 'get_record', 'list_records'].includes(s.toolName);
-        const requiresConfirmation = s.requiresConfirmation || isExecutionTool;
+        const requiresConfirmation = !!(s.requiresConfirmation || isExecutionTool);
         
         return {
           ...s,
