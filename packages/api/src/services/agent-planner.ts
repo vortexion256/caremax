@@ -218,6 +218,7 @@ Create a detailed execution plan. Use create_plan to structure your response.`
           toolName?: string;
           toolArgs?: Record<string, unknown>;
           requiredInfo?: string[];
+          requiresConfirmation?: boolean;
         }>;
         missingInfo: string[];
       };
