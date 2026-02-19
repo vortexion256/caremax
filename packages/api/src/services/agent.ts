@@ -519,7 +519,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
 
   const createNoteTool = new DynamicStructuredTool({
     name: 'create_note',
-    description: 'Create a note for admin review. Use this to save and record any information for admin from user, or to track analytics, insights, or patterns observed during conversations. Create notes when you notice patterns or when the user provides information that should be recorded for the admin.',
+    description: 'Create a note for admin review. Use this EXCLUSIVELY to save and record any information for admin from user (e.g. contact details, preferences, specific requests). Also use it to track analytics, insights, or patterns observed during conversations. Create notes whenever the user provides information that should be recorded for the admin.',
     schema: z.object({
       content: z.string().describe('The note content describing the information, insight or pattern (e.g. "User requested follow-up on insurance" or "Common question: Many users asking about appointment booking process")'),
       patientName: z.string().optional().describe('Optional: Patient or user name if relevant to the note'),
