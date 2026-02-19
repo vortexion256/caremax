@@ -519,11 +519,11 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
 
   const createNoteTool = new DynamicStructuredTool({
     name: 'create_note',
-    description: 'Create a note for admin review about analytics, insights, or patterns observed during conversations. Use this to track: most common questions by users, frequently asked about items/topics, important keywords or trends, user behavior patterns, or any insights that would help improve the service. Create notes when you notice patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points).',
+    description: 'Create a note for admin review. Use this to save and record any information for admin from user, or to track analytics, insights, or patterns observed during conversations. Create notes when you notice patterns or when the user provides information that should be recorded for the admin.',
     schema: z.object({
-      content: z.string().describe('The note content describing the insight or pattern (e.g. "Common question: Many users asking about appointment booking process" or "Keyword trend: Users frequently mention \'insurance coverage\'" or "Most asked about: Ntinda branch location and hours")'),
-      patientName: z.string().optional().describe('Optional: Patient or user name if relevant to the note (usually omit for analytics notes)'),
-      category: z.enum(['common_questions', 'keywords', 'analytics', 'insights', 'other']).optional().describe('Category: "common_questions" for frequently asked questions, "keywords" for trending keywords/phrases, "analytics" for usage patterns/metrics, "insights" for general observations, "other" for anything else'),
+      content: z.string().describe('The note content describing the information, insight or pattern (e.g. "User requested follow-up on insurance" or "Common question: Many users asking about appointment booking process")'),
+      patientName: z.string().optional().describe('Optional: Patient or user name if relevant to the note'),
+      category: z.enum(['admin_info', 'common_questions', 'keywords', 'analytics', 'insights', 'other']).optional().describe('Category: "admin_info" for information to be recorded for admin, "common_questions" for frequently asked questions, "keywords" for trending keywords/phrases, "analytics" for usage patterns/metrics, "insights" for general observations, "other" for anything else'),
     }),
     func: async ({ content, patientName, category }) => {
       if (!options?.conversationId) {

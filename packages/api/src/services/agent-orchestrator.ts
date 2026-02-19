@@ -494,7 +494,7 @@ export class ToolExecutor {
   async executeCreateNote(params: {
     content: string;
     patientName?: string;
-    category?: 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'other';
+    category?: 'admin_info' | 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'other';
   }, conversationId?: string, userId?: string): Promise<CreateNoteResult> {
     if (!conversationId) {
       return {

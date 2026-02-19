@@ -11,7 +11,7 @@ export type AgentNote = {
   userId: string | null;
   patientName: string | null;
   content: string;
-  category: 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'bookings' | 'other';
+  category: 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'bookings' | 'admin_info' | 'other';
   status: 'unread' | 'read' | 'archived';
   createdAt: number | null;
   updatedAt: number | null;
@@ -157,6 +157,7 @@ export async function listNotes(
     conversationId?: string;
     status?: AgentNote['status'];
     patientName?: string;
+    category?: AgentNote['category'];
     limit?: number;
   }
 ): Promise<AgentNote[]> {
@@ -173,6 +174,10 @@ export async function listNotes(
 
   if (options?.patientName) {
     query = query.where('patientName', '==', options.patientName.trim());
+  }
+
+  if (options?.category) {
+    query = query.where('category', '==', options.category);
   }
 
   // Try to add orderBy - if index doesn't exist, we'll catch and fetch without it
