@@ -272,42 +272,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             </div>
           </div>
         )}
-        {messages.length === 0 && !loading && (widgetConfig?.suggestedQuestions?.length ?? 0) > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-            {widgetConfig?.suggestedQuestions.map((q, i) => (
-              <button
-                key={i}
-                onClick={() => {
-                  setInput(q);
-                  // Trigger send next tick to allow state update if needed, 
-                  // or just call sendMessage with q
-                  const inputEv = { target: { value: q, style: { height: 'auto' } } } as any;
-                  setInput(q);
-                  setTimeout(() => {
-                    const btn = document.querySelector('button[data-send-btn]') as HTMLButtonElement;
-                    btn?.click();
-                  }, 0);
-                }}
-                style={{
-                  padding: '10px 14px',
-                  borderRadius: 18,
-                  backgroundColor: isDark ? '#1f2937' : '#ffffff',
-                  color: primaryColor,
-                  border: `1px solid ${border}`,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.2s',
-                  width: 'fit-content',
-                  maxWidth: '100%',
-                }}
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        )}
+
         {messages.map((m, index) => {
           const isUser = m.role === 'user';
           return (
@@ -364,6 +329,41 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite', animationDelay: '0.4s' }}></span>
           </div>
         )}
+        {!loading && (widgetConfig?.suggestedQuestions?.length ?? 0) > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8, paddingBottom: 8 }}>
+            {widgetConfig?.suggestedQuestions.map((q, i) => (
+              <button
+                key={i}
+                disabled={loading}
+                onClick={() => {
+                  if (loading) return;
+                  setInput(q);
+                  setTimeout(() => {
+                    const btn = document.querySelector('button[data-send-btn]') as HTMLButtonElement;
+                    btn?.click();
+                  }, 0);
+                }}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 18,
+                  backgroundColor: isDark ? '#1f2937' : '#ffffff',
+                  color: primaryColor,
+                  border: `1px solid ${border}`,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: loading ? 'default' : 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.2s',
+                  width: 'fit-content',
+                  maxWidth: '100%',
+                  opacity: loading ? 0.6 : 1,
+                }}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div
@@ -381,6 +381,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
               ref={inputRef}
               rows={1}
               value={input}
+              disabled={loading}
               onChange={(e) => {
                 setInput(e.target.value);
                 e.target.style.height = 'auto';
@@ -389,10 +390,10 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  sendMessage();
+                  if (!loading) sendMessage();
                 }
               }}
-              placeholder="Type your message..."
+              placeholder={loading ? "AI is thinking..." : "Type your message..."}
               style={{
                 width: '100%',
                 padding: '10px 14px',
@@ -406,6 +407,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
                 resize: 'none',
                 maxHeight: 120,
                 lineHeight: 1.5,
+                opacity: loading ? 0.7 : 1,
               }}
             />
             {/* Image upload temporarily removed */}
@@ -413,19 +415,19 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           <button
             data-send-btn
             onClick={sendMessage}
-            disabled={!input.trim()}
+            disabled={!input.trim() || loading}
             style={{
               padding: '10px',
               borderRadius: '50%',
               backgroundColor: primaryColor,
               color: '#ffffff',
               border: 'none',
-              cursor: 'pointer',
+              cursor: (loading || !input.trim()) ? 'default' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               transition: 'background-color 0.2s',
-              opacity: !input.trim() ? 0.5 : 1,
+              opacity: (!input.trim() || loading) ? 0.5 : 1,
             }}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
