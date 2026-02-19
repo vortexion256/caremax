@@ -545,13 +545,12 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
 
   const listNotesTool = new DynamicStructuredTool({
     name: 'list_notes',
-    description: 'List existing notes in the Agent Notebook for the current conversation. Use this to see what has already been recorded so you can decide whether to create a new note or update an existing one.',
+    description: 'List existing notes in the Agent Notebook. Use this to see what has already been recorded across all conversations so you can decide whether to create a new note or update an existing one.',
     schema: z.object({}),
     func: async () => {
-      if (!options?.conversationId) return 'Cannot list notes: conversation ID not available.';
       try {
-        const notes = await listAgentNotes(tenantId, { conversationId: options.conversationId });
-        if (notes.length === 0) return 'No notes found for this conversation.';
+        const notes = await listAgentNotes(tenantId);
+        if (notes.length === 0) return 'No notes found.';
         return notes.map((n) => `noteId: ${n.noteId}\ncategory: ${n.category}\ncontent: ${n.content}${n.patientName ? `\nuser: ${n.patientName}` : ''}`).join('\n\n');
       } catch (e) {
         console.error('list_notes error:', e);
@@ -571,7 +570,6 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       try {
         const note = await getNote(tenantId, noteId);
         if (!note) return 'Note not found.';
-        if (note.conversationId !== options?.conversationId) return 'Access denied: note belongs to a different conversation.';
         await updateNoteContent(tenantId, noteId, content.trim());
         return 'Note updated successfully.';
       } catch (e) {

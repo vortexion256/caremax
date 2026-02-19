@@ -31,12 +31,7 @@ agentNotesRouter.get('/', async (req, res) => {
       limit,
     });
 
-    // Filter notes by userId if not admin (users can only see notes from their conversations)
-    const filteredNotes = isAdmin
-      ? notes
-      : notes.filter((n) => n.userId === userId);
-
-    res.json({ notes: filteredNotes });
+    res.json({ notes });
   } catch (e) {
     console.error('Failed to list agent notes:', e);
     res.status(500).json({ error: 'Failed to load notes' });
@@ -57,11 +52,7 @@ agentNotesRouter.get('/:noteId', async (req, res) => {
       return;
     }
 
-    // Non-admins can only see notes from their conversations
-    if (!isAdmin && note.userId !== userId) {
-      res.status(403).json({ error: 'Access denied' });
-      return;
-    }
+
 
     res.json({ note });
   } catch (e) {

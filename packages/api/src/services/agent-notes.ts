@@ -24,19 +24,17 @@ export type AgentNote = {
  */
 async function findSimilarNote(
   tenantId: string,
-  conversationId: string,
   content: string,
   patientName?: string,
   category?: AgentNote['category']
 ): Promise<AgentNote | null> {
-  // Check for notes in the same conversation with similar content
+  // Check for notes with similar content across all conversations
   // Look for notes created in the last hour to catch duplicates from the same session
   const oneHourAgo = Date.now() - 60 * 60 * 1000;
   
   try {
     const snap = await db.collection(NOTES_COLLECTION)
       .where('tenantId', '==', tenantId)
-      .where('conversationId', '==', conversationId)
       .get();
     
     const normalizedContent = content.trim().toLowerCase();
@@ -108,7 +106,6 @@ export async function createNote(
   // Check for similar existing notes to prevent duplicates
   const similarNote = await findSimilarNote(
     tenantId,
-    conversationId,
     content,
     options?.patientName,
     options?.category
@@ -168,12 +165,6 @@ export async function listNotes(
   // Apply filters
   if (options?.conversationId) {
     query = query.where('conversationId', '==', options.conversationId);
-  } else if (!options?.patientName) {
-    // If no conversationId and no patientName, we should probably limit to a very small number 
-    // or return empty to avoid leaking data across conversations, 
-    // UNLESS it's a system-level query (like consolidation).
-    // For now, we'll keep it as is but add a warning if it's a large query without conversationId.
-    console.warn(`[Notes] listNotes called without conversationId for tenant ${tenantId}. This might leak data across sessions.`);
   }
 
   if (options?.status) {
