@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/auth.js';
 import { listNotes, getNote, updateNoteStatus, deleteNote } from '../services/agent-notes.js';
-import { consolidateNotes } from '../services/agent-notes-consolidation.js';
 
 export const agentNotesRouter: Router = Router({ mergeParams: true });
 
@@ -108,14 +107,4 @@ agentNotesRouter.delete('/:noteId', requireAdmin, async (req, res) => {
   }
 });
 
-// Consolidate notes (admin only) - merge duplicates and similar notes
-agentNotesRouter.post('/consolidate', requireAdmin, async (req, res) => {
-  const tenantId = res.locals.tenantId as string;
-  try {
-    const result = await consolidateNotes(tenantId);
-    res.json(result);
-  } catch (e) {
-    console.error('Consolidate agent notes error:', e);
-    res.status(500).json({ error: 'Failed to run consolidation' });
-  }
-});
+
