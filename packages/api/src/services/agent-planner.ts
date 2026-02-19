@@ -223,11 +223,18 @@ Create a detailed execution plan. Use create_plan to structure your response.`
         missingInfo: string[];
       };
 
-      const steps: PlanStep[] = planData.steps.map((s) => ({
-        ...s,
-        status: 'pending' as const,
-        confirmed: s.requiresConfirmation ? false : undefined,
-      }));
+      const steps: PlanStep[] = planData.steps.map((s) => {
+        // Force confirmation for any step that uses a tool and isn't just a query
+        const isExecutionTool = s.toolName && !['query_google_sheet', 'list_notes', 'get_record', 'list_records'].includes(s.toolName);
+        const requiresConfirmation = s.requiresConfirmation || isExecutionTool;
+        
+        return {
+          ...s,
+          requiresConfirmation,
+          status: 'pending' as const,
+          confirmed: requiresConfirmation ? false : undefined,
+        };
+      });
 
       const hasImmediateConfirmationNeeded = steps.some(s => s.stepNumber === 1 && s.requiresConfirmation && !s.confirmed);
 
