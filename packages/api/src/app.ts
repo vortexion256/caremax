@@ -10,6 +10,7 @@ import { handoffRouter } from './routes/handoff.js';
 import { ragRouter } from './routes/rag.js';
 import { agentRecordsRouter } from './routes/agent-records.js';
 import { agentNotesRouter } from './routes/agent-notes.js';
+import { analyticsRouter } from './routes/analytics.js';
 import { registerRouter } from './routes/register.js';
 import { platformRouter } from './routes/platform.js';
 import { integrationsCallbackRouter, tenantIntegrationsRouter } from './routes/integrations.js';
@@ -52,6 +53,7 @@ app.use('/tenants/:tenantId/handoffs', handoffRouter);
 app.use('/tenants/:tenantId/rag', ragRouter);
 app.use('/tenants/:tenantId/agent-records', agentRecordsRouter);
 app.use('/tenants/:tenantId/agent-notes', agentNotesRouter);
+app.use('/tenants/:tenantId/analytics', analyticsRouter);
 app.use('/tenants', tenantRouter);
 
 export default app;
