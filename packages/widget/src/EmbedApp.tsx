@@ -342,7 +342,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           position: 'relative',
         }}
       >
-        {!loading && (widgetConfig?.suggestedQuestions?.length ?? 0) > 0 && (
+        {!loading && messages.length === 0 && (widgetConfig?.suggestedQuestions?.length ?? 0) > 0 && (
           <div 
             style={{ 
               display: 'flex', 
