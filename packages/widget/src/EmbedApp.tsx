@@ -329,8 +329,34 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite', animationDelay: '0.4s' }}></span>
           </div>
         )}
+
+      </div>
+
+      <div
+        ref={inputContainerRef}
+        style={{
+          padding: '16px 12px',
+          borderTop: `1px solid ${border}`,
+          backgroundColor: isDark ? '#111827' : '#ffffff',
+          flexShrink: 0,
+          position: 'relative',
+        }}
+      >
         {!loading && (widgetConfig?.suggestedQuestions?.length ?? 0) > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8, paddingBottom: 8 }}>
+          <div 
+            style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'flex-end',
+              gap: 6, 
+              position: 'absolute',
+              bottom: '100%',
+              right: 12,
+              paddingBottom: 12,
+              zIndex: 20,
+              pointerEvents: 'none',
+            }}
+          >
             {widgetConfig?.suggestedQuestions.map((q, i) => (
               <button
                 key={i}
@@ -344,19 +370,21 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
                   }, 0);
                 }}
                 style={{
-                  padding: '8px 16px',
-                  borderRadius: 18,
-                  backgroundColor: isDark ? '#1f2937' : '#ffffff',
+                  padding: '6px 12px',
+                  borderRadius: 16,
+                  backgroundColor: isDark ? '#374151' : '#ffffff',
                   color: primaryColor,
                   border: `1px solid ${border}`,
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: 500,
                   cursor: loading ? 'default' : 'pointer',
-                  textAlign: 'left',
+                  textAlign: 'right',
                   transition: 'all 0.2s',
                   width: 'fit-content',
-                  maxWidth: '100%',
+                  maxWidth: '280px',
                   opacity: loading ? 0.6 : 1,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                  pointerEvents: 'auto',
                 }}
               >
                 {q}
@@ -364,17 +392,6 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             ))}
           </div>
         )}
-      </div>
-
-      <div
-        ref={inputContainerRef}
-        style={{
-          padding: '16px 12px',
-          borderTop: `1px solid ${border}`,
-          backgroundColor: isDark ? '#111827' : '#ffffff',
-          flexShrink: 0,
-        }}
-      >
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
           <div style={{ position: 'relative', flex: 1 }}>
             <textarea
