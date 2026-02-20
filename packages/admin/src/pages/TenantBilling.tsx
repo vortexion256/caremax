@@ -14,12 +14,30 @@ type BillingSummary = {
 export default function TenantBilling() {
   const { tenantId } = useTenant();
   const [data, setData] = useState<BillingSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api<BillingSummary>(`/tenants/${tenantId}/billing`).then(setData).catch(() => setData(null));
+    if (!tenantId || tenantId === 'platform') {
+      setError('Billing is only available for a tenant admin profile.');
+      setData(null);
+      return;
+    }
+
+    setError(null);
+    api<BillingSummary>(`/tenants/${tenantId}/billing`)
+      .then((res) => {
+        setData(res);
+      })
+      .catch((e) => {
+        const message = e instanceof Error ? e.message : 'Failed to load billing data';
+        setError(message);
+        setData(null);
+      });
   }, [tenantId]);
 
-  if (!data) return <p>Loading billing data...</p>;
+  if (!data && !error) return <p>Loading billing data...</p>;
+  if (error) return <p style={{ color: '#dc2626' }}>Could not load billing data: {error}</p>;
+  if (!data) return null;
 
   return (
     <div>

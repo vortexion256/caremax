@@ -14,16 +14,33 @@ type Account = {
 export default function TenantAccount() {
   const { tenantId, email, uid } = useTenant();
   const [account, setAccount] = useState<Account | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api<Account>(`/tenants/${tenantId}/account`).then(setAccount).catch(() => setAccount(null));
+    if (!tenantId || tenantId === 'platform') {
+      setError('Account settings are only available for a tenant admin profile.');
+      setAccount(null);
+      return;
+    }
+
+    setError(null);
+    api<Account>(`/tenants/${tenantId}/account`)
+      .then((res) => {
+        setAccount(res);
+      })
+      .catch((e) => {
+        const message = e instanceof Error ? e.message : 'Failed to load account details';
+        setError(message);
+        setAccount(null);
+      });
   }, [tenantId]);
 
   return (
     <div>
       <h1 style={{ marginTop: 0 }}>Account Settings</h1>
       <p style={{ color: '#64748b' }}>Tenant account details and subscription assignment.</p>
-      {!account && <p>Loading account details...</p>}
+      {!account && !error && <p>Loading account details...</p>}
+      {error && <p style={{ color: '#dc2626' }}>Could not load account details: {error}</p>}
       {account && (
         <div style={{ display: 'grid', gap: 12 }}>
           <Info label="Tenant ID" value={account.tenantId} mono />
