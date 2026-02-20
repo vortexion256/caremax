@@ -95,8 +95,10 @@ export default function AgentSettings() {
         </div>
       )}
 
-      <form onSubmit={handleSave} style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 28 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 24 }}>
+      <form onSubmit={handleSave} style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 32 }}>
+        <div style={{ padding: 24, background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+          <h3 style={{ margin: '0 0 20px 0', fontSize: 18, color: '#0f172a', borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>General Identity</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 24 }}>
           <div>
             <label style={labelStyle}>Agent Name</label>
             <input
@@ -119,7 +121,7 @@ export default function AgentSettings() {
           </div>
         </div>
 
-        <div>
+        <div style={{ marginTop: 24 }}>
           <label style={labelStyle}>Welcome Text (Chat Bubble)</label>
           <input
             value={config?.welcomeText ?? ''}
@@ -129,7 +131,10 @@ export default function AgentSettings() {
           />
           <span style={helperStyle}>The first message the user sees when opening the widget.</span>
         </div>
+        </div>
 
+        <div style={{ padding: 24, background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+          <h3 style={{ margin: '0 0 20px 0', fontSize: 18, color: '#0f172a', borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>Interaction Design</h3>
         <div>
           <label style={labelStyle}>Suggested Questions</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -187,7 +192,7 @@ export default function AgentSettings() {
           <span style={helperStyle}>Quick questions users can click to start a conversation.</span>
         </div>
 
-        <div>
+        <div style={{ marginTop: 24 }}>
           <label style={labelStyle}>Widget Theme Color (Hex)</label>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <input
@@ -205,7 +210,10 @@ export default function AgentSettings() {
           </div>
           <span style={helperStyle}>Changes the color of user messages, buttons, and icons.</span>
         </div>
+        </div>
 
+        <div style={{ padding: 24, background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+          <h3 style={{ margin: '0 0 20px 0', fontSize: 18, color: '#0f172a', borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>AI Intelligence & Behavior</h3>
         <div>
           <label style={labelStyle}>System Prompt</label>
           <textarea
