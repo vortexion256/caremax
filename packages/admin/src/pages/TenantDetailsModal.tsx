@@ -237,23 +237,25 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
               {details.byUsageType.length > 0 ? (
                 <>
                   <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Usage by API Flow</div>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
-                    <thead>
-                      <tr>
-                        <th align="left">Usage Type</th><th align="right">Calls</th><th align="right">Tokens</th><th align="right">Cost</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {details.byUsageType.map((row) => (
-                        <tr key={row.usageType} style={{ borderTop: '1px solid #eee' }}>
-                          <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{row.usageType}</td>
-                          <td align="right">{row.calls}</td>
-                          <td align="right">{row.totalTokens.toLocaleString()}</td>
-                          <td align="right">${row.costUsd.toFixed(6)}</td>
+                  <div style={{ width: '100%', overflowX: 'auto', marginBottom: 12 }}>
+                    <table style={{ width: '100%', minWidth: 520, borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          <th align="left">Usage Type</th><th align="right">Calls</th><th align="right">Tokens</th><th align="right">Cost</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {details.byUsageType.map((row) => (
+                          <tr key={row.usageType} style={{ borderTop: '1px solid #eee' }}>
+                            <td style={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{row.usageType}</td>
+                            <td align="right">{row.calls}</td>
+                            <td align="right">{row.totalTokens.toLocaleString()}</td>
+                            <td align="right">${row.costUsd.toFixed(6)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </>
               ) : (
                 <p style={{ margin: '0 0 12px 0', color: '#64748b', fontSize: 13 }}>No data exists to use.</p>
@@ -262,25 +264,27 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
               {details.recentEvents.length > 0 ? (
                 <>
                   <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Recent Metered Events</div>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr>
-                        <th align="left">Time</th><th align="left">Type</th><th align="left">Source</th><th align="right">Input</th><th align="right">Output</th><th align="right">Cost</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {details.recentEvents.slice(0, 15).map((event) => (
-                        <tr key={event.eventId} style={{ borderTop: '1px solid #eee' }}>
-                          <td>{event.createdAt ? new Date(event.createdAt).toLocaleString() : '—'}</td>
-                          <td style={{ fontFamily: 'monospace' }}>{event.usageType}</td>
-                          <td>{event.measurementSource}</td>
-                          <td align="right">{event.inputTokens}</td>
-                          <td align="right">{event.outputTokens}</td>
-                          <td align="right">${event.costUsd.toFixed(6)}</td>
+                  <div style={{ width: '100%', overflowX: 'auto' }}>
+                    <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr>
+                          <th align="left">Time</th><th align="left">Type</th><th align="left">Source</th><th align="right">Input</th><th align="right">Output</th><th align="right">Cost</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {details.recentEvents.slice(0, 15).map((event) => (
+                          <tr key={event.eventId} style={{ borderTop: '1px solid #eee' }}>
+                            <td>{event.createdAt ? new Date(event.createdAt).toLocaleString() : '—'}</td>
+                            <td style={{ fontFamily: 'monospace', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{event.usageType}</td>
+                            <td>{event.measurementSource}</td>
+                            <td align="right">{event.inputTokens}</td>
+                            <td align="right">{event.outputTokens}</td>
+                            <td align="right">${event.costUsd.toFixed(6)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </>
               ) : (
                 <p style={{ margin: 0, color: '#64748b', fontSize: 13 }}>No data exists to use.</p>
