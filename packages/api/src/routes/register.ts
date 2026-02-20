@@ -6,6 +6,9 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 export const registerRouter: Router = Router();
 
+const TRIAL_DAYS_DEFAULT = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 const slugRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 const registerBody = z.object({
   name: z.string().min(1).max(200),
@@ -53,6 +56,11 @@ registerRouter.post('/', requireAuth, async (req, res) => {
     allowedDomains: [],
     createdBy: uid,
     createdAt: FieldValue.serverTimestamp(),
+    billingPlanId: 'free',
+    trialUsed: true,
+    trialStartedAt: new Date(),
+    trialEndsAt: new Date(Date.now() + TRIAL_DAYS_DEFAULT * DAY_MS),
+    subscriptionStatus: 'trialing',
   });
   const agentName = name;
   const defaultPrompt = `You are ${agentName}, a clinical triage assistant for this organization. When asked your name or who you are, say you are ${agentName}.

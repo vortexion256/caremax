@@ -63,8 +63,11 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: uid }),
     });
-    if (!res.ok) throw new Error('Failed to create conversation');
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (data as { details?: string; error?: string }).details ?? (data as { error?: string }).error ?? 'Failed to create conversation';
+      throw new Error(msg);
+    }
     setConversationId(data.conversationId);
     setMessages([]);
     return data.conversationId;
@@ -81,36 +84,36 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
       inputRef.current.style.height = 'auto';
     }
 
-    let cid = conversationId;
-    if (!cid) cid = await createConversation();
-
-    const imageUrls: string[] = [];
-    for (const file of images) {
-      const form = new FormData();
-      form.append('file', file);
-      const up = await fetch(`${API_URL}/tenants/${tenantId}/upload`, {
-        method: 'POST',
-        body: form,
-      });
-      if (up.ok) {
-        const u = await up.json();
-        imageUrls.push(u.url);
-      }
-    }
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        messageId: `u-${Date.now()}`,
-        role: 'user',
-        content: text,
-        imageUrls: imageUrls.length ? imageUrls : undefined,
-        createdAt: Date.now(),
-      },
-    ]);
     setLoading(true);
 
     try {
+      let cid = conversationId;
+      if (!cid) cid = await createConversation();
+
+      const imageUrls: string[] = [];
+      for (const file of images) {
+        const form = new FormData();
+        form.append('file', file);
+        const up = await fetch(`${API_URL}/tenants/${tenantId}/upload`, {
+          method: 'POST',
+          body: form,
+        });
+        if (up.ok) {
+          const u = await up.json();
+          imageUrls.push(u.url);
+        }
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          messageId: `u-${Date.now()}`,
+          role: 'user',
+          content: text,
+          imageUrls: imageUrls.length ? imageUrls : undefined,
+          createdAt: Date.now(),
+        },
+      ]);
       const res = await fetch(`${API_URL}/tenants/${tenantId}/conversations/${cid}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

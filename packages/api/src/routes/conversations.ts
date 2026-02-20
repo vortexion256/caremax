@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '../config/firebase.js';
 import { requireAuth, requireTenantParam, requireAdmin, type AuthLocals } from '../middleware/auth.js';
 import { runAgent, extractAndRecordLearningFromHistory } from '../services/agent.js';
+import { getTenantBillingStatus, WIDGET_BILLING_ERROR } from '../services/billing.js';
 import type { ConversationStatus } from '../types/index.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -21,6 +22,11 @@ const messageBody = z.object({
 
 conversationRouter.post('/', async (req, res) => {
   const tenantId = res.locals.tenantId as string;
+  const billing = await getTenantBillingStatus(tenantId);
+  if (!billing.isActive) {
+    res.status(402).json({ error: WIDGET_BILLING_ERROR, code: 725, details: WIDGET_BILLING_ERROR });
+    return;
+  }
   const parsed = createBody.safeParse(req.body);
   const userId = parsed.success ? (parsed.data.userId ?? `anon-${Date.now()}-${Math.random().toString(36).slice(2)}`) : `anon-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const ref = await db.collection(CONVERSATIONS).add({
@@ -65,6 +71,11 @@ conversationRouter.get('/:conversationId/messages', async (req, res) => {
 conversationRouter.post('/:conversationId/messages', async (req, res) => {
   const { conversationId } = req.params;
   const tenantId = res.locals.tenantId as string;
+  const billing = await getTenantBillingStatus(tenantId);
+  if (!billing.isActive) {
+    res.status(402).json({ error: WIDGET_BILLING_ERROR, code: 725, details: WIDGET_BILLING_ERROR });
+    return;
+  }
   const parsed = messageBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });

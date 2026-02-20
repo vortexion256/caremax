@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireTenantParam } from '../middleware/auth.js';
 import { db } from '../config/firebase.js';
+import { getTenantBillingStatus } from '../services/billing.js';
 
 export const tenantRouter: Router = Router();
 
@@ -90,13 +91,16 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
   const billingPlanId = tenantData.billingPlanId ?? 'free';
 
   const plansSnap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
-  const plans = plansSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const plans = plansSnap.docs.map((d) => ({ id: d.id, ...(d.data() as { active?: boolean; [key: string]: unknown }) }));
   const currentPlan = plans.find((p) => p.id === billingPlanId) ?? null;
+  const billingStatus = await getTenantBillingStatus(tenantId);
 
   res.json({
     tenantId,
     billingPlanId,
     currentPlan,
+    billingStatus,
+    availablePlans: plans.filter((plan) => plan.active !== false && plan.id !== 'free'),
     totals,
     byUsageType: Object.entries(summaryByType).map(([usageType, v]) => ({ usageType, ...v })),
     recentEvents: events,

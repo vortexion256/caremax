@@ -273,7 +273,57 @@ platformRouter.patch('/tenants/:tenantId/billing', async (req, res) => {
   }
 
   try {
-    await db.collection('tenants').doc(req.params.tenantId).set({ billingPlanId: body.data.billingPlanId, updatedAt: new Date() }, { merge: true });
+    const tenantRef = db.collection('tenants').doc(req.params.tenantId);
+    const [tenantDoc, planDoc] = await Promise.all([
+      tenantRef.get(),
+      db.collection('billing_plans').doc(body.data.billingPlanId).get(),
+    ]);
+
+    if (!tenantDoc.exists) {
+      res.status(404).json({ error: 'Tenant not found' });
+      return;
+    }
+
+    if (!planDoc.exists) {
+      res.status(404).json({ error: 'Billing plan not found' });
+      return;
+    }
+
+    const tenantData = tenantDoc.data() ?? {};
+    const planData = planDoc.data() ?? {};
+    const trialUsed = tenantData.trialUsed === true || Boolean(tenantData.trialEndsAt);
+
+    if (body.data.billingPlanId === 'free' && trialUsed && tenantData.billingPlanId !== 'free') {
+      res.status(400).json({ error: 'Free trial can only be used once during registration.' });
+      return;
+    }
+
+    const now = Date.now();
+    const monthlyDurationMs = 30 * 24 * 60 * 60 * 1000;
+    const trialDays = typeof planData.trialDays === 'number' ? planData.trialDays : 30;
+
+    if (body.data.billingPlanId === 'free') {
+      await tenantRef.set({
+        billingPlanId: 'free',
+        trialUsed: true,
+        trialStartedAt: tenantData.trialStartedAt ?? new Date(now),
+        trialEndsAt: tenantData.trialEndsAt ?? new Date(now + trialDays * 24 * 60 * 60 * 1000),
+        subscriptionEndsAt: null,
+        subscriptionStatus: 'trialing',
+        updatedAt: new Date(now),
+      }, { merge: true });
+      res.json({ success: true });
+      return;
+    }
+
+    await tenantRef.set({
+      billingPlanId: body.data.billingPlanId,
+      trialUsed: true,
+      subscriptionStartedAt: new Date(now),
+      subscriptionEndsAt: new Date(now + monthlyDurationMs),
+      subscriptionStatus: 'active',
+      updatedAt: new Date(now),
+    }, { merge: true });
     res.json({ success: true });
   } catch (e) {
     console.error('Failed to update tenant billing plan:', e);
