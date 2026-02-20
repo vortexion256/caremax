@@ -98,6 +98,12 @@ export default function RAG() {
 
   if (loading) return <div style={{ color: '#64748b', padding: isMobile ? 16 : 0 }}>Loading knowledge base...</div>;
 
+  const getCappedTitle = (title: string) => {
+    const trimmedTitle = title.trim();
+    if (trimmedTitle.length <= 50) return trimmedTitle;
+    return `${trimmedTitle.slice(0, 47)}...`;
+  };
+
   return (
     <div style={{ padding: isMobile ? '16px 0' : 0 }}>
       <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Knowledge Base</h1>
@@ -202,7 +208,7 @@ export default function RAG() {
                       whiteSpace: 'nowrap', 
                       overflow: 'hidden', 
                       textOverflow: 'ellipsis' 
-                    }}>{d.name}</div>
+                    }}>{getCappedTitle(d.name)}</div>
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, textTransform: 'capitalize' }}>Status: {d.status}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
