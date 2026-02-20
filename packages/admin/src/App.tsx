@@ -24,6 +24,9 @@ import RAG from './pages/RAG';
 import AutoAgentBrain from './pages/AutoAgentBrain';
 import Integrations from './pages/Integrations';
 import Embed from './pages/Embed';
+import PlatformBilling from './pages/PlatformBilling';
+import TenantBilling from './pages/TenantBilling';
+import TenantAccount from './pages/TenantAccount';
 
 type MeResponse = { uid: string; email?: string; tenantId?: string; isAdmin?: boolean; isPlatformAdmin?: boolean };
 
@@ -127,6 +130,8 @@ export default function App() {
             <Route path="/platform" element={<PlatformLayout />}>
               <Route index element={<PlatformDashboard />} />
               <Route path="tenants" element={<PlatformTenants />} />
+              <Route path="usage" element={<PlatformUsage />} />
+              <Route path="billing" element={<PlatformBilling />} />
             </Route>
             <Route path="*" element={<Navigate to="/platform" replace />} />
           </Routes>
@@ -152,6 +157,8 @@ export default function App() {
           <Route path="/platform" element={<PlatformLayout />}>
             <Route index element={<PlatformDashboard />} />
             <Route path="tenants" element={<PlatformTenants />} />
+            <Route path="usage" element={<PlatformUsage />} />
+            <Route path="billing" element={<PlatformBilling />} />
           </Route>
           <Route path="*" element={<Navigate to="/platform" replace />} />
         </Routes>
@@ -182,11 +189,14 @@ export default function App() {
           <Route path="agent-brain" element={<AutoAgentBrain />} />
           <Route path="integrations" element={<Integrations />} />
           <Route path="embed" element={<Embed />} />
+          <Route path="account" element={<TenantAccount />} />
+          <Route path="billing" element={<TenantBilling />} />
         </Route>
         <Route path="/platform" element={<PlatformLayout />}>
           <Route index element={<PlatformDashboard />} />
           <Route path="tenants" element={<PlatformTenants />} />
           <Route path="usage" element={<PlatformUsage />} />
+          <Route path="billing" element={<PlatformBilling />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

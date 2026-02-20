@@ -4,6 +4,7 @@ import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
+import { computeCostUsd, extractTokenUsage, recordUsage, type UsageMetadata } from './token-usage.js';
 import { getRagContext } from './rag.js';
 import { createRecord, createModificationRequest, getRecord, listRecords } from './auto-agent-brain.js';
 import { isGoogleConnected, fetchSheetData } from './google-sheets.js';
@@ -35,102 +36,6 @@ If the situation sounds urgent or the user seems to need a human care coordinato
 function defaultPromptForName(agentName: string): string {
   return `You are ${agentName}, a clinical triage assistant for this organization. When asked your name or who you are, say you are ${agentName}.
 You help users understand possible next steps based on their symptoms. Suggest when to see a doctor or seek care. Be clear you are not a doctor and cannot diagnose. For contact info, hours, or phone numbers, use the knowledge base if provided.`;
-}
-
-type UsageContext = {
-  tenantId: string;
-  userId?: string;
-  conversationId?: string;
-};
-
-type UsageMetadata = {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-};
-
-// Simple pricing table – adjust these to match your actual Gemini pricing
-const GEMINI_PRICING_USD: Record<
-  string,
-  {
-    inputPer1K: number;
-    outputPer1K: number;
-  }
-> = {
-  'gemini-3-flash-preview': { inputPer1K: 0.000075, outputPer1K: 0.0003 },
-  'gemini-1.5-pro': { inputPer1K: 0.0035, outputPer1K: 0.0105 },
-};
-
-function computeCostUsd(model: string, usage: UsageMetadata): number {
-  const pricing = GEMINI_PRICING_USD[model] ?? GEMINI_PRICING_USD['gemini-3-flash-preview'];
-  const inputCost = (usage.inputTokens / 1000) * pricing.inputPer1K;
-  const outputCost = (usage.outputTokens / 1000) * pricing.outputPer1K;
-  // Round to 6 decimals to avoid tiny floating point noise
-  return Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000;
-}
-
-/** Extract token usage from a LangChain/Gemini response. Returns zeros if not found. */
-function extractTokenUsage(response: BaseMessage): UsageMetadata {
-  try {
-    const responseAny = response as any;
-    const responseMetadata = responseAny.response_metadata ?? {};
-    
-    // Try tokenUsage first (most common format in LangChain)
-    const tokenUsage = responseMetadata.tokenUsage ?? {};
-    
-    // Also check for usageMetadata/usage_metadata (alternative formats)
-    const usageMetadata = responseMetadata.usageMetadata ?? responseMetadata.usage_metadata ?? {};
-    
-    // Extract token counts - try tokenUsage format first, then usageMetadata format
-    const inputTokens: number =
-      tokenUsage.promptTokens ??
-      tokenUsage.inputTokens ??
-      usageMetadata.promptTokenCount ??
-      usageMetadata.promptTokens ??
-      (typeof usageMetadata.input_tokens === 'number' ? usageMetadata.input_tokens : 0);
-    
-    const outputTokens: number =
-      tokenUsage.completionTokens ??
-      tokenUsage.outputTokens ??
-      usageMetadata.candidatesTokenCount ??
-      usageMetadata.candidatesTokens ??
-      (typeof usageMetadata.output_tokens === 'number' ? usageMetadata.output_tokens : 0);
-    
-    const totalTokens: number =
-      tokenUsage.totalTokens ??
-      usageMetadata.totalTokenCount ??
-      usageMetadata.totalTokens ??
-      (typeof usageMetadata.total_tokens === 'number' ? usageMetadata.total_tokens : inputTokens + outputTokens);
-    
-    return {
-      inputTokens: inputTokens || 0,
-      outputTokens: outputTokens || 0,
-      totalTokens: totalTokens || inputTokens + outputTokens,
-    };
-  } catch (e) {
-    console.error('Failed to extract token usage:', e);
-    return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-  }
-}
-
-async function recordUsage(modelName: string, usage: UsageMetadata, ctx: UsageContext): Promise<void> {
-  try {
-    const costUsd = computeCostUsd(modelName, usage);
-    await db.collection('usage_events').add({
-      tenantId: ctx.tenantId,
-      userId: ctx.userId ?? null,
-      conversationId: ctx.conversationId ?? null,
-      model: modelName,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      totalTokens: usage.totalTokens,
-      costUsd,
-      createdAt: FieldValue.serverTimestamp(),
-    });
-  } catch (e) {
-    // Usage tracking should never break the main flow
-    console.error('Failed to record usage event:', e);
-  }
 }
 
 async function recordActivity(tenantId: string, type: string): Promise<void> {
@@ -991,6 +896,7 @@ Provide a clear, user-friendly response based on these results.`,
           tenantId,
           userId: options?.userId,
           conversationId: options?.conversationId,
+          usageType: 'conversation.reply',
         }
       );
       console.log(`✅ Recorded usage: ${totalInputTokens} input + ${totalOutputTokens} output = ${totalTokens} total tokens ($${computeCostUsd(config.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, totalTokens }).toFixed(6)})`);
@@ -1190,6 +1096,7 @@ If there is nothing new or nothing to update/remove, do not call any tool.`;
           tenantId,
           userId: options?.userId,
           conversationId: options?.conversationId,
+          usageType: 'learning.extraction',
         }
       );
       console.log(`✅ Recorded learning extraction usage: ${totalInputTokens} input + ${totalOutputTokens} output = ${totalTokens} total tokens`);
@@ -1306,6 +1213,7 @@ Review the list above and submit edit/delete requests to consolidate scattered o
   const maxToolRounds = 5;
   let requestCount = 0;
   let response: BaseMessage = await modelWithTools.invoke(currentMessages);
+  let accumulatedUsage = { ...extractTokenUsage(response) };
 
   for (let round = 0; round < maxToolRounds; round++) {
     const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
@@ -1344,7 +1252,13 @@ Review the list above and submit edit/delete requests to consolidate scattered o
     }
     currentMessages = [...currentMessages, response, ...toolMessages];
     response = await modelWithTools.invoke(currentMessages);
+    const roundUsage = extractTokenUsage(response);
+    accumulatedUsage.inputTokens += roundUsage.inputTokens;
+    accumulatedUsage.outputTokens += roundUsage.outputTokens;
+    accumulatedUsage.totalTokens += roundUsage.totalTokens;
   }
+
+  await recordUsage(config.model, accumulatedUsage, { tenantId, usageType: 'brain.consolidation' });
 
   return { modificationRequestsCreated: requestCount };
 }
