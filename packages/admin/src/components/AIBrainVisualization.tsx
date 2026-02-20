@@ -41,12 +41,12 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
   const { tenantId } = useTenant();
 
   const items: Item[] = [
-    { label: 'Knowledge Base', shortLabel: 'KB', path: '/rag', color: '#3b82f6' },
-    { label: 'Auto Brain', shortLabel: 'AB', path: '/agent-brain', color: '#8b5cf6' },
+    { label: 'Knowledge', shortLabel: 'KB', path: '/rag', color: '#3b82f6' },
+    { label: 'Brain', shortLabel: 'AB', path: '/agent-brain', color: '#8b5cf6' },
     { label: 'Notes', shortLabel: 'NT', path: '/agent-notes', color: '#ec4899' },
     { label: 'Handoffs', shortLabel: 'HO', path: '/handoffs', color: '#f43f5e' },
     { label: 'Integrations', shortLabel: 'IN', path: '/integrations', color: '#10b981' },
-    { label: 'Agent Config', shortLabel: 'AC', path: '/agent', color: '#f59e0b' }
+    { label: 'Config', shortLabel: 'AC', path: '/agent', color: '#f59e0b' }
   ];
 
   // Generate random color
@@ -530,16 +530,16 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         position: 'relative', 
         width: '100%', 
         background: '#ffffff',
-        borderRadius: '24px',
-        padding: isMobile ? '30px 15px' : '40px 30px',
+        borderRadius: '20px',
+        padding: isMobile ? '24px 12px' : '30px 22px',
         marginTop: '24px',
         boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
         border: '1px solid #f1f5f9',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: isMobile ? '40px' : '60px',
-        minHeight: isMobile ? '450px' : '500px'
+        gap: isMobile ? '30px' : '44px',
+        minHeight: isMobile ? '390px' : '430px'
       }}
     >
       <canvas
@@ -561,8 +561,8 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         style={{
           position: 'relative',
           zIndex: 10,
-          width: isMobile ? '80px' : '110px',
-          height: isMobile ? '80px' : '110px',
+          width: isMobile ? '70px' : '92px',
+          height: isMobile ? '70px' : '92px',
           borderRadius: '50%',
           border: '4px solid #fff',
           background: '#fff',
@@ -585,7 +585,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         style={{
           display: 'grid',
           gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(6, 1fr)',
-          gap: isMobile ? '8px' : '20px',
+          gap: isMobile ? '8px' : '14px',
           width: '100%',
           zIndex: 10,
           marginTop: 'auto'
@@ -603,18 +603,18 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
             onMouseLeave={() => setHoveredIndex(null)}
             style={{
               position: 'relative',
-              padding: isMobile ? '12px 8px' : '16px 12px',
+              padding: isMobile ? '10px 6px' : '12px 8px',
               // When pulseBorderOnly is true and this is the handoff card, keep background white
               background: (pulseBorderOnly && isHandoffCard && activeItemIndex === index) 
                 ? '#fff' 
                 : ((hoveredIndex === index || activeItemIndex === index) ? item.color : '#fff'),
               border: `1.5px solid ${(hoveredIndex === index || activeItemIndex === index) ? item.color : '#e2e8f0'}`,
-              borderRadius: '16px',
+              borderRadius: '12px',
               // When pulseBorderOnly is true, keep text color dark
               color: (pulseBorderOnly && isHandoffCard && activeItemIndex === index)
                 ? '#475569'
                 : ((hoveredIndex === index || activeItemIndex === index) ? '#fff' : '#475569'),
-              fontSize: isMobile ? '11px' : '14px',
+              fontSize: isMobile ? '10px' : '12px',
               fontWeight: 600,
               boxShadow: (hoveredIndex === index || activeItemIndex === index)
                 ? `0 10px 15px -3px ${item.color}44` 
@@ -626,7 +626,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '8px',
+              gap: '6px',
               textAlign: 'center',
               width: '100%',
               minWidth: 0
@@ -655,8 +655,8 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
               </div>
             )}
             <div style={{ 
-              width: isMobile ? '24px' : '32px', 
-              height: isMobile ? '24px' : '32px', 
+              width: isMobile ? '22px' : '28px', 
+              height: isMobile ? '22px' : '28px', 
               borderRadius: '50%', 
               // When pulseBorderOnly is true, keep icon background light
               background: (pulseBorderOnly && isHandoffCard && activeItemIndex === index)
@@ -669,7 +669,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
               color: (pulseBorderOnly && isHandoffCard && activeItemIndex === index)
                 ? item.color
                 : ((hoveredIndex === index || activeItemIndex === index) ? '#fff' : item.color),
-              fontSize: isMobile ? '10px' : '12px'
+              fontSize: isMobile ? '9px' : '11px'
             }}>
               {item.shortLabel}
             </div>
