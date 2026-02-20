@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { collection, query, where, orderBy, limit, startAfter, getDocs, type DocumentSnapshot } from 'firebase/firestore';
 import { firestore } from '../firebase';
 import { api } from '../api';
@@ -21,13 +21,12 @@ type ConversationItem = {
 
 export default function Conversations() {
   const { tenantId } = useTenant();
-  const navigate = useNavigate();
-  const { isMobile, isVerySmall } = useIsMobile();
+  const { isMobile } = useIsMobile();
   const [list, setList] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'open' | 'human_joined' | 'handoff_requested'>('open');
+  const [filter, setFilter] = useState<'all' | 'ai_only' | 'ai_human'>('all');
   const [lastDoc, setLastDoc] = useState<DocumentSnapshot | null>(null);
   const [hasMore, setHasMore] = useState(true);
 
@@ -41,7 +40,6 @@ export default function Conversations() {
     const q = query(
       collection(firestore, 'conversations'),
       where('tenantId', '==', tenantId),
-      where('status', '==', filter),
       orderBy('updatedAt', 'desc'),
       limit(PAGE_SIZE)
     );
@@ -93,7 +91,13 @@ export default function Conversations() {
       .finally(() => {
         setLoading(false);
       });
-  }, [tenantId, filter]);
+  }, [tenantId]);
+
+  const filteredList = list.filter((conv) => {
+    if (filter === 'ai_only') return !conv.hasHumanParticipant;
+    if (filter === 'ai_human') return !!conv.hasHumanParticipant;
+    return true;
+  });
 
   const loadMore = () => {
     if (!tenantId || !lastDoc || loadingMore || !hasMore) return;
@@ -102,7 +106,6 @@ export default function Conversations() {
     const q = query(
       collection(firestore, 'conversations'),
       where('tenantId', '==', tenantId),
-      where('status', '==', filter),
       orderBy('updatedAt', 'desc'),
       limit(PAGE_SIZE),
       startAfter(lastDoc)
@@ -198,27 +201,27 @@ export default function Conversations() {
         Monitor all user interactions and oversee AI performance.
       </p>
 
-      <div style={{ marginBottom: 24, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {['open', 'human_joined', 'handoff_requested'].map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => setFilter(f as any)}
-            style={{
-              padding: '8px 16px',
-              borderRadius: 8,
-              border: '1px solid #e2e8f0',
-              background: filter === f ? '#0f172a' : '#fff',
-              color: filter === f ? '#fff' : '#475569',
-              cursor: 'pointer',
-              fontSize: 13,
-              fontWeight: 600,
-              transition: 'all 0.2s'
-            }}
-          >
-            {f === 'open' ? 'AI ONLY' : f === 'human_joined' ? 'AI + HUMAN' : 'ONGOING HANDOFF'}
-          </button>
-        ))}
+      <div style={{ marginBottom: 24 }}>
+        <select
+          value={filter}
+          onChange={(e) => setFilter(e.target.value as typeof filter)}
+          style={{
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: '1px solid #e2e8f0',
+            background: '#fff',
+            color: '#334155',
+            fontSize: 14,
+            fontWeight: 500,
+            minWidth: 180,
+            cursor: 'pointer'
+          }}
+          aria-label="Filter conversations"
+        >
+          <option value="all">All</option>
+          <option value="ai_only">AI Only</option>
+          <option value="ai_human">AI + Human</option>
+        </select>
       </div>
 
       {error && (
@@ -227,13 +230,13 @@ export default function Conversations() {
         </div>
       )}
 
-      {list.length === 0 ? (
+      {filteredList.length === 0 ? (
         <div style={{ padding: 48, textAlign: 'center', background: '#f8fafc', borderRadius: 12, border: '1px dashed #e2e8f0', color: '#94a3b8' }}>
           No conversations found.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {list.map((conv) => (
+          {filteredList.map((conv) => (
             <div
               key={conv.conversationId}
               style={{
