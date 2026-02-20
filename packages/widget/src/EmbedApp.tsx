@@ -231,7 +231,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             {widgetConfig?.chatTitle?.trim() || 'CareMax'}
           </div>
           <div style={{ fontSize: 11, color: secondaryText, marginTop: 2 }}>
-            {humanJoined ? '🟢 Care team online' : '⚡ Online'}
+            {humanJoined ? '🟢 Human Agent online' : '⚡ Online'}
           </div>
         </div>
         <button
