@@ -6,6 +6,15 @@ type BillingSummary = {
   tenantId: string;
   billingPlanId: string;
   currentPlan: { id: string; name: string; priceUsd: number } | null;
+  billingStatus?: {
+    isActive: boolean;
+    isTrialPlan: boolean;
+    isExpired: boolean;
+    daysRemaining: number | null;
+    trialEndsAt: number | null;
+    subscriptionEndsAt: number | null;
+  };
+  availablePlans?: Array<{ id: string; name: string; priceUsd: number; description?: string }>;
   totals: { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number };
   byUsageType: Array<{ usageType: string; calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }>;
   recentEvents: Array<{ eventId: string; usageType: string; model: string | null; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number; measurementSource: string; createdAt: number | null }>;
@@ -44,6 +53,33 @@ export default function TenantBilling() {
       <h1 style={{ marginTop: 0 }}>Billing & Token Usage</h1>
       <p style={{ color: '#64748b' }}>Track token usage for each API usage type in your tenant.</p>
       <p><strong>Plan:</strong> {data.currentPlan?.name ?? data.billingPlanId} ({data.currentPlan ? `$${data.currentPlan.priceUsd}/mo` : 'custom'})</p>
+
+      {data.billingStatus && (
+        <div style={{ marginBottom: 18, padding: 12, borderRadius: 8, border: `1px solid ${data.billingStatus.isExpired ? '#fecaca' : '#c7d2fe'}`, background: data.billingStatus.isExpired ? '#fef2f2' : '#eef2ff' }}>
+          <strong>
+            {data.billingStatus.isExpired
+              ? 'Trial expired. Your widget is paused until you upgrade.'
+              : `Status: active${data.billingStatus.daysRemaining != null ? ` (${data.billingStatus.daysRemaining} day(s) remaining)` : ''}`}
+          </strong>
+          <div style={{ marginTop: 8, fontSize: 14, color: '#475569' }}>
+            {data.billingStatus.isExpired ? 'Upgrade to any available package below from SaaS admin.' : 'You can upgrade or change package from SaaS admin at any time.'}
+          </div>
+        </div>
+      )}
+
+      {(data.availablePlans?.length ?? 0) > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <h3 style={{ marginBottom: 8 }}>Available upgrade options</h3>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {data.availablePlans?.map((plan) => (
+              <li key={plan.id} style={{ marginBottom: 4 }}>
+                <strong>{plan.name}</strong> - ${plan.priceUsd}/mo {plan.description ? `(${plan.description})` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 20, marginBottom: 18 }}>
         <Metric label="API Calls" value={data.totals.calls.toLocaleString()} />
         <Metric label="Input Tokens" value={data.totals.inputTokens.toLocaleString()} />

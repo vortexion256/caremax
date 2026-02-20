@@ -1,12 +1,31 @@
 import { Link, Navigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 import AIBrainVisualization from '../components/AIBrainVisualization';
 import AnalyticsUI from '../components/AnalyticsUI';
+import { api } from '../api';
+
+type BillingNoticeData = {
+  billingStatus?: {
+    isActive: boolean;
+    isTrialPlan: boolean;
+    isExpired: boolean;
+    daysRemaining: number | null;
+  };
+};
 
 export default function Dashboard() {
   const { isPlatformAdmin, tenantId } = useTenant();
   const { isMobile } = useIsMobile();
+  const [billing, setBilling] = useState<BillingNoticeData['billingStatus'] | null>(null);
+
+  useEffect(() => {
+    if (!tenantId || tenantId === 'platform') return;
+    api<BillingNoticeData>(`/tenants/${tenantId}/billing`)
+      .then((res) => setBilling(res.billingStatus ?? null))
+      .catch(() => setBilling(null));
+  }, [tenantId]);
 
   if (isPlatformAdmin && tenantId === 'platform') {
     return <Navigate to="/platform" replace />;
@@ -18,6 +37,30 @@ export default function Dashboard() {
       <p style={{ color: '#64748b', fontSize: isMobile ? 15 : 16, lineHeight: 1.6, marginBottom: 24 }}>
         Welcome to CareMax. Configure your agent settings, manage live handoffs, and integrate the chat widget into your website.
       </p>
+
+      {billing && (
+        <div
+          style={{
+            marginBottom: 20,
+            padding: '14px 16px',
+            borderRadius: 10,
+            border: `1px solid ${billing.isExpired ? '#fecaca' : '#bfdbfe'}`,
+            background: billing.isExpired ? '#fef2f2' : '#eff6ff',
+          }}
+        >
+          <strong style={{ display: 'block', marginBottom: 6 }}>
+            {billing.isExpired ? 'Your trial has ended.' : billing.isTrialPlan ? `Trial active: ${billing.daysRemaining ?? 0} day(s) remaining.` : 'Subscription active.'}
+          </strong>
+          <span style={{ color: '#475569', fontSize: 14 }}>
+            {billing.isExpired ? 'Upgrade now to reactivate your widget and continue conversations.' : 'Manage your package and available upgrade options from billing.'}
+          </span>
+          <div style={{ marginTop: 10 }}>
+            <Link to="/billing" style={{ color: '#1d4ed8', fontWeight: 600, textDecoration: 'none' }}>
+              View billing options →
+            </Link>
+          </div>
+        </div>
+      )}
 
       <AIBrainVisualization isMobile={isMobile} />
 
