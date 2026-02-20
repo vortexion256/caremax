@@ -133,21 +133,37 @@
     iframe.style.display = open ? 'block' : 'none';
   }
 
-  function toggle(): void {
-    open = !open;
+  function setOpen(nextOpen: boolean): void {
+    open = nextOpen;
     iframe.style.display = open ? 'block' : 'none';
     applyIframeStyles();
     button.setAttribute('aria-label', open ? 'Close chat' : 'Open chat');
     button.title = open ? 'Close chat' : 'Chat';
   }
+
+  function toggle(): void {
+    setOpen(!open);
+  }
   button.addEventListener('click', toggle);
 
   if (typeof window !== 'undefined') {
     window.addEventListener('message', (event: MessageEvent) => {
-      if (event.source !== iframe.contentWindow) return;
-      if ((event.data as { type?: string })?.type !== 'caremax:close-widget') return;
-      if (!open) return;
-      toggle();
+      const data =
+        typeof event.data === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(event.data) as { type?: string };
+              } catch {
+                return { type: event.data };
+              }
+            })()
+          : (event.data as { type?: string } | null | undefined);
+
+      if (data?.type !== 'caremax:close-widget') return;
+
+      // Some hosts/browsers can surface postMessage events with a null or unexpected source,
+      // so rely on the explicit message contract and force-close for resilience.
+      setOpen(false);
     });
   }
 
