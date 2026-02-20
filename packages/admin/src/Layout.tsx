@@ -174,7 +174,7 @@ export default function Layout() {
         marginLeft: isMobile ? 0 : sidebarWidth,
         background: 'transparent'
       }}>
-        <div style={{ 
+        <div className="main-content-container" style={{ 
           maxWidth: 1000, 
           margin: '0 auto',
           background: '#fff',

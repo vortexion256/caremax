@@ -86,3 +86,15 @@ button:active {
   input, textarea, select { font-size: 16px !important; }
   button, a { min-height: 44px; touch-action: manipulation; }
 }
+
+/* Fix for mobile navigation overlap */
+@media (max-width: 768px) {
+  .main-content-container {
+    padding-bottom: 80px !important; /* Extra space for mobile nav buttons */
+  }
+  
+  /* Ensure inputs are not covered by virtual keyboard or nav */
+  input:focus, textarea:focus {
+    scroll-margin-bottom: 100px;
+  }
+}
