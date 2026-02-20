@@ -186,6 +186,11 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   const primaryColor = widgetConfig?.widgetColor || '#2563eb';
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 480;
+
+  const closeWidget = () => {
+    if (typeof window === 'undefined') return;
+    window.parent?.postMessage({ type: 'caremax:close-widget' }, '*');
+  };
   
   return (
     <div
@@ -226,6 +231,30 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             {humanJoined ? '🟢 Care team online' : '⚡ Online'}
           </div>
         </div>
+        <button
+          type="button"
+          onClick={closeWidget}
+          aria-label="Close chat"
+          title="Close chat"
+          style={{
+            border: 'none',
+            backgroundColor: 'transparent',
+            color: secondaryText,
+            width: 28,
+            height: 28,
+            borderRadius: 999,
+            cursor: 'pointer',
+            fontSize: 18,
+            fontWeight: 600,
+            lineHeight: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+          }}
+        >
+          ×
+        </button>
       </div>
 
       <div

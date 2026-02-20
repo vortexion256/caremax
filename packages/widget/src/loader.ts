@@ -142,6 +142,15 @@
   }
   button.addEventListener('click', toggle);
 
+  if (typeof window !== 'undefined') {
+    window.addEventListener('message', (event: MessageEvent) => {
+      if (event.source !== iframe.contentWindow) return;
+      if ((event.data as { type?: string })?.type !== 'caremax:close-widget') return;
+      if (!open) return;
+      toggle();
+    });
+  }
+
   container.appendChild(button);
   container.appendChild(iframe);
   document.body.appendChild(container);
