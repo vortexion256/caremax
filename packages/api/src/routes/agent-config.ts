@@ -33,6 +33,17 @@ const updateBody = z.object({
   consolidationPrompt: z.string().optional(),
 });
 
+const fallbackModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+
+async function getAvailableModels(): Promise<string[]> {
+  const doc = await db.collection('platform_settings').doc('saas_billing').get();
+  const data = doc.data();
+  if (Array.isArray(data?.availableModels) && data.availableModels.length > 0) {
+    return data.availableModels.filter((model): model is string => typeof model === 'string' && model.trim().length > 0);
+  }
+  return fallbackModels;
+}
+
 /** Public endpoint for the chat widget: returns only title and agent name (no system prompt etc.). */
 agentConfigRouter.get('/widget', async (req, res) => {
   const tenantId = res.locals.tenantId as string;
@@ -49,6 +60,7 @@ agentConfigRouter.get('/widget', async (req, res) => {
 
 agentConfigRouter.get('/', async (req, res) => {
   const tenantId = res.locals.tenantId as string;
+  const availableModels = await getAvailableModels();
   const doc = await db.collection('agent_config').doc(tenantId).get();
   if (!doc.exists) {
     res.json({
@@ -57,13 +69,14 @@ agentConfigRouter.get('/', async (req, res) => {
       chatTitle: '',
       systemPrompt: '',
       thinkingInstructions: '',
-      model: 'gemini-3-flash-preview',
+      model: availableModels[0] ?? 'gemini-2.0-flash',
       temperature: 0.7,
       ragEnabled: false,
+      availableModels,
     });
     return;
   }
-  res.json({ tenantId, ...doc.data() });
+  res.json({ tenantId, ...doc.data(), availableModels });
 });
 
 agentConfigRouter.put('/', requireAuth, requireAdmin, async (req, res) => {
@@ -73,6 +86,12 @@ agentConfigRouter.put('/', requireAuth, requireAdmin, async (req, res) => {
     res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
     return;
   }
+  const availableModels = await getAvailableModels();
+  if (parsed.data.model && !availableModels.includes(parsed.data.model)) {
+    res.status(400).json({ error: 'Model is not allowed for tenant selection' });
+    return;
+  }
+
   const ref = db.collection('agent_config').doc(tenantId);
   await ref.set(
     { ...parsed.data, tenantId, updatedAt: FieldValue.serverTimestamp() },

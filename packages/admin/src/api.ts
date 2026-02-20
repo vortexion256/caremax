@@ -55,6 +55,7 @@ export type AgentConfig = {
   learningOnlyPrompt?: string;
   /** Advanced prompt for consolidation mode (merging duplicate records) */
   consolidationPrompt?: string;
+  availableModels?: string[];
 };
 
 export type HandoffItem = {

@@ -164,6 +164,17 @@ const billingPlanSchema = z.object({
 });
 
 const billingPlansSchema = z.object({ plans: z.array(billingPlanSchema).min(1) });
+const billingConfigSchema = z.object({
+  inputCostPer1MTokensUsd: z.number().nonnegative(),
+  outputCostPer1MTokensUsd: z.number().nonnegative(),
+  availableModels: z.array(z.string().min(1)).min(1),
+});
+
+const defaultBillingConfig = {
+  inputCostPer1MTokensUsd: 0.15,
+  outputCostPer1MTokensUsd: 0.6,
+  availableModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+};
 
 platformRouter.get('/billing/plans', async (_req, res) => {
   try {
@@ -171,7 +182,7 @@ platformRouter.get('/billing/plans', async (_req, res) => {
 
     if (snap.empty) {
       const defaults = [
-        { id: 'free', name: '1 Month Free', priceUsd: 0, billingCycle: 'monthly', trialDays: 30, active: true, description: 'Free trial for first month' },
+        { id: 'free', name: '1 Month Free', priceUsd: 0, billingCycle: 'monthly', trialDays: 30, active: true, description: 'Worth 5 USD tokens' },
         { id: 'starter', name: 'Starter Pack', priceUsd: 10, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Starter plan' },
         { id: 'advanced', name: 'Advanced Pack', priceUsd: 20, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Advanced plan' },
         { id: 'super', name: 'Super Pack', priceUsd: 60, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Super plan' },
@@ -190,6 +201,47 @@ platformRouter.get('/billing/plans', async (_req, res) => {
   } catch (e) {
     console.error('Failed to load billing plans:', e);
     res.status(500).json({ error: 'Failed to load billing plans' });
+  }
+});
+
+platformRouter.get('/billing/config', async (_req, res) => {
+  try {
+    const ref = db.collection('platform_settings').doc('saas_billing');
+    const doc = await ref.get();
+    if (!doc.exists) {
+      await ref.set({ ...defaultBillingConfig, updatedAt: new Date() }, { merge: true });
+      res.json(defaultBillingConfig);
+      return;
+    }
+
+    const data = doc.data() ?? {};
+    res.json({
+      inputCostPer1MTokensUsd: typeof data.inputCostPer1MTokensUsd === 'number' ? data.inputCostPer1MTokensUsd : defaultBillingConfig.inputCostPer1MTokensUsd,
+      outputCostPer1MTokensUsd: typeof data.outputCostPer1MTokensUsd === 'number' ? data.outputCostPer1MTokensUsd : defaultBillingConfig.outputCostPer1MTokensUsd,
+      availableModels: Array.isArray(data.availableModels) && data.availableModels.length > 0 ? data.availableModels : defaultBillingConfig.availableModels,
+    });
+  } catch (e) {
+    console.error('Failed to load billing config:', e);
+    res.status(500).json({ error: 'Failed to load billing config' });
+  }
+});
+
+platformRouter.put('/billing/config', async (req, res) => {
+  const parsed = billingConfigSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    await db.collection('platform_settings').doc('saas_billing').set({
+      ...parsed.data,
+      updatedAt: new Date(),
+    }, { merge: true });
+    res.json({ success: true, ...parsed.data });
+  } catch (e) {
+    console.error('Failed to save billing config:', e);
+    res.status(500).json({ error: 'Failed to save billing config' });
   }
 });
 
@@ -526,4 +578,3 @@ platformRouter.delete('/tenants/:tenantId', async (req, res) => {
     res.status(500).json({ error: 'Failed to delete tenant' });
   }
 });
-
