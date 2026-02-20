@@ -56,6 +56,9 @@ export default function Login({ onSuccess }: Props) {
         justifyContent: 'center',
         padding: 24,
         fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
+        position: 'relative',
+        isolation: 'isolate',
+        overflow: 'hidden',
       }}
     >
       <div className="dynamic-bg" />
