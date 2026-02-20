@@ -56,11 +56,14 @@ export default function Login({ onSuccess }: Props) {
         justifyContent: 'center',
         padding: 24,
         fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
+        position: 'relative',
+        isolation: 'isolate',
+        overflow: 'hidden',
       }}
     >
       <div className="dynamic-bg" />
       
-      <div className="auth-card" style={{ maxWidth: 460 }}>
+      <div className="auth-card" style={{ maxWidth: 420 }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <div style={{ 
             width: 48, height: 48, background: '#0ea5e9', borderRadius: 12, 
