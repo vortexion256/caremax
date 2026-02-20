@@ -4,8 +4,8 @@ import { useTenant } from '../TenantContext';
 
 type AnalyticsData = {
   totalConversations: number;
-  aiOnly: number;
-  handoff: number;
+  aiOnlyResolved: number;
+  humanAiResolved: number;
   uniqueUsers: number;
 };
 
@@ -42,12 +42,12 @@ export default function AnalyticsUI({ isMobile }: { isMobile: boolean }) {
   if (error) return <div style={{ padding: 20, textAlign: 'center', color: '#ef4444' }}>{error}</div>;
   if (!data) return null;
 
-  const currentData = data[period] || { totalConversations: 0, aiOnly: 0, handoff: 0, uniqueUsers: 0 };
+  const currentData = data[period] || { totalConversations: 0, aiOnlyResolved: 0, humanAiResolved: 0, uniqueUsers: 0 };
 
   const stats = [
     { label: 'Total Chats', value: currentData.totalConversations, color: '#2563eb' },
-    { label: 'AI Resolved', value: currentData.aiOnly, color: '#10b981' },
-    { label: 'Human Handoffs', value: currentData.handoff, color: '#f59e0b' },
+    { label: 'AI Only Resolved', value: currentData.aiOnlyResolved, color: '#10b981' },
+    { label: 'Human + AI Resolved', value: currentData.humanAiResolved, color: '#f59e0b' },
     { label: 'Unique Users', value: currentData.uniqueUsers, color: '#8b5cf6' },
   ];
 
@@ -118,15 +118,15 @@ export default function AnalyticsUI({ isMobile }: { isMobile: boolean }) {
           {currentData.totalConversations > 0 ? (
             <>
               <div style={{ 
-                width: `${(currentData.aiOnly / currentData.totalConversations) * 100}%`, 
+                width: `${(currentData.aiOnlyResolved / currentData.totalConversations) * 100}%`, 
                 background: '#10b981',
                 height: '100%'
-              }} title={`AI Resolved: ${currentData.aiOnly}`} />
+              }} title={`AI Only Resolved: ${currentData.aiOnlyResolved}`} />
               <div style={{ 
-                width: `${(currentData.handoff / currentData.totalConversations) * 100}%`, 
+                width: `${(currentData.humanAiResolved / currentData.totalConversations) * 100}%`, 
                 background: '#f59e0b',
                 height: '100%'
-              }} title={`Handoffs: ${currentData.handoff}`} />
+              }} title={`Human + AI Resolved: ${currentData.humanAiResolved}`} />
             </>
           ) : (
             <div style={{ width: '100%', textAlign: 'center', fontSize: 12, color: '#94a3b8', lineHeight: '24px' }}>No data for this period</div>
@@ -135,11 +135,11 @@ export default function AnalyticsUI({ isMobile }: { isMobile: boolean }) {
         <div style={{ display: 'flex', gap: 16, marginTop: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981' }} />
-            <span style={{ fontSize: 12, color: '#64748b' }}>AI Resolved ({currentData.totalConversations > 0 ? Math.round((currentData.aiOnly / currentData.totalConversations) * 100) : 0}%)</span>
+            <span style={{ fontSize: 12, color: '#64748b' }}>AI Only Resolved ({currentData.totalConversations > 0 ? Math.round((currentData.aiOnlyResolved / currentData.totalConversations) * 100) : 0}%)</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#f59e0b' }} />
-            <span style={{ fontSize: 12, color: '#64748b' }}>Handoffs ({currentData.totalConversations > 0 ? Math.round((currentData.handoff / currentData.totalConversations) * 100) : 0}%)</span>
+            <span style={{ fontSize: 12, color: '#64748b' }}>Human + AI Resolved ({currentData.totalConversations > 0 ? Math.round((currentData.humanAiResolved / currentData.totalConversations) * 100) : 0}%)</span>
           </div>
         </div>
       </div>

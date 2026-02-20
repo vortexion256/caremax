@@ -56,8 +56,8 @@ analyticsRouter.get('/interactions', async (req, res) => {
 
       results[label] = {
         totalConversations: count,
-        aiOnly,
-        handoff,
+        aiOnlyResolved: aiOnly,
+        humanAiResolved: handoff,
         uniqueUsers: uniqueUsers.size,
       };
     }
