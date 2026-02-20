@@ -5,9 +5,8 @@ import { db } from '../config/firebase.js';
 export const tenantRouter: Router = Router();
 
 tenantRouter.use(requireAuth);
-tenantRouter.use(requireTenantParam);
 
-tenantRouter.get('/:tenantId', async (req, res) => {
+tenantRouter.get('/:tenantId', requireTenantParam, async (req, res) => {
   const tenantId = res.locals.tenantId as string;
   const doc = await db.collection('tenants').doc(tenantId).get();
   if (!doc.exists) {
@@ -17,7 +16,7 @@ tenantRouter.get('/:tenantId', async (req, res) => {
   res.json({ tenantId, ...doc.data() });
 });
 
-tenantRouter.get('/:tenantId/account', async (_req, res) => {
+tenantRouter.get('/:tenantId/account', requireTenantParam, async (_req, res) => {
   const tenantId = res.locals.tenantId as string;
   const tenantDoc = await db.collection('tenants').doc(tenantId).get();
   if (!tenantDoc.exists) {
@@ -36,7 +35,7 @@ tenantRouter.get('/:tenantId/account', async (_req, res) => {
   });
 });
 
-tenantRouter.get('/:tenantId/billing', async (_req, res) => {
+tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => {
   const tenantId = res.locals.tenantId as string;
 
   const usageSnap = await db
@@ -104,7 +103,7 @@ tenantRouter.get('/:tenantId/billing', async (_req, res) => {
   });
 });
 
-tenantRouter.get('/:tenantId/analytics', async (req, res) => {
+tenantRouter.get('/:tenantId/analytics', requireTenantParam, async (req, res) => {
   const tenantId = res.locals.tenantId as string;
   const { period } = req.query as { period?: string };
 
