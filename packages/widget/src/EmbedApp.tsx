@@ -334,6 +334,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
 
       <div
         ref={inputContainerRef}
+        className="caremax-input-container"
         style={{
           padding: '16px 12px',
           borderTop: `1px solid ${border}`,
