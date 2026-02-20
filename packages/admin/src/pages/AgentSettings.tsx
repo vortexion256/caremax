@@ -241,13 +241,16 @@ export default function AgentSettings() {
           <div>
             <label style={labelStyle}>AI Model</label>
             <select
-              value={config?.model ?? 'gemini-2.0-flash'}
+              value={config?.model ?? (config?.availableModels?.[0] ?? 'gemini-2.0-flash')}
               onChange={(e) => setConfig((c) => (c ? { ...c, model: e.target.value } : c))}
               style={inputStyle}
             >
-              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-              <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-              <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+              {(config?.availableModels ?? ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']).map((modelId) => (
+                <option key={modelId} value={modelId}>{modelId}</option>
+              ))}
+              {config?.model && !(config?.availableModels ?? []).includes(config.model) && (
+                <option value={config.model}>{config.model}</option>
+              )}
             </select>
           </div>
           <div>
