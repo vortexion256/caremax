@@ -29,7 +29,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 }
 
 export function requireTenantParam(req: Request, res: Response, next: NextFunction): void {
-  const tenantId = req.params.tenantId;
+  const tenantIdFromParams = req.params.tenantId;
+  const tenantIdFromPath = req.originalUrl.match(/\/tenants\/([^/?#]+)/)?.[1];
+  const tenantId = tenantIdFromParams || tenantIdFromPath;
   if (!tenantId) {
     res.status(400).json({ error: 'Missing tenantId' });
     return;
