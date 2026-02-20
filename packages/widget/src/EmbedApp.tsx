@@ -320,7 +320,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             >
               {!isUser && (
                 <span style={{ fontSize: 11, fontWeight: 600, color: secondaryText, marginBottom: 4, marginLeft: 4 }}>
-                  {m.role === 'human_agent' ? 'Care Team' : widgetConfig?.agentName || 'AI'}
+                  {m.role === 'human_agent' ? 'Human Agent' : widgetConfig?.agentName || 'AI'}
                 </span>
               )}
               <div

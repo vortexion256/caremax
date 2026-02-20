@@ -118,7 +118,7 @@ export default function ConversationView() {
     const styles: Record<string, { bg: string; color: string; label: string }> = {
       open: { bg: '#eff6ff', color: '#2563eb', label: 'AI Only' },
       handoff_requested: { bg: '#fffbeb', color: '#d97706', label: 'Handoff' },
-      human_joined: { bg: '#f0fdf4', color: '#166534', label: 'Care Team' },
+      human_joined: { bg: '#f0fdf4', color: '#166534', label: 'Human Agent' },
     };
     const style = styles[status] || styles.open;
     return (
@@ -236,7 +236,7 @@ export default function ConversationView() {
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, padding: '0 4px' }}>
                   <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>
-                    {msg.role === 'user' ? 'User' : msg.role === 'human_agent' ? 'Care Team' : 'AI Assistant'}
+                    {msg.role === 'user' ? 'User' : msg.role === 'human_agent' ? 'Human Agent' : 'AI Assistant'}
                   </span>
                   {msg.createdAt && (
                     <span style={{ fontSize: 10, color: '#cbd5e1' }}>
