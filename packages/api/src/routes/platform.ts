@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db, auth, bucket } from '../config/firebase.js';
 import { requireAuth, requirePlatformAdmin } from '../middleware/auth.js';
 import { z } from 'zod';
+import { getTenantBillingStatus } from '../services/billing.js';
 
 export const platformRouter: Router = Router();
 
@@ -73,6 +74,53 @@ platformRouter.get('/tenants/:tenantId', async (req, res) => {
       // Ignore if agent config doesn't exist
     }
 
+    const usageSnap = await db
+      .collection('usage_events')
+      .where('tenantId', '==', tenantId)
+      .orderBy('createdAt', 'desc')
+      .limit(200)
+      .get();
+
+    const summaryByType: Record<string, { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }> = {};
+    let totals = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 };
+
+    const recentEvents = usageSnap.docs.map((eventDoc) => {
+      const usageData = eventDoc.data();
+      const usageType = typeof usageData.usageType === 'string' ? usageData.usageType : 'unknown';
+      const inputTokens = typeof usageData.inputTokens === 'number' ? usageData.inputTokens : 0;
+      const outputTokens = typeof usageData.outputTokens === 'number' ? usageData.outputTokens : 0;
+      const totalTokens = typeof usageData.totalTokens === 'number' ? usageData.totalTokens : inputTokens + outputTokens;
+      const costUsd = typeof usageData.costUsd === 'number' ? usageData.costUsd : 0;
+
+      if (!summaryByType[usageType]) {
+        summaryByType[usageType] = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 };
+      }
+      summaryByType[usageType].calls += 1;
+      summaryByType[usageType].inputTokens += inputTokens;
+      summaryByType[usageType].outputTokens += outputTokens;
+      summaryByType[usageType].totalTokens += totalTokens;
+      summaryByType[usageType].costUsd += costUsd;
+
+      totals.calls += 1;
+      totals.inputTokens += inputTokens;
+      totals.outputTokens += outputTokens;
+      totals.totalTokens += totalTokens;
+      totals.costUsd += costUsd;
+
+      return {
+        eventId: eventDoc.id,
+        usageType,
+        measurementSource: usageData.measurementSource ?? 'provider',
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        costUsd,
+        createdAt: usageData.createdAt?.toMillis?.() ?? null,
+      };
+    });
+
+    const billingStatus = await getTenantBillingStatus(tenantId);
+
     res.json({
       tenantId: doc.id,
       name: data?.name ?? '',
@@ -81,9 +129,47 @@ platformRouter.get('/tenants/:tenantId', async (req, res) => {
       createdBy: data?.createdBy ?? null,
       createdByEmail,
       agentConfig,
+      billingPlanId: data?.billingPlanId ?? 'free',
+      billingStatus,
+      totals,
+      byUsageType: Object.entries(summaryByType).map(([usageType, values]) => ({ usageType, ...values })),
+      recentEvents,
     });
   } catch (e) {
     res.status(500).json({ error: 'Failed to load tenant details' });
+  }
+});
+
+platformRouter.patch('/tenants/:tenantId/trial/end', async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const tenantRef = db.collection('tenants').doc(tenantId);
+    const tenantDoc = await tenantRef.get();
+
+    if (!tenantDoc.exists) {
+      res.status(404).json({ error: 'Tenant not found' });
+      return;
+    }
+
+    const tenantData = tenantDoc.data() ?? {};
+    if ((tenantData.billingPlanId ?? 'free') !== 'free') {
+      res.status(400).json({ error: 'Only trial tenants can have trial ended early.' });
+      return;
+    }
+
+    const now = new Date();
+    await tenantRef.set({
+      trialUsed: true,
+      trialEndsAt: now,
+      subscriptionStatus: 'expired',
+      updatedAt: now,
+    }, { merge: true });
+
+    const billingStatus = await getTenantBillingStatus(tenantId);
+    res.json({ success: true, billingStatus });
+  } catch (e) {
+    console.error('Failed to end trial early:', e);
+    res.status(500).json({ error: 'Failed to end trial early' });
   }
 });
 

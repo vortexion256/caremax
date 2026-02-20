@@ -14,6 +14,18 @@ type TenantDetails = {
     ragEnabled: boolean;
     createdAt: number | null;
   } | null;
+  billingPlanId: string;
+  billingStatus?: {
+    isActive: boolean;
+    isTrialPlan: boolean;
+    isExpired: boolean;
+    daysRemaining: number | null;
+    trialEndsAt: number | null;
+    subscriptionEndsAt: number | null;
+  };
+  totals: { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number };
+  byUsageType: Array<{ usageType: string; calls: number; totalTokens: number; costUsd: number }>;
+  recentEvents: Array<{ eventId: string; usageType: string; measurementSource: string; inputTokens: number; outputTokens: number; costUsd: number; createdAt: number | null }>;
 };
 
 type Props = {
@@ -25,6 +37,7 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
   const [details, setDetails] = useState<TenantDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [endingTrial, setEndingTrial] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -34,6 +47,21 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
       .catch((e) => setError(e.message || 'Failed to load tenant details'))
       .finally(() => setLoading(false));
   }, [tenantId]);
+
+  const handleEndTrialNow = async () => {
+    if (!details || endingTrial) return;
+    setEndingTrial(true);
+    setError(null);
+    try {
+      await api(`/platform/tenants/${tenantId}/trial/end`, { method: 'PATCH' });
+      const refreshed = await api<TenantDetails>(`/platform/tenants/${tenantId}`);
+      setDetails(refreshed);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to end trial early');
+    } finally {
+      setEndingTrial(false);
+    }
+  };
 
   return (
     <div
@@ -168,6 +196,97 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
               </div>
             )}
 
+            <div style={{ marginTop: 8, paddingTop: 16, borderTop: '1px solid #e0e0e0' }}>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>Billing & Usage</div>
+              <div style={{ marginBottom: 12, fontSize: 14 }}>
+                <strong>Plan:</strong> {details.billingPlanId}
+              </div>
+              {details.billingStatus && (
+                <div style={{ marginBottom: 12, padding: 10, borderRadius: 6, border: `1px solid ${details.billingStatus.isExpired ? '#fecaca' : '#bfdbfe'}`, background: details.billingStatus.isExpired ? '#fef2f2' : '#eff6ff' }}>
+                  {details.billingStatus.isExpired
+                    ? 'Trial expired'
+                    : `Status: active${details.billingStatus.daysRemaining != null ? ` (${details.billingStatus.daysRemaining} day(s) remaining)` : ''}`}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+                <Metric label="API Calls" value={details.totals.calls.toLocaleString()} />
+                <Metric label="Tokens Used" value={details.totals.totalTokens.toLocaleString()} />
+                <Metric label="Cost" value={`$${details.totals.costUsd.toFixed(4)}`} />
+              </div>
+
+              {details.billingStatus?.isTrialPlan && !details.billingStatus.isExpired && (
+                <button
+                  onClick={handleEndTrialNow}
+                  disabled={endingTrial}
+                  style={{
+                    padding: '8px 14px',
+                    backgroundColor: '#d32f2f',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: endingTrial ? 'not-allowed' : 'pointer',
+                    marginBottom: 12,
+                    fontSize: 13,
+                    fontWeight: 600,
+                  }}
+                >
+                  {endingTrial ? 'Ending Trial...' : 'End Trial Now'}
+                </button>
+              )}
+
+              {details.byUsageType.length > 0 ? (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Usage by API Flow</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+                    <thead>
+                      <tr>
+                        <th align="left">Usage Type</th><th align="right">Calls</th><th align="right">Tokens</th><th align="right">Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {details.byUsageType.map((row) => (
+                        <tr key={row.usageType} style={{ borderTop: '1px solid #eee' }}>
+                          <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{row.usageType}</td>
+                          <td align="right">{row.calls}</td>
+                          <td align="right">{row.totalTokens.toLocaleString()}</td>
+                          <td align="right">${row.costUsd.toFixed(6)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              ) : (
+                <p style={{ margin: '0 0 12px 0', color: '#64748b', fontSize: 13 }}>No data exists to use.</p>
+              )}
+
+              {details.recentEvents.length > 0 ? (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Recent Metered Events</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr>
+                        <th align="left">Time</th><th align="left">Type</th><th align="left">Source</th><th align="right">Input</th><th align="right">Output</th><th align="right">Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {details.recentEvents.slice(0, 15).map((event) => (
+                        <tr key={event.eventId} style={{ borderTop: '1px solid #eee' }}>
+                          <td>{event.createdAt ? new Date(event.createdAt).toLocaleString() : '—'}</td>
+                          <td style={{ fontFamily: 'monospace' }}>{event.usageType}</td>
+                          <td>{event.measurementSource}</td>
+                          <td align="right">{event.inputTokens}</td>
+                          <td align="right">{event.outputTokens}</td>
+                          <td align="right">${event.costUsd.toFixed(6)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              ) : (
+                <p style={{ margin: 0, color: '#64748b', fontSize: 13 }}>No data exists to use.</p>
+              )}
+            </div>
+
             <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 onClick={onClose}
@@ -187,6 +306,15 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: 8, minWidth: 120 }}>
+      <div style={{ fontSize: 11, color: '#64748b' }}>{label}</div>
+      <div style={{ fontSize: 16, fontWeight: 600 }}>{value}</div>
     </div>
   );
 }
