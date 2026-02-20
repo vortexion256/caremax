@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db, auth, bucket } from '../config/firebase.js';
 import { requireAuth, requirePlatformAdmin } from '../middleware/auth.js';
+import { z } from 'zod';
 
 export const platformRouter: Router = Router();
 
@@ -151,6 +152,83 @@ function aggregateUsage(
   return Object.values(totals).sort((a, b) => b.totalCostUsd - a.totalCostUsd);
 }
 
+
+const billingPlanSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  priceUsd: z.number().nonnegative(),
+  billingCycle: z.enum(['monthly']),
+  trialDays: z.number().int().nonnegative().default(0),
+  active: z.boolean().default(true),
+  description: z.string().optional(),
+});
+
+const billingPlansSchema = z.object({ plans: z.array(billingPlanSchema).min(1) });
+
+platformRouter.get('/billing/plans', async (_req, res) => {
+  try {
+    let snap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
+
+    if (snap.empty) {
+      const defaults = [
+        { id: 'free', name: '1 Month Free', priceUsd: 0, billingCycle: 'monthly', trialDays: 30, active: true, description: 'Free trial for first month' },
+        { id: 'starter', name: 'Starter Pack', priceUsd: 10, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Starter plan' },
+        { id: 'advanced', name: 'Advanced Pack', priceUsd: 20, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Advanced plan' },
+        { id: 'super', name: 'Super Pack', priceUsd: 60, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Super plan' },
+        { id: 'enterprise', name: 'Enterprise', priceUsd: 100, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Enterprise plan' },
+      ];
+      const batch = db.batch();
+      for (const plan of defaults) {
+        batch.set(db.collection('billing_plans').doc(plan.id), { ...plan, updatedAt: new Date() });
+      }
+      await batch.commit();
+      snap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
+    }
+
+    const plans = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ plans });
+  } catch (e) {
+    console.error('Failed to load billing plans:', e);
+    res.status(500).json({ error: 'Failed to load billing plans' });
+  }
+});
+
+platformRouter.put('/billing/plans', async (req, res) => {
+  const parsed = billingPlansSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    const batch = db.batch();
+    for (const plan of parsed.data.plans) {
+      batch.set(db.collection('billing_plans').doc(plan.id), { ...plan, updatedAt: new Date() }, { merge: true });
+    }
+    await batch.commit();
+    res.json({ success: true, plans: parsed.data.plans });
+  } catch (e) {
+    console.error('Failed to save billing plans:', e);
+    res.status(500).json({ error: 'Failed to save billing plans' });
+  }
+});
+
+platformRouter.patch('/tenants/:tenantId/billing', async (req, res) => {
+  const body = z.object({ billingPlanId: z.string().min(1) }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
+    return;
+  }
+
+  try {
+    await db.collection('tenants').doc(req.params.tenantId).set({ billingPlanId: body.data.billingPlanId, updatedAt: new Date() }, { merge: true });
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Failed to update tenant billing plan:', e);
+    res.status(500).json({ error: 'Failed to update tenant billing plan' });
+  }
+});
+
 // Usage summary per tenant (for billing / monitoring)
 platformRouter.get('/usage', async (req, res) => {
   try {
@@ -247,6 +325,8 @@ platformRouter.get('/usage/:tenantId', async (req, res) => {
         userId: data.userId ?? null,
         conversationId: data.conversationId ?? null,
         model: data.model ?? null,
+        usageType: data.usageType ?? 'unknown',
+        measurementSource: data.measurementSource ?? 'provider',
         inputTokens: data.inputTokens ?? 0,
         outputTokens: data.outputTokens ?? 0,
         totalTokens: data.totalTokens ?? 0,

@@ -30,6 +30,7 @@ import { AgentOrchestrator, ToolCall } from './agent-orchestrator.js';
 import { buildAgentContext, formatContextForPrompt, trimConversationHistory } from './agent-memory.js';
 import { extractIntent, ExtractedIntent } from './agent-intent.js';
 import { decomposeQuestion, DecomposedQuestion } from './agent-decomposer.js';
+import { extractTokenUsage, recordUsage, type UsageMetadata } from './token-usage.js';
 import {
   decideIfNeedsPlanning,
   createExecutionPlan,
@@ -65,81 +66,6 @@ function formatExistingRecordsForPrompt(records: { recordId: string; title: stri
       return `- recordId: ${r.recordId}\n  title: ${r.title}\n  content: ${snippet}`;
     })
     .join('\n\n');
-}
-
-type UsageMetadata = {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-};
-
-function extractTokenUsage(response: BaseMessage): UsageMetadata {
-  try {
-    const responseAny = response as any;
-    const responseMetadata = responseAny.response_metadata ?? {};
-    const tokenUsage = responseMetadata.tokenUsage ?? {};
-    const usageMetadata = responseMetadata.usageMetadata ?? responseMetadata.usage_metadata ?? {};
-    
-    const inputTokens: number =
-      tokenUsage.promptTokens ??
-      tokenUsage.inputTokens ??
-      usageMetadata.promptTokenCount ??
-      usageMetadata.promptTokens ??
-      (typeof usageMetadata.input_tokens === 'number' ? usageMetadata.input_tokens : 0);
-    
-    const outputTokens: number =
-      tokenUsage.completionTokens ??
-      tokenUsage.outputTokens ??
-      usageMetadata.candidatesTokenCount ??
-      usageMetadata.candidatesTokens ??
-      (typeof usageMetadata.output_tokens === 'number' ? usageMetadata.output_tokens : 0);
-    
-    const totalTokens: number =
-      tokenUsage.totalTokens ??
-      usageMetadata.totalTokenCount ??
-      usageMetadata.totalTokens ??
-      (typeof usageMetadata.total_tokens === 'number' ? usageMetadata.total_tokens : inputTokens + outputTokens);
-    
-    return {
-      inputTokens: inputTokens || 0,
-      outputTokens: outputTokens || 0,
-      totalTokens: totalTokens || inputTokens + outputTokens,
-    };
-  } catch (e) {
-    console.error('Failed to extract token usage:', e);
-    return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-  }
-}
-
-async function recordUsage(
-  modelName: string,
-  usage: UsageMetadata,
-  tenantId: string,
-  userId?: string,
-  conversationId?: string
-): Promise<void> {
-  try {
-    const GEMINI_PRICING_USD: Record<string, { inputPer1K: number; outputPer1K: number }> = {
-      'gemini-3-flash-preview': { inputPer1K: 0.000075, outputPer1K: 0.0003 },
-      'gemini-1.5-pro': { inputPer1K: 0.0035, outputPer1K: 0.0105 },
-    };
-    const pricing = GEMINI_PRICING_USD[modelName] ?? GEMINI_PRICING_USD['gemini-3-flash-preview'];
-    const costUsd = (usage.inputTokens / 1000) * pricing.inputPer1K + (usage.outputTokens / 1000) * pricing.outputPer1K;
-    
-    await db.collection('usage_events').add({
-      tenantId,
-      userId: userId ?? null,
-      conversationId: conversationId ?? null,
-      model: modelName,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      totalTokens: usage.totalTokens,
-      costUsd: Math.round(costUsd * 1_000_000) / 1_000_000,
-      createdAt: FieldValue.serverTimestamp(),
-    });
-  } catch (e) {
-    console.error('Failed to record usage event:', e);
-  }
 }
 
 async function toLangChainMessages(
@@ -1008,7 +934,7 @@ Provide a clear, user-friendly response based on these results.`,
     // STEP 11: RECORD USAGE
     // ========================================================================
     try {
-      await recordUsage(config.model, accumulatedUsage, tenantId, options?.userId, options?.conversationId);
+      await recordUsage(config.model, accumulatedUsage, { tenantId, userId: options?.userId, conversationId: options?.conversationId, usageType: 'conversation.reply.v2' });
     } catch (e) {
       console.error('Failed to record usage:', e);
     }

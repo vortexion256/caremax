@@ -18,6 +18,8 @@ type UsageEvent = {
   userId: string | null;
   conversationId: string | null;
   model: string | null;
+  usageType: string | null;
+  measurementSource: string | null;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -355,6 +357,8 @@ export default function PlatformUsage() {
                       <th style={{ textAlign: 'right', padding: 10, fontSize: 12, fontWeight: 600 }}>Output</th>
                       <th style={{ textAlign: 'right', padding: 10, fontSize: 12, fontWeight: 600 }}>Total</th>
                       <th style={{ textAlign: 'right', padding: 10, fontSize: 12, fontWeight: 600 }}>Cost</th>
+                      <th style={{ textAlign: 'left', padding: 10, fontSize: 12, fontWeight: 600 }}>Type</th>
+                      <th style={{ textAlign: 'left', padding: 10, fontSize: 12, fontWeight: 600 }}>Measure</th>
                       <th style={{ textAlign: 'left', padding: 10, fontSize: 12, fontWeight: 600 }}>Model</th>
                     </tr>
                   </thead>
@@ -376,6 +380,8 @@ export default function PlatformUsage() {
                         <td style={{ padding: 10, fontSize: 12, textAlign: 'right', color: '#d32f2f' }}>
                           ${e.costUsd.toFixed(6)}
                         </td>
+                        <td style={{ padding: 10, fontSize: 11, color: '#666', fontFamily: 'monospace' }}>{e.usageType ?? 'unknown'}</td>
+                        <td style={{ padding: 10, fontSize: 11, color: '#666' }}>{e.measurementSource ?? 'provider'}</td>
                         <td style={{ padding: 10, fontSize: 11, color: '#666', fontFamily: 'monospace' }}>
                           {e.model ?? '—'}
                         </td>

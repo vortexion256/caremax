@@ -34,6 +34,13 @@ export function requireTenantParam(req: Request, res: Response, next: NextFuncti
     res.status(400).json({ error: 'Missing tenantId' });
     return;
   }
+
+  const locals = res.locals as AuthLocals;
+  if (!locals.isPlatformAdmin && locals.tenantId && locals.tenantId !== tenantId) {
+    res.status(403).json({ error: 'Cross-tenant access denied' });
+    return;
+  }
+
   (res.locals as { tenantId: string }).tenantId = tenantId;
   next();
 }

@@ -21,6 +21,8 @@ export default function Layout() {
     { path: '/agent-brain', label: 'Auto Brain' },
     { path: '/integrations', label: 'Integrations' },
     { path: '/embed', label: 'Embed Widget' },
+    { path: '/account', label: 'Account Settings' },
+    { path: '/billing', label: 'Billing' },
   ];
 
   const sidebarWidth = isMobile ? 280 : 240;
