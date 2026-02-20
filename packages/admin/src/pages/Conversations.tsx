@@ -27,7 +27,7 @@ export default function Conversations() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | 'open' | 'handoff_requested' | 'human_joined'>('all');
+  const [filter, setFilter] = useState<'open' | 'human_joined' | 'handoff_requested'>('open');
   const [lastDoc, setLastDoc] = useState<DocumentSnapshot | null>(null);
   const [hasMore, setHasMore] = useState(true);
 
@@ -38,23 +38,13 @@ export default function Conversations() {
     setLastDoc(null);
     setHasMore(true);
     
-    let q;
-    if (filter === 'all') {
-      q = query(
-        collection(firestore, 'conversations'),
-        where('tenantId', '==', tenantId),
-        orderBy('updatedAt', 'desc'),
-        limit(PAGE_SIZE)
-      );
-    } else {
-      q = query(
-        collection(firestore, 'conversations'),
-        where('tenantId', '==', tenantId),
-        where('status', '==', filter),
-        orderBy('updatedAt', 'desc'),
-        limit(PAGE_SIZE)
-      );
-    }
+    const q = query(
+      collection(firestore, 'conversations'),
+      where('tenantId', '==', tenantId),
+      where('status', '==', filter),
+      orderBy('updatedAt', 'desc'),
+      limit(PAGE_SIZE)
+    );
 
     getDocs(q)
       .then(async (snap) => {
@@ -109,25 +99,14 @@ export default function Conversations() {
     if (!tenantId || !lastDoc || loadingMore || !hasMore) return;
     setLoadingMore(true);
     
-    let q;
-    if (filter === 'all') {
-      q = query(
-        collection(firestore, 'conversations'),
-        where('tenantId', '==', tenantId),
-        orderBy('updatedAt', 'desc'),
-        limit(PAGE_SIZE),
-        startAfter(lastDoc)
-      );
-    } else {
-      q = query(
-        collection(firestore, 'conversations'),
-        where('tenantId', '==', tenantId),
-        where('status', '==', filter),
-        orderBy('updatedAt', 'desc'),
-        limit(PAGE_SIZE),
-        startAfter(lastDoc)
-      );
-    }
+    const q = query(
+      collection(firestore, 'conversations'),
+      where('tenantId', '==', tenantId),
+      where('status', '==', filter),
+      orderBy('updatedAt', 'desc'),
+      limit(PAGE_SIZE),
+      startAfter(lastDoc)
+    );
 
     getDocs(q)
       .then(async (snap) => {
@@ -179,7 +158,7 @@ export default function Conversations() {
   };
 
   const getStatusBadge = (conv: ConversationItem) => {
-    const label = conv.hasHumanParticipant ? 'AI + Human' : 'AI Only';
+    const label = conv.hasHumanParticipant ? 'AI + HUMAN' : 'AI ONLY';
     const isHuman = conv.hasHumanParticipant;
     
     return (
@@ -220,7 +199,7 @@ export default function Conversations() {
       </p>
 
       <div style={{ marginBottom: 24, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {['all', 'open', 'handoff_requested', 'human_joined'].map((f) => (
+        {['open', 'human_joined', 'handoff_requested'].map((f) => (
           <button
             key={f}
             type="button"
@@ -237,7 +216,7 @@ export default function Conversations() {
               transition: 'all 0.2s'
             }}
           >
-            {f === 'all' ? 'All' : f === 'open' ? 'AI Only' : f === 'handoff_requested' ? 'Handoff' : 'Care Team'}
+            {f === 'open' ? 'AI ONLY' : f === 'human_joined' ? 'AI + HUMAN' : 'ONGOING HANDOFF'}
           </button>
         ))}
       </div>
