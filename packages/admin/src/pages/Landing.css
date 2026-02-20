@@ -96,16 +96,24 @@
   width: 100%;
   height: 100%;
   z-index: -1;
-  background: #f8fafc;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.14), transparent 40%),
+    radial-gradient(circle at 80% 0%, rgba(59, 130, 246, 0.12), transparent 35%),
+    linear-gradient(145deg, #020617 0%, #0f172a 55%, #111827 100%);
 }
 
 .dynamic-bg::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: 
-    radial-gradient(circle at 0% 0%, rgba(14, 165, 233, 0.05) 0%, transparent 50%),
-    radial-gradient(circle at 100% 100%, rgba(139, 92, 246, 0.05) 0%, transparent 50%);
+  background:
+    radial-gradient(circle at 10% 10%, rgba(34, 211, 238, 0.3) 0%, transparent 30%),
+    radial-gradient(circle at 90% 90%, rgba(59, 130, 246, 0.3) 0%, transparent 30%),
+    repeating-linear-gradient(
+      120deg,
+      rgba(148, 163, 184, 0.09) 0 1px,
+      transparent 1px 42px
+    );
   z-index: 1;
 }
 
@@ -113,25 +121,46 @@
   content: "";
   position: absolute;
   inset: 0;
-  background-image: 
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  background-size: 50px 50px;
-  transform: perspective(500px) rotateX(60deg) translateY(-100px) translateZ(-100px);
-  mask-image: linear-gradient(to bottom, transparent, black);
-  opacity: 0.3;
+  background-image:
+    linear-gradient(rgba(56, 189, 248, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.18) 1px, transparent 1px),
+    radial-gradient(circle at center, rgba(14, 165, 233, 0.3) 0%, transparent 55%);
+  background-size: 45px 45px, 45px 45px, 100% 100%;
+  transform: perspective(900px) rotateX(70deg) translateY(-140px) scale(1.1);
+  mask-image: linear-gradient(to bottom, transparent 5%, black 45%, transparent 100%);
+  opacity: 0.65;
+  animation: pulse-grid 10s ease-in-out infinite;
   z-index: 2;
+}
+
+@keyframes pulse-grid {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: perspective(900px) rotateX(70deg) translateY(-140px) scale(1.08);
+  }
+  50% {
+    opacity: 0.72;
+    transform: perspective(900px) rotateX(68deg) translateY(-132px) scale(1.12);
+  }
 }
 
 /* Auth Pages Specific Styles */
 .auth-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: linear-gradient(145deg, rgba(248, 250, 252, 0.95), rgba(241, 245, 249, 0.87));
   backdrop-filter: blur(20px);
-  border-radius: 24px;
-  padding: 48px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  border-radius: 20px;
+  padding: 36px;
+  box-shadow: 0 20px 45px -20px rgba(14, 116, 144, 0.65);
   width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+@media (max-width: 640px) {
+  .auth-card {
+    padding: 28px 22px;
+    border-radius: 18px;
+  }
 }
 
 .auth-input {
