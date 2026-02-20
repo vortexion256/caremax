@@ -2,6 +2,7 @@ import { Link, Navigate } from 'react-router-dom';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 import AIBrainVisualization from '../components/AIBrainVisualization';
+import AnalyticsUI from '../components/AnalyticsUI';
 
 export default function Dashboard() {
   const { isPlatformAdmin, tenantId } = useTenant();
@@ -19,6 +20,8 @@ export default function Dashboard() {
       </p>
 
       <AIBrainVisualization isMobile={isMobile} />
+
+      <AnalyticsUI isMobile={isMobile} />
 
       {isPlatformAdmin && (
         <div style={{ 
