@@ -72,8 +72,23 @@ export default function TenantBilling() {
           <h3 style={{ marginBottom: 8 }}>Available upgrade options</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
             {data.availablePlans?.map((plan) => (
-              <div key={plan.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 12, background: '#fff' }}>
-                <div style={{ fontWeight: 600, color: '#0f172a' }}>{plan.name}</div>
+              <div
+                key={plan.id}
+                style={{
+                  border: `1px solid ${plan.id === data.billingPlanId ? '#6366f1' : '#e2e8f0'}`,
+                  borderRadius: 10,
+                  padding: 12,
+                  background: plan.id === data.billingPlanId ? '#eef2ff' : '#fff',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ fontWeight: 600, color: '#0f172a' }}>{plan.name}</div>
+                  {plan.id === data.billingPlanId && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#4338ca', background: '#e0e7ff', padding: '2px 8px', borderRadius: 999 }}>
+                      Current package
+                    </span>
+                  )}
+                </div>
                 <div style={{ marginTop: 4, color: '#1e293b', fontSize: 14 }}>${plan.priceUsd}/mo</div>
                 {plan.description && <div style={{ marginTop: 4, color: '#64748b', fontSize: 13 }}>({plan.description})</div>}
               </div>

@@ -100,7 +100,7 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
     billingPlanId,
     currentPlan,
     billingStatus,
-    availablePlans: plans.filter((plan) => plan.active !== false && plan.id !== 'free'),
+    availablePlans: plans.filter((plan) => plan.active !== false),
     totals,
     byUsageType: Object.entries(summaryByType).map(([usageType, v]) => ({ usageType, ...v })),
     recentEvents: events,
