@@ -62,7 +62,7 @@ export default function TenantBilling() {
               : `Status: active${data.billingStatus.daysRemaining != null ? ` (${data.billingStatus.daysRemaining} day(s) remaining)` : ''}`}
           </strong>
           <div style={{ marginTop: 8, fontSize: 14, color: '#475569' }}>
-            {data.billingStatus.isExpired ? 'Upgrade to any available package below.' : 'You can upgrade or change package from SaaS admin at any time.'}
+            {data.billingStatus.isExpired ? 'Upgrade to any available package below.' : 'Upgrade or change package.'}
           </div>
         </div>
       )}
