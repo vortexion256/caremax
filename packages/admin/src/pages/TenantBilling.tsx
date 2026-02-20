@@ -87,37 +87,49 @@ export default function TenantBilling() {
         <Metric label="Total Cost" value={`$${data.totals.costUsd.toFixed(4)}`} />
       </div>
 
-      <h3>Usage by API Flow</h3>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr><th align="left">Usage Type</th><th align="right">Calls</th><th align="right">Tokens</th><th align="right">Cost</th></tr></thead>
-        <tbody>
-          {data.byUsageType.map((row) => (
-            <tr key={row.usageType} style={{ borderTop: '1px solid #e2e8f0' }}>
-              <td style={{ padding: '6px 0', fontFamily: 'monospace' }}>{row.usageType}</td>
-              <td align="right">{row.calls}</td>
-              <td align="right">{row.totalTokens.toLocaleString()}</td>
-              <td align="right">${row.costUsd.toFixed(6)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {data.byUsageType.length > 0 ? (
+        <>
+          <h3>Usage by API Flow</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr><th align="left">Usage Type</th><th align="right">Calls</th><th align="right">Tokens</th><th align="right">Cost</th></tr></thead>
+            <tbody>
+              {data.byUsageType.map((row) => (
+                <tr key={row.usageType} style={{ borderTop: '1px solid #e2e8f0' }}>
+                  <td style={{ padding: '6px 0', fontFamily: 'monospace' }}>{row.usageType}</td>
+                  <td align="right">{row.calls}</td>
+                  <td align="right">{row.totalTokens.toLocaleString()}</td>
+                  <td align="right">${row.costUsd.toFixed(6)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : (
+        <p style={{ color: '#64748b' }}>No data exists to use.</p>
+      )}
 
-      <h3 style={{ marginTop: 18 }}>Recent Metered Events</h3>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-        <thead><tr><th align="left">Time</th><th align="left">Type</th><th align="left">Source</th><th align="right">Input</th><th align="right">Output</th><th align="right">Cost</th></tr></thead>
-        <tbody>
-          {data.recentEvents.slice(0, 25).map((e) => (
-            <tr key={e.eventId} style={{ borderTop: '1px solid #e2e8f0' }}>
-              <td>{e.createdAt ? new Date(e.createdAt).toLocaleString() : '—'}</td>
-              <td style={{ fontFamily: 'monospace' }}>{e.usageType}</td>
-              <td>{e.measurementSource}</td>
-              <td align="right">{e.inputTokens}</td>
-              <td align="right">{e.outputTokens}</td>
-              <td align="right">${e.costUsd.toFixed(6)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {data.recentEvents.length > 0 ? (
+        <>
+          <h3 style={{ marginTop: 18 }}>Recent Metered Events</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead><tr><th align="left">Time</th><th align="left">Type</th><th align="left">Source</th><th align="right">Input</th><th align="right">Output</th><th align="right">Cost</th></tr></thead>
+            <tbody>
+              {data.recentEvents.slice(0, 25).map((e) => (
+                <tr key={e.eventId} style={{ borderTop: '1px solid #e2e8f0' }}>
+                  <td>{e.createdAt ? new Date(e.createdAt).toLocaleString() : '—'}</td>
+                  <td style={{ fontFamily: 'monospace' }}>{e.usageType}</td>
+                  <td>{e.measurementSource}</td>
+                  <td align="right">{e.inputTokens}</td>
+                  <td align="right">{e.outputTokens}</td>
+                  <td align="right">${e.costUsd.toFixed(6)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : (
+        <p style={{ color: '#64748b' }}>No data exists to use.</p>
+      )}
     </div>
   );
 }
