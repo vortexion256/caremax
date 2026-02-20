@@ -49,6 +49,7 @@ export default function Login({ onSuccess }: Props) {
 
   return (
     <div
+      className="auth-page-shell"
       style={{
         minHeight: '100vh',
         display: 'flex',
