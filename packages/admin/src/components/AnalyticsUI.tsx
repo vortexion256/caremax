@@ -24,7 +24,7 @@ export default function AnalyticsUI({ isMobile }: { isMobile: boolean }) {
     const fetchAnalytics = async () => {
       try {
         setLoading(true);
-        const res = await api(`/tenants/${tenantId}/analytics/interactions`);
+        const res = await api<AnalyticsResponse>(`/tenants/${tenantId}/analytics/interactions`);
         setData(res);
         setError(null);
       } catch (err) {

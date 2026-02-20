@@ -285,6 +285,8 @@ export default function AgentSettings() {
           </div>
         </div>
 
+        </div>
+
         <button
           type="submit"
           disabled={saving}
