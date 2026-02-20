@@ -23,12 +23,24 @@ analyticsRouter.get('/interactions', async (req, res) => {
   try {
     // Fetch all conversations for the tenant once to avoid multiple queries and potential index issues
     // We'll filter in-memory for the different periods since the dataset for a single tenant is likely manageable
-    const snap = await db.collection('conversations')
-      .where('tenantId', '==', tenantId)
-      .get();
+    const [conversationSnap, messageSnap] = await Promise.all([
+      db.collection('conversations')
+        .where('tenantId', '==', tenantId)
+        .get(),
+      db.collection('messages')
+        .where('tenantId', '==', tenantId)
+        .where('role', '==', 'human_agent')
+        .get(),
+    ]);
+
+    const conversationsWithHumanMessages = new Set(
+      messageSnap.docs
+        .map((doc) => doc.data().conversationId as string | undefined)
+        .filter((conversationId): conversationId is string => Boolean(conversationId)),
+    );
 
     const results: Record<string, any> = {};
-    const allDocs = snap.docs.map(doc => ({
+    const allDocs = conversationSnap.docs.map(doc => ({
       id: doc.id,
       data: doc.data(),
       createdAtMs: doc.data().createdAt?.toMillis?.() || 0
@@ -46,7 +58,8 @@ analyticsRouter.get('/interactions', async (req, res) => {
           const data = doc.data;
           uniqueUsers.add(data.userId);
           
-          if (data.status === 'handoff_requested' || data.status === 'human_joined') {
+          const hasHumanMessage = conversationsWithHumanMessages.has(doc.id);
+          if (hasHumanMessage || data.status === 'handoff_requested' || data.status === 'human_joined') {
             handoff++;
           } else {
             aiOnly++;
