@@ -62,7 +62,7 @@ export default function TenantBilling() {
               : `Status: active${data.billingStatus.daysRemaining != null ? ` (${data.billingStatus.daysRemaining} day(s) remaining)` : ''}`}
           </strong>
           <div style={{ marginTop: 8, fontSize: 14, color: '#475569' }}>
-            {data.billingStatus.isExpired ? 'Upgrade to any available package below from SaaS admin.' : 'You can upgrade or change package from SaaS admin at any time.'}
+            {data.billingStatus.isExpired ? 'Upgrade to any available package below.' : 'You can upgrade or change package from SaaS admin at any time.'}
           </div>
         </div>
       )}
@@ -70,13 +70,15 @@ export default function TenantBilling() {
       {(data.availablePlans?.length ?? 0) > 0 && (
         <div style={{ marginBottom: 20 }}>
           <h3 style={{ marginBottom: 8 }}>Available upgrade options</h3>
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
             {data.availablePlans?.map((plan) => (
-              <li key={plan.id} style={{ marginBottom: 4 }}>
-                <strong>{plan.name}</strong> - ${plan.priceUsd}/mo {plan.description ? `(${plan.description})` : ''}
-              </li>
+              <div key={plan.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 12, background: '#fff' }}>
+                <div style={{ fontWeight: 600, color: '#0f172a' }}>{plan.name}</div>
+                <div style={{ marginTop: 4, color: '#1e293b', fontSize: 14 }}>${plan.priceUsd}/mo</div>
+                {plan.description && <div style={{ marginTop: 4, color: '#64748b', fontSize: 13 }}>({plan.description})</div>}
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
