@@ -12,6 +12,8 @@ import { createNote, listNotes as listAgentNotes, updateNoteContent, getNote } f
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
+const AGENT_FALLBACK_MODELS = ['gemini-3-flash-preview', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+
 /** Format existing Auto Agent Brain records for the system prompt so the agent can decide add vs edit vs delete. */
 const CONTENT_SNIPPET_LENGTH = 120;
 
@@ -53,6 +55,24 @@ async function recordActivity(tenantId: string, type: string): Promise<void> {
 
 export type GoogleSheetEntry = { spreadsheetId: string; range?: string; useWhen: string };
 
+async function getDefaultAgentModel(): Promise<string> {
+  const fallbackModel = AGENT_FALLBACK_MODELS[0];
+
+  try {
+    const doc = await db.collection('platform_settings').doc('saas_billing').get();
+    const availableModels = doc.data()?.availableModels;
+
+    if (Array.isArray(availableModels)) {
+      const firstValidModel = availableModels.find((model): model is string => typeof model === 'string' && model.trim().length > 0);
+      if (firstValidModel) return firstValidModel;
+    }
+  } catch (e) {
+    console.warn('[Agent] Failed to load SaaS available model list; using fallback model.', e);
+  }
+
+  return fallbackModel;
+}
+
 function normalizeGoogleSheets(data: Record<string, unknown> | undefined): GoogleSheetEntry[] {
   const arr = data?.googleSheets;
   if (Array.isArray(arr) && arr.length > 0) {
@@ -83,6 +103,7 @@ export async function getAgentConfig(tenantId: string): Promise<{
   learningOnlyPrompt?: string;
   consolidationPrompt?: string;
 }> {
+  const defaultModel = await getDefaultAgentModel();
   const configRef = db.collection('agent_config').doc(tenantId);
   const configDoc = await configRef.get();
   const data = configDoc.data();
@@ -93,7 +114,7 @@ export async function getAgentConfig(tenantId: string): Promise<{
       agentName: data.agentName,
       systemPrompt: prompt,
       thinkingInstructions: data?.thinkingInstructions ?? 'Be concise, empathetic, and safety-conscious.',
-      model: data?.model ?? 'gemini-3-flash-preview',
+      model: data?.model ?? defaultModel,
       temperature: data?.temperature ?? 0.7,
       ragEnabled: data?.ragEnabled === true,
       googleSheets: normalizeGoogleSheets(data),
@@ -113,7 +134,7 @@ export async function getAgentConfig(tenantId: string): Promise<{
       agentName,
       systemPrompt,
       thinkingInstructions: 'Be concise, empathetic, and safety-conscious.',
-      model: 'gemini-3-flash-preview',
+      model: defaultModel,
       temperature: 0.7,
       ragEnabled: false,
       updatedAt: FieldValue.serverTimestamp(),
@@ -124,7 +145,7 @@ export async function getAgentConfig(tenantId: string): Promise<{
     agentName,
     systemPrompt,
     thinkingInstructions: data?.thinkingInstructions ?? 'Be concise, empathetic, and safety-conscious.',
-    model: data?.model ?? 'gemini-3-flash-preview',
+    model: data?.model ?? defaultModel,
     temperature: data?.temperature ?? 0.7,
     ragEnabled: data?.ragEnabled === true,
     googleSheets: normalizeGoogleSheets(data),
