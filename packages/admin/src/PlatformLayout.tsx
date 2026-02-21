@@ -28,6 +28,7 @@ export default function PlatformLayout() {
     { path: '/platform/tenants', label: 'All Tenants' },
     { path: '/platform/usage', label: 'Usage & Billing' },
     { path: '/platform/billing', label: 'Billing Plans' },
+    { path: '/platform/payments', label: 'Payments' },
   ];
 
   const sidebarWidth = isMobile ? 280 : 260;

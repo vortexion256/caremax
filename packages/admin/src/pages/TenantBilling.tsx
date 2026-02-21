@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTenant } from '../TenantContext';
 import { api } from '../api';
 
@@ -14,7 +15,7 @@ type BillingSummary = {
     trialEndsAt: number | null;
     subscriptionEndsAt: number | null;
   };
-  availablePlans?: Array<{ id: string; name: string; priceUsd: number; description?: string }>;
+  availablePlans?: Array<{ id: string; name: string; priceUsd: number; description?: string; billingCycle?: 'monthly' }>;
   totals: { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number };
   byUsageType: Array<{ usageType: string; calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }>;
   recentEvents: Array<{ eventId: string; usageType: string; model: string | null; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number; measurementSource: string; createdAt: number | null }>;
@@ -24,6 +25,8 @@ export default function TenantBilling() {
   const { tenantId } = useTenant();
   const [data, setData] = useState<BillingSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busyPlan, setBusyPlan] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') {
@@ -32,6 +35,10 @@ export default function TenantBilling() {
       return;
     }
 
+    loadBilling();
+  }, [tenantId]);
+
+  const loadBilling = () => {
     setError(null);
     api<BillingSummary>(`/tenants/${tenantId}/billing`)
       .then((res) => {
@@ -42,7 +49,51 @@ export default function TenantBilling() {
         setError(message);
         setData(null);
       });
-  }, [tenantId]);
+  };
+
+
+
+
+  useEffect(() => {
+    if (!tenantId || tenantId === 'platform') return;
+    const txRef = searchParams.get('tx_ref');
+    const transactionIdRaw = searchParams.get('transaction_id');
+    const status = searchParams.get('status');
+    const transactionId = transactionIdRaw ? Number(transactionIdRaw) : NaN;
+
+    if (!txRef || !Number.isFinite(transactionId) || transactionId <= 0) return;
+    if (status && status !== 'successful') {
+      setError('Flutterwave payment was not successful. Please try again.');
+      return;
+    }
+
+    api(`/tenants/${tenantId}/payments/flutterwave/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ txRef, transactionId }),
+    })
+      .then(() => loadBilling())
+      .catch((e) => {
+        const message = e instanceof Error ? e.message : 'Failed to verify payment';
+        setError(message);
+      });
+  }, [tenantId, searchParams]);
+
+  const startUpgrade = async (billingPlanId: string) => {
+    if (!tenantId || tenantId === 'platform') return;
+    setBusyPlan(billingPlanId);
+    try {
+      const res = await api<{ paymentLink: string }>(`/tenants/${tenantId}/payments/flutterwave/initialize`, {
+        method: 'POST',
+        body: JSON.stringify({ billingPlanId }),
+      });
+      window.location.href = res.paymentLink;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Unable to initialize payment';
+      setError(message);
+    } finally {
+      setBusyPlan(null);
+    }
+  };
 
   if (!data && !error) return <p>Loading billing data...</p>;
   if (error) return <p style={{ color: '#dc2626' }}>Could not load billing data: {error}</p>;
@@ -91,6 +142,15 @@ export default function TenantBilling() {
                 </div>
                 <div style={{ marginTop: 4, color: '#1e293b', fontSize: 14 }}>${plan.priceUsd}/mo</div>
                 {plan.description && <div style={{ marginTop: 4, color: '#64748b', fontSize: 13 }}>({plan.description})</div>}
+                {plan.id !== data.billingPlanId && plan.priceUsd > 0 && (
+                  <button
+                    onClick={() => startUpgrade(plan.id)}
+                    disabled={busyPlan === plan.id}
+                    style={{ marginTop: 10, padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
+                  >
+                    {busyPlan === plan.id ? 'Redirecting…' : 'Pay with Flutterwave'}
+                  </button>
+                )}
               </div>
             ))}
           </div>

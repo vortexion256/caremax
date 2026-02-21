@@ -120,3 +120,17 @@ export async function getTenantBillingStatus(tenantId: string): Promise<{
     trialUsed,
   };
 }
+
+export async function activateTenantSubscription(tenantId: string, billingPlanId: string, nowMs = Date.now()): Promise<void> {
+  const tenantRef = db.collection('tenants').doc(tenantId);
+  const monthlyDurationMs = 30 * DAY_MS;
+
+  await tenantRef.set({
+    billingPlanId,
+    trialUsed: true,
+    subscriptionStartedAt: new Date(nowMs),
+    subscriptionEndsAt: new Date(nowMs + monthlyDurationMs),
+    subscriptionStatus: 'active',
+    updatedAt: new Date(nowMs),
+  }, { merge: true });
+}
