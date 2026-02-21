@@ -55,7 +55,7 @@ export default function Login({ onSuccess }: Props) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 24,
+        padding: 16,
         fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
         position: 'relative',
         isolation: 'isolate',
@@ -64,16 +64,16 @@ export default function Login({ onSuccess }: Props) {
     >
       <div className="dynamic-bg" />
       
-      <div className="auth-card" style={{ maxWidth: 420 }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+      <div className="auth-card" style={{ maxWidth: 380 }}>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ 
-            width: 48, height: 48, background: '#0ea5e9', borderRadius: 12, 
+            width: 40, height: 40, background: '#38bdf8', borderRadius: 10, 
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontWeight: 800, color: 'white', fontSize: 28, margin: '0 auto 20px',
-            boxShadow: '0 8px 16px rgba(14, 165, 233, 0.3)'
+            fontWeight: 800, color: 'white', fontSize: 22, margin: '0 auto 14px',
+            boxShadow: '0 6px 12px rgba(56, 189, 248, 0.25)'
           }}>C</div>
-          <h1 style={{ margin: '0 0 10px 0', fontSize: 32, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em' }}>Welcome Back</h1>
-          <p style={{ color: '#64748b', fontSize: 16, margin: 0 }}>
+          <h1 style={{ margin: '0 0 8px 0', fontSize: 28, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em' }}>Welcome Back</h1>
+          <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>
             Sign in to manage your clinical triage dashboard.
           </p>
         </div>
@@ -99,8 +99,8 @@ export default function Login({ onSuccess }: Props) {
           </div>
         )}
 
-        <form onSubmit={handleEmailLogin} style={{ marginBottom: 24 }}>
-          <div style={{ marginBottom: 20 }}>
+        <form onSubmit={handleEmailLogin} style={{ marginBottom: 18 }}>
+          <div style={{ marginBottom: 16 }}>
             <label style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
               Email Address
             </label>
@@ -113,7 +113,7 @@ export default function Login({ onSuccess }: Props) {
               autoFocus
             />
           </div>
-          <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 18 }}>
             <label style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
               Password
             </label>
@@ -135,7 +135,7 @@ export default function Login({ onSuccess }: Props) {
           </button>
         </form>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
           <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }}></div>
           <div style={{ fontSize: 13, fontWeight: 500, color: '#94a3b8' }}>OR</div>
           <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }}></div>
@@ -156,7 +156,7 @@ export default function Login({ onSuccess }: Props) {
           Continue with Google
         </button>
 
-        <div style={{ marginTop: 32, fontSize: 15, textAlign: 'center', color: '#64748b' }}>
+        <div style={{ marginTop: 24, fontSize: 14, textAlign: 'center', color: '#64748b' }}>
           Don&apos;t have an account?{' '}
           <button
             type="button"
@@ -168,7 +168,7 @@ export default function Login({ onSuccess }: Props) {
               cursor: 'pointer',
               fontWeight: 700,
               padding: 0,
-              fontSize: 15,
+              fontSize: 14,
             }}
           >
             Create Account
