@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { requireAuth, requireTenantParam } from '../middleware/auth.js';
 import { db } from '../config/firebase.js';
-import { getTenantBillingStatus } from '../services/billing.js';
+import { activateTenantSubscription, getTenantBillingStatus } from '../services/billing.js';
+import { initializeFlutterwavePayment, verifyFlutterwaveTransactionById } from '../services/flutterwave.js';
+import { z } from 'zod';
 
 export const tenantRouter: Router = Router();
 
@@ -105,6 +107,156 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
     byUsageType: Object.entries(summaryByType).map(([usageType, v]) => ({ usageType, ...v })),
     recentEvents: events,
   });
+});
+
+tenantRouter.post('/:tenantId/payments/flutterwave/initialize', requireTenantParam, async (req, res) => {
+  const body = z.object({ billingPlanId: z.string().min(1) }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
+    return;
+  }
+
+  try {
+    const tenantId = res.locals.tenantId as string;
+    const tenantDoc = await db.collection('tenants').doc(tenantId).get();
+    if (!tenantDoc.exists) {
+      res.status(404).json({ error: 'Tenant not found' });
+      return;
+    }
+
+    const planDoc = await db.collection('billing_plans').doc(body.data.billingPlanId).get();
+    if (!planDoc.exists) {
+      res.status(404).json({ error: 'Billing plan not found' });
+      return;
+    }
+
+    const plan = planDoc.data() ?? {};
+    const amount = typeof plan.priceUsd === 'number' ? plan.priceUsd : 0;
+    if (amount <= 0) {
+      res.status(400).json({ error: 'Selected plan is not payable' });
+      return;
+    }
+
+    const localsEmail = typeof res.locals.email === 'string' ? res.locals.email : undefined;
+    const tenantData = tenantDoc.data() ?? {};
+    const customerEmail = localsEmail ?? tenantData.ownerEmail;
+    if (!customerEmail) {
+      res.status(400).json({ error: 'User email is required to initialize payment.' });
+      return;
+    }
+
+    const txRef = `caremax-${tenantId}-${body.data.billingPlanId}-${Date.now()}`;
+    const adminBaseUrl = process.env.ADMIN_APP_URL ?? 'http://localhost:5173';
+    const redirectUrl = `${adminBaseUrl.replace(/\/$/, '')}/billing?payment=flutterwave&tx_ref=${encodeURIComponent(txRef)}`;
+
+    const initResult = await initializeFlutterwavePayment({
+      tx_ref: txRef,
+      amount,
+      currency: 'USD',
+      redirect_url: redirectUrl,
+      customer: {
+        email: customerEmail,
+        name: typeof tenantData.name === 'string' ? tenantData.name : undefined,
+      },
+      customizations: {
+        title: 'CareMax Subscription',
+        description: `Payment for ${(plan.name as string | undefined) ?? body.data.billingPlanId} plan`,
+      },
+      meta: {
+        tenantId,
+        billingPlanId: body.data.billingPlanId,
+      },
+    });
+
+    await db.collection('payments').doc(txRef).set({
+      provider: 'flutterwave',
+      tenantId,
+      billingPlanId: body.data.billingPlanId,
+      amount,
+      currency: 'USD',
+      txRef,
+      status: 'pending',
+      customerEmail,
+      paymentLink: initResult.paymentLink,
+      createdByUid: res.locals.uid,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }, { merge: true });
+
+    res.json({ txRef, paymentLink: initResult.paymentLink });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Failed to initialize Flutterwave payment';
+    console.error('Failed to initialize Flutterwave payment:', e);
+    res.status(500).json({ error: message });
+  }
+});
+
+tenantRouter.post('/:tenantId/payments/flutterwave/verify', requireTenantParam, async (req, res) => {
+  const body = z.object({ txRef: z.string().min(1), transactionId: z.number().int().positive() }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
+    return;
+  }
+
+  try {
+    const tenantId = res.locals.tenantId as string;
+    const paymentRef = db.collection('payments').doc(body.data.txRef);
+    const paymentDoc = await paymentRef.get();
+    if (!paymentDoc.exists) {
+      res.status(404).json({ error: 'Payment not found' });
+      return;
+    }
+
+    const paymentData = paymentDoc.data() ?? {};
+    if (paymentData.tenantId !== tenantId) {
+      res.status(403).json({ error: 'Payment does not belong to this tenant' });
+      return;
+    }
+
+    const verified = await verifyFlutterwaveTransactionById(body.data.transactionId);
+    if (!verified) {
+      res.status(400).json({ error: 'Payment verification failed' });
+      return;
+    }
+    const billingPlanId = typeof paymentData.billingPlanId === 'string' ? paymentData.billingPlanId : null;
+    const expectedAmount = typeof paymentData.amount === 'number' ? paymentData.amount : 0;
+    const status = verified.status === 'successful' ? 'completed' : 'failed';
+    const verifiedAmount = typeof verified.amount === 'number' ? verified.amount : 0;
+
+    const isValid =
+      verified.tx_ref === body.data.txRef
+      && verified.status === 'successful'
+      && verifiedAmount >= expectedAmount
+      && billingPlanId;
+
+    if (!isValid || !billingPlanId) {
+      await paymentRef.set({
+        status: 'failed',
+        failureReason: 'Verification mismatch or incomplete payment',
+        providerTransactionId: verified.id,
+        providerStatus: verified.status ?? 'unknown',
+        updatedAt: new Date(),
+      }, { merge: true });
+      res.status(400).json({ error: 'Payment verification failed' });
+      return;
+    }
+
+    await activateTenantSubscription(tenantId, billingPlanId);
+
+    await paymentRef.set({
+      status,
+      providerTransactionId: verified.id,
+      providerStatus: verified.status ?? 'unknown',
+      paidAt: verified.created_at ? new Date(verified.created_at) : new Date(),
+      verifiedByUid: res.locals.uid,
+      updatedAt: new Date(),
+    }, { merge: true });
+
+    res.json({ success: true, status: 'completed', billingPlanId, durationDays: 30 });
+  } catch (e) {
+    console.error('Failed to verify Flutterwave payment:', e);
+    res.status(500).json({ error: 'Failed to verify Flutterwave payment' });
+  }
 });
 
 tenantRouter.get('/:tenantId/analytics', requireTenantParam, async (req, res) => {

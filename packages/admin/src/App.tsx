@@ -25,6 +25,7 @@ import AutoAgentBrain from './pages/AutoAgentBrain';
 import Integrations from './pages/Integrations';
 import Embed from './pages/Embed';
 import PlatformBilling from './pages/PlatformBilling';
+import PlatformPayments from './pages/PlatformPayments';
 import TenantBilling from './pages/TenantBilling';
 import TenantAccount from './pages/TenantAccount';
 
@@ -132,6 +133,7 @@ export default function App() {
               <Route path="tenants" element={<PlatformTenants />} />
               <Route path="usage" element={<PlatformUsage />} />
               <Route path="billing" element={<PlatformBilling />} />
+              <Route path="payments" element={<PlatformPayments />} />
             </Route>
             <Route path="*" element={<Navigate to="/platform" replace />} />
           </Routes>
@@ -159,6 +161,7 @@ export default function App() {
             <Route path="tenants" element={<PlatformTenants />} />
             <Route path="usage" element={<PlatformUsage />} />
             <Route path="billing" element={<PlatformBilling />} />
+            <Route path="payments" element={<PlatformPayments />} />
           </Route>
           <Route path="*" element={<Navigate to="/platform" replace />} />
         </Routes>
@@ -197,6 +200,7 @@ export default function App() {
           <Route path="tenants" element={<PlatformTenants />} />
           <Route path="usage" element={<PlatformUsage />} />
           <Route path="billing" element={<PlatformBilling />} />
+          <Route path="payments" element={<PlatformPayments />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

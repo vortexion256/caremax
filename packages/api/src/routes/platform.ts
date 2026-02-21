@@ -3,6 +3,7 @@ import { db, auth, bucket } from '../config/firebase.js';
 import { requireAuth, requirePlatformAdmin } from '../middleware/auth.js';
 import { z } from 'zod';
 import { getTenantBillingStatus } from '../services/billing.js';
+import { getFlutterwaveCredentialInfo } from '../services/flutterwave.js';
 
 export const platformRouter: Router = Router();
 
@@ -414,6 +415,66 @@ platformRouter.patch('/tenants/:tenantId/billing', async (req, res) => {
   } catch (e) {
     console.error('Failed to update tenant billing plan:', e);
     res.status(500).json({ error: 'Failed to update tenant billing plan' });
+  }
+});
+
+
+
+
+platformRouter.get('/billing/providers/flutterwave/status', async (_req, res) => {
+  try {
+    const credentials = getFlutterwaveCredentialInfo();
+    res.json({
+      provider: 'flutterwave',
+      credentials,
+      readyForCheckout: credentials.hasClientSecret && credentials.hasWebhookSecretHash,
+    });
+  } catch (e) {
+    console.error('Failed to load Flutterwave credential status:', e);
+    res.status(500).json({ error: 'Failed to load Flutterwave credential status' });
+  }
+});
+
+platformRouter.get('/billing/payments', async (req, res) => {
+  try {
+    const { tenantId, status, limit = '200' } = req.query as { tenantId?: string; status?: string; limit?: string };
+    let query: FirebaseFirestore.Query = db.collection('payments').orderBy('createdAt', 'desc');
+
+    if (tenantId) {
+      query = query.where('tenantId', '==', tenantId);
+    }
+    if (status) {
+      query = query.where('status', '==', status);
+    }
+
+    const cap = Math.min(parseInt(limit, 10) || 200, 500);
+    const snap = await query.limit(cap).get();
+
+    const payments = snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        paymentId: d.id,
+        provider: data.provider ?? 'flutterwave',
+        tenantId: data.tenantId ?? null,
+        billingPlanId: data.billingPlanId ?? null,
+        txRef: data.txRef ?? d.id,
+        amount: typeof data.amount === 'number' ? data.amount : 0,
+        currency: data.currency ?? 'USD',
+        status: data.status ?? 'pending',
+        customerEmail: data.customerEmail ?? null,
+        providerStatus: data.providerStatus ?? null,
+        providerTransactionId: data.providerTransactionId ?? null,
+        paymentLink: data.paymentLink ?? null,
+        createdAt: data.createdAt?.toMillis?.() ?? null,
+        paidAt: data.paidAt?.toMillis?.() ?? null,
+        updatedAt: data.updatedAt?.toMillis?.() ?? null,
+      };
+    });
+
+    res.json({ payments });
+  } catch (e) {
+    console.error('Failed to load payment history:', e);
+    res.status(500).json({ error: 'Failed to load payment history' });
   }
 });
 

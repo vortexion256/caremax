@@ -15,6 +15,7 @@ import { registerRouter } from './routes/register.js';
 import { platformRouter } from './routes/platform.js';
 import { integrationsCallbackRouter, tenantIntegrationsRouter } from './routes/integrations.js';
 import { rateLimit } from './middleware/rateLimit.js';
+import { flutterwaveRouter } from './routes/flutterwave.js';
 import { domainAllowlist } from './middleware/allowlist.js';
 
 const app: express.Application = express();
@@ -42,6 +43,7 @@ app.use('/auth', authRouter);
 app.use('/register', registerRouter);
 app.use('/platform', platformRouter);
 app.use('/integrations', integrationsCallbackRouter);
+app.use('/flutterwave', flutterwaveRouter);
 app.use('/tenants', rateLimit);
 app.use('/tenants', domainAllowlist);
 // Mount tenant-scoped routes first so they are not covered by tenantRouter (which requires auth)
