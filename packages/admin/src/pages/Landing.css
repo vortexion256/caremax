@@ -109,6 +109,7 @@
   position: relative;
   isolation: isolate;
   overflow: hidden;
+  width: 100%;
 }
 
 .auth-page-shell .auth-card {
