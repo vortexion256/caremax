@@ -60,6 +60,7 @@ export default function SignUp({ onSuccess }: Props) {
 
   return (
     <div
+      className="auth-page-shell"
       style={{
         minHeight: '100vh',
         display: 'flex',
