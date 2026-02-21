@@ -98,9 +98,10 @@
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.14), transparent 40%),
-    radial-gradient(circle at 80% 0%, rgba(59, 130, 246, 0.12), transparent 35%),
-    linear-gradient(145deg, #020617 0%, #0f172a 55%, #111827 100%);
+    radial-gradient(circle at 15% 20%, rgba(125, 211, 252, 0.42), transparent 42%),
+    radial-gradient(circle at 85% 10%, rgba(167, 139, 250, 0.34), transparent 38%),
+    radial-gradient(circle at 60% 80%, rgba(96, 165, 250, 0.22), transparent 35%),
+    linear-gradient(140deg, #eef6ff 0%, #e9ecff 45%, #f3e8ff 100%);
 }
 
 .auth-page-shell {
@@ -119,11 +120,11 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 10% 10%, rgba(34, 211, 238, 0.3) 0%, transparent 30%),
-    radial-gradient(circle at 90% 90%, rgba(59, 130, 246, 0.3) 0%, transparent 30%),
+    radial-gradient(circle at 10% 10%, rgba(56, 189, 248, 0.34) 0%, transparent 30%),
+    radial-gradient(circle at 90% 90%, rgba(129, 140, 248, 0.3) 0%, transparent 32%),
     repeating-linear-gradient(
       120deg,
-      rgba(148, 163, 184, 0.09) 0 1px,
+      rgba(148, 163, 184, 0.1) 0 1px,
       transparent 1px 42px
     );
   z-index: 1;
@@ -134,13 +135,13 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(56, 189, 248, 0.18) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(56, 189, 248, 0.18) 1px, transparent 1px),
-    radial-gradient(circle at center, rgba(14, 165, 233, 0.3) 0%, transparent 55%);
+    linear-gradient(rgba(96, 165, 250, 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(167, 139, 250, 0.2) 1px, transparent 1px),
+    radial-gradient(circle at center, rgba(125, 211, 252, 0.45) 0%, transparent 58%);
   background-size: 45px 45px, 45px 45px, 100% 100%;
   transform: perspective(900px) rotateX(70deg) translateY(-140px) scale(1.1);
   mask-image: linear-gradient(to bottom, transparent 5%, black 45%, transparent 100%);
-  opacity: 0.65;
+  opacity: 0.5;
   animation: pulse-grid 10s ease-in-out infinite;
   z-index: 2;
 }
@@ -166,6 +167,10 @@
   box-shadow: 0 20px 45px -20px rgba(14, 116, 144, 0.65);
   width: 100%;
   border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.auth-page-shell .auth-card {
+  margin: 0 auto;
 }
 
 @media (max-width: 640px) {
