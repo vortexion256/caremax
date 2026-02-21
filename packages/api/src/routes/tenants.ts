@@ -187,7 +187,7 @@ tenantRouter.post('/:tenantId/payments/flutterwave/initialize', requireTenantPar
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to initialize Flutterwave payment';
     console.error('Failed to initialize Flutterwave payment:', e);
-    res.status(500).json({ error: message });
+    res.status(502).json({ error: message });
   }
 });
 

@@ -82,6 +82,9 @@ async function flutterwaveRequest<T>(path: string, init?: RequestInit): Promise<
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = typeof body?.message === 'string' ? body.message : 'Flutterwave request failed';
+    if (response.status === 401 || /invalid authorization key/i.test(message)) {
+      throw new Error('Flutterwave credentials are invalid. Please contact support.');
+    }
     throw new Error(message);
   }
 

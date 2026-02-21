@@ -24,13 +24,15 @@ type BillingSummary = {
 export default function TenantBilling() {
   const { tenantId } = useTenant();
   const [data, setData] = useState<BillingSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') {
-      setError('Billing is only available for a tenant admin profile.');
+      setLoadError('Billing is only available for a tenant admin profile.');
+      setActionError(null);
       setData(null);
       return;
     }
@@ -39,14 +41,15 @@ export default function TenantBilling() {
   }, [tenantId]);
 
   const loadBilling = () => {
-    setError(null);
+    setLoadError(null);
     api<BillingSummary>(`/tenants/${tenantId}/billing`)
       .then((res) => {
         setData(res);
+        setLoadError(null);
       })
       .catch((e) => {
         const message = e instanceof Error ? e.message : 'Failed to load billing data';
-        setError(message);
+        setLoadError(message);
         setData(null);
       });
   };
@@ -63,7 +66,7 @@ export default function TenantBilling() {
 
     if (!txRef || !Number.isFinite(transactionId) || transactionId <= 0) return;
     if (status && status !== 'successful') {
-      setError('Flutterwave payment was not successful. Please try again.');
+      setActionError('Flutterwave payment was not successful. Please try again.');
       return;
     }
 
@@ -71,10 +74,13 @@ export default function TenantBilling() {
       method: 'POST',
       body: JSON.stringify({ txRef, transactionId }),
     })
-      .then(() => loadBilling())
+      .then(() => {
+        setActionError(null);
+        loadBilling();
+      })
       .catch((e) => {
         const message = e instanceof Error ? e.message : 'Failed to verify payment';
-        setError(message);
+        setActionError(message);
       });
   }, [tenantId, searchParams]);
 
@@ -89,20 +95,21 @@ export default function TenantBilling() {
       window.location.href = res.paymentLink;
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Unable to initialize payment';
-      setError(message);
+      setActionError(message);
     } finally {
       setBusyPlan(null);
     }
   };
 
-  if (!data && !error) return <p>Loading billing data...</p>;
-  if (error) return <p style={{ color: '#dc2626' }}>Could not load billing data: {error}</p>;
+  if (!data && !loadError) return <p>Loading billing data...</p>;
+  if (loadError) return <p style={{ color: '#dc2626' }}>Could not load billing data: {loadError}</p>;
   if (!data) return null;
 
   return (
     <div>
       <h1 style={{ marginTop: 0 }}>Billing & Token Usage</h1>
       <p style={{ color: '#64748b' }}>Track token usage for each API usage type in your tenant.</p>
+      {actionError && <p style={{ color: '#dc2626' }}>{actionError}</p>}
       <p><strong>Plan:</strong> {data.currentPlan?.name ?? data.billingPlanId} ({data.currentPlan ? `$${data.currentPlan.priceUsd}/mo` : 'custom'})</p>
 
       {data.billingStatus && (
