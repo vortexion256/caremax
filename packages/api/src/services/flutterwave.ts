@@ -39,16 +39,33 @@ type FlutterwaveVerifyResponse = {
   };
 };
 
-function getSecretKey(): string {
-  const rawKey =
-    process.env.FLUTTERWAVE_SECRET_KEY ??
-    process.env.FLUTTERWAVE_CLIENT_SECRET ??
-    process.env.FLW_SECRET_KEY;
+function normalizeEnvSecret(rawKey?: string): string {
+  return (rawKey ?? '')
+    .trim()
+    .replace(/^Bearer\s+/i, '')
+    .replace(/^"(.+)"$/, '$1')
+    .replace(/^'(.+)'$/, '$1')
+    .replace(/^`(.+)`$/, '$1')
+    .replace(/[\r\n]+/g, '');
+}
 
-  const key = rawKey?.trim().replace(/^Bearer\s+/i, '').replace(/^"(.+)"$/, '$1').replace(/^'(.+)'$/, '$1');
+function getSecretKey(): string {
+  const key = normalizeEnvSecret(
+    process.env.FLUTTERWAVE_SECRET_KEY ??
+      process.env.FLUTTERWAVE_CLIENT_SECRET ??
+      process.env.FLW_SECRET_KEY ??
+      process.env.FLUTTERWAVE_SECRET,
+  );
 
   if (!key) {
-    throw new Error('Missing Flutterwave secret. Set FLUTTERWAVE_SECRET_KEY or FLUTTERWAVE_CLIENT_SECRET.');
+    throw new Error(
+      'Missing Flutterwave secret. Set FLUTTERWAVE_SECRET_KEY (or FLUTTERWAVE_CLIENT_SECRET / FLW_SECRET_KEY).',
+    );
+  }
+  if (/^FLWPUBK/i.test(key)) {
+    throw new Error(
+      'Flutterwave secret is misconfigured: received a Public Key (FLWPUBK...). Use the Secret Key (FLWSECK...).',
+    );
   }
   return key;
 }
@@ -62,7 +79,10 @@ export function getFlutterwaveCredentialInfo(): {
   return {
     hasClientId: Boolean(process.env.FLUTTERWAVE_CLIENT_ID),
     hasClientSecret: Boolean(
-      process.env.FLUTTERWAVE_SECRET_KEY ?? process.env.FLUTTERWAVE_CLIENT_SECRET ?? process.env.FLW_SECRET_KEY,
+      process.env.FLUTTERWAVE_SECRET_KEY ??
+        process.env.FLUTTERWAVE_CLIENT_SECRET ??
+        process.env.FLW_SECRET_KEY ??
+        process.env.FLUTTERWAVE_SECRET,
     ),
     hasEncryptionKey: Boolean(process.env.FLUTTERWAVE_ENCRYPTION_KEY),
     hasWebhookSecretHash: Boolean(process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH),
@@ -83,7 +103,9 @@ async function flutterwaveRequest<T>(path: string, init?: RequestInit): Promise<
   if (!response.ok) {
     const message = typeof body?.message === 'string' ? body.message : 'Flutterwave request failed';
     if (response.status === 401 || /invalid authorization key/i.test(message)) {
-      throw new Error('Flutterwave credentials are invalid. Please contact support.');
+      throw new Error(
+        'Flutterwave credentials are invalid. Confirm you are using a Secret Key (FLWSECK...) from the same mode (sandbox/live) as your account and redeploy the API after updating env vars.',
+      );
     }
     throw new Error(message);
   }

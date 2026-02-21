@@ -40,11 +40,11 @@ Put your `.env` in the **repo root** (`e:\caremax\.env`). The API loads it from 
 - Optionally set `FIREBASE_STORAGE_BUCKET`, `ALLOWED_ORIGINS`, `PORT`.
 - For Flutterwave billing, set:
   - `FLUTTERWAVE_CLIENT_ID`
-  - `FLUTTERWAVE_CLIENT_SECRET` (or `FLUTTERWAVE_SECRET_KEY` / `FLW_SECRET_KEY`)
+  - `FLUTTERWAVE_CLIENT_SECRET` (or `FLUTTERWAVE_SECRET_KEY` / `FLW_SECRET_KEY` / `FLUTTERWAVE_SECRET`)
   - `FLUTTERWAVE_ENCRYPTION_KEY`
   - `ADMIN_APP_URL` (e.g. `http://localhost:3002`)
   - `FLUTTERWAVE_WEBHOOK_SECRET_HASH` (from Flutterwave dashboard webhook settings)
-  - Note: secret keys should be raw values (no surrounding quotes, and no `Bearer ` prefix)
+  - Note: secret keys should be raw values (no surrounding quotes, and no `Bearer ` prefix), and must be the **Secret Key** (`FLWSECK...`), not the public key (`FLWPUBK...`)
 - Webhook endpoint to configure in Flutterwave: `POST /flutterwave/webhook`
 - **Widget**: Set `VITE_API_URL` to your API URL (e.g. `http://localhost:3001`).
 - **Admin**: Set `VITE_API_URL` and Firebase client env vars (`VITE_FIREBASE_*`).
