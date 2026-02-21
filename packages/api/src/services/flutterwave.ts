@@ -40,7 +40,13 @@ type FlutterwaveVerifyResponse = {
 };
 
 function getSecretKey(): string {
-  const key = process.env.FLUTTERWAVE_SECRET_KEY ?? process.env.FLUTTERWAVE_CLIENT_SECRET;
+  const rawKey =
+    process.env.FLUTTERWAVE_SECRET_KEY ??
+    process.env.FLUTTERWAVE_CLIENT_SECRET ??
+    process.env.FLW_SECRET_KEY;
+
+  const key = rawKey?.trim().replace(/^Bearer\s+/i, '').replace(/^"(.+)"$/, '$1').replace(/^'(.+)'$/, '$1');
+
   if (!key) {
     throw new Error('Missing Flutterwave secret. Set FLUTTERWAVE_SECRET_KEY or FLUTTERWAVE_CLIENT_SECRET.');
   }
@@ -55,7 +61,9 @@ export function getFlutterwaveCredentialInfo(): {
 } {
   return {
     hasClientId: Boolean(process.env.FLUTTERWAVE_CLIENT_ID),
-    hasClientSecret: Boolean(process.env.FLUTTERWAVE_SECRET_KEY ?? process.env.FLUTTERWAVE_CLIENT_SECRET),
+    hasClientSecret: Boolean(
+      process.env.FLUTTERWAVE_SECRET_KEY ?? process.env.FLUTTERWAVE_CLIENT_SECRET ?? process.env.FLW_SECRET_KEY,
+    ),
     hasEncryptionKey: Boolean(process.env.FLUTTERWAVE_ENCRYPTION_KEY),
     hasWebhookSecretHash: Boolean(process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH),
   };
