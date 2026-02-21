@@ -98,10 +98,11 @@
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 15% 20%, rgba(125, 211, 252, 0.42), transparent 42%),
-    radial-gradient(circle at 85% 10%, rgba(167, 139, 250, 0.34), transparent 38%),
-    radial-gradient(circle at 60% 80%, rgba(96, 165, 250, 0.22), transparent 35%),
-    linear-gradient(140deg, #eef6ff 0%, #e9ecff 45%, #f3e8ff 100%);
+    radial-gradient(circle at 18% 22%, rgba(186, 230, 253, 0.55), transparent 46%),
+    radial-gradient(circle at 82% 12%, rgba(216, 180, 254, 0.42), transparent 42%),
+    radial-gradient(circle at 62% 78%, rgba(191, 219, 254, 0.36), transparent 40%),
+    linear-gradient(145deg, #f7fbff 0%, #f2f7ff 52%, #faf5ff 100%);
+  animation: gradient-shift 14s ease-in-out infinite alternate;
 }
 
 .auth-page-shell {
@@ -120,14 +121,11 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 10% 10%, rgba(56, 189, 248, 0.34) 0%, transparent 30%),
-    radial-gradient(circle at 90% 90%, rgba(129, 140, 248, 0.3) 0%, transparent 32%),
-    repeating-linear-gradient(
-      120deg,
-      rgba(148, 163, 184, 0.1) 0 1px,
-      transparent 1px 42px
-    );
+    radial-gradient(circle at 12% 14%, rgba(125, 211, 252, 0.4) 0%, transparent 36%),
+    radial-gradient(circle at 88% 82%, rgba(196, 181, 253, 0.36) 0%, transparent 38%),
+    radial-gradient(circle at 50% 52%, rgba(191, 219, 254, 0.22) 0%, transparent 45%);
   z-index: 1;
+  animation: aurora-drift 12s ease-in-out infinite;
 }
 
 .dynamic-bg::after {
@@ -135,38 +133,40 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(96, 165, 250, 0.22) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(167, 139, 250, 0.2) 1px, transparent 1px),
-    radial-gradient(circle at center, rgba(125, 211, 252, 0.45) 0%, transparent 58%);
-  background-size: 45px 45px, 45px 45px, 100% 100%;
-  transform: perspective(900px) rotateX(70deg) translateY(-140px) scale(1.1);
-  mask-image: linear-gradient(to bottom, transparent 5%, black 45%, transparent 100%);
-  opacity: 0.5;
-  animation: pulse-grid 10s ease-in-out infinite;
+    radial-gradient(circle at 26% 18%, rgba(147, 197, 253, 0.42) 0%, transparent 38%),
+    radial-gradient(circle at 76% 74%, rgba(192, 132, 252, 0.36) 0%, transparent 36%);
+  opacity: 0.75;
+  filter: blur(32px);
+  animation: glow-wave 11s ease-in-out infinite;
   z-index: 2;
 }
 
-@keyframes pulse-grid {
+@keyframes gradient-shift {
+  0% { transform: scale(1) translate3d(0, 0, 0); }
+  100% { transform: scale(1.04) translate3d(-1.5%, 1.5%, 0); }
+}
+
+@keyframes aurora-drift {
   0%,
-  100% {
-    opacity: 0.5;
-    transform: perspective(900px) rotateX(70deg) translateY(-140px) scale(1.08);
-  }
-  50% {
-    opacity: 0.72;
-    transform: perspective(900px) rotateX(68deg) translateY(-132px) scale(1.12);
-  }
+  100% { transform: translate3d(0, 0, 0); opacity: 0.95; }
+  50% { transform: translate3d(1.5%, -1%, 0); opacity: 0.75; }
+}
+
+@keyframes glow-wave {
+  0%,
+  100% { transform: scale(1) translate3d(0, 0, 0); opacity: 0.7; }
+  50% { transform: scale(1.08) translate3d(1%, -1%, 0); opacity: 0.9; }
 }
 
 /* Auth Pages Specific Styles */
 .auth-card {
   background: linear-gradient(145deg, rgba(248, 250, 252, 0.95), rgba(241, 245, 249, 0.87));
   backdrop-filter: blur(20px);
-  border-radius: 20px;
-  padding: 36px;
-  box-shadow: 0 20px 45px -20px rgba(14, 116, 144, 0.65);
+  border-radius: 18px;
+  padding: 28px;
+  box-shadow: 0 14px 30px -18px rgba(14, 116, 144, 0.45);
   width: 100%;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(148, 163, 184, 0.28);
 }
 
 .auth-page-shell .auth-card {
@@ -175,8 +175,8 @@
 
 @media (max-width: 640px) {
   .auth-card {
-    padding: 28px 22px;
-    border-radius: 18px;
+    padding: 22px 18px;
+    border-radius: 16px;
   }
 }
 
