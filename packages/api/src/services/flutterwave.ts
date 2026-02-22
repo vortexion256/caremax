@@ -69,11 +69,15 @@ function getSecretKey(): string {
       'Flutterwave secret is misconfigured: received a Public Key (FLWPUBK...). Use the Secret Key (FLWSECK...).',
     );
   }
-  if (!/^FLWSECK/i.test(key)) {
+  if (/^FLWENC/i.test(key)) {
     throw new Error(
-      'Flutterwave secret is misconfigured: expected a Secret Key that starts with FLWSECK.... Double-check the copied value and environment variable name.',
+      'Flutterwave secret is misconfigured: received an Encryption Key (FLWENC...). Use your API Secret Key instead.',
     );
   }
+
+  // Flutterwave key formats can vary by dashboard generation and account mode.
+  // Keep strict checks for known-invalid key types above, but allow other non-empty
+  // secret values so valid sandbox/live credentials are not rejected locally.
   return key;
 }
 
