@@ -54,7 +54,9 @@ function getSecretKey(): string {
     process.env.FLUTTERWAVE_SECRET_KEY ??
       process.env.FLUTTERWAVE_CLIENT_SECRET ??
       process.env.FLW_SECRET_KEY ??
-      process.env.FLUTTERWAVE_SECRET,
+      process.env.FLUTTERWAVE_SECRET ??
+      process.env.FLUTTERWAVE_SECRETKEY ??
+      process.env.FLW_SECRET,
   );
 
   if (!key) {
@@ -65,6 +67,11 @@ function getSecretKey(): string {
   if (/^FLWPUBK/i.test(key)) {
     throw new Error(
       'Flutterwave secret is misconfigured: received a Public Key (FLWPUBK...). Use the Secret Key (FLWSECK...).',
+    );
+  }
+  if (!/^FLWSECK/i.test(key)) {
+    throw new Error(
+      'Flutterwave secret is misconfigured: expected a Secret Key that starts with FLWSECK.... Double-check the copied value and environment variable name.',
     );
   }
   return key;
@@ -79,10 +86,14 @@ export function getFlutterwaveCredentialInfo(): {
   return {
     hasClientId: Boolean(process.env.FLUTTERWAVE_CLIENT_ID),
     hasClientSecret: Boolean(
-      process.env.FLUTTERWAVE_SECRET_KEY ??
-        process.env.FLUTTERWAVE_CLIENT_SECRET ??
-        process.env.FLW_SECRET_KEY ??
-        process.env.FLUTTERWAVE_SECRET,
+      normalizeEnvSecret(
+        process.env.FLUTTERWAVE_SECRET_KEY ??
+          process.env.FLUTTERWAVE_CLIENT_SECRET ??
+          process.env.FLW_SECRET_KEY ??
+          process.env.FLUTTERWAVE_SECRET ??
+          process.env.FLUTTERWAVE_SECRETKEY ??
+          process.env.FLW_SECRET,
+      ),
     ),
     hasEncryptionKey: Boolean(process.env.FLUTTERWAVE_ENCRYPTION_KEY),
     hasWebhookSecretHash: Boolean(process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH),
