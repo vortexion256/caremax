@@ -5,6 +5,7 @@ type MarzPayCredentialStatus = {
   provider: 'marzpay';
   credentials: {
     hasCollectionsUrl: boolean;
+    hasPaymentLink: boolean;
     hasCheckoutUrl: boolean;
     hasSecretKey: boolean;
     hasVerifyUrl: boolean;
@@ -61,7 +62,7 @@ export default function PlatformPayments() {
       {providerStatus && (
         <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, border: '1px solid #cbd5e1', background: '#f8fafc' }}>
           <strong>Marz Pay config:</strong>{' '}
-          collectionsUrl={String(providerStatus.credentials.hasCollectionsUrl)}, checkoutUrl={String(providerStatus.credentials.hasCheckoutUrl)}, secret={String(providerStatus.credentials.hasSecretKey)}, verifyUrl={String(providerStatus.credentials.hasVerifyUrl)}
+          collectionsUrl={String(providerStatus.credentials.hasCollectionsUrl)}, paymentLink={String(providerStatus.credentials.hasPaymentLink)}, checkoutUrl={String(providerStatus.credentials.hasCheckoutUrl)}, secret={String(providerStatus.credentials.hasSecretKey)}, verifyUrl={String(providerStatus.credentials.hasVerifyUrl)}
         </div>
       )}
 
