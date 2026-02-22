@@ -47,7 +47,7 @@ Put your `.env` in the **repo root** (`e:\caremax\.env`). The API loads it from 
   - `MARZPAY_VERIFY_URL` (optional verification endpoint if available)
   - Notes:
     - Use raw values only (no surrounding quotes and no `Bearer ` prefix).
-    - `MARZPAY_SECRET_KEY` is recommended for collections API auth and optional for verification if your verify endpoint requires bearer auth.
+    - `MARZPAY_SECRET_KEY` is required for collections API auth, but optional when you use `MARZPAY_PAYMENT_LINK` fallback only (and optional for verification if your verify endpoint requires bearer auth).
     - If credentials are updated, redeploy/restart the API so new env vars are loaded.
 
 Example `.env` snippet:
