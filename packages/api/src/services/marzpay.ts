@@ -26,18 +26,58 @@ type MarzPayVerificationResult = {
   paidAt?: string;
 };
 
+type MarzCollectionsCreateResponse = {
+  status?: string;
+  message?: string;
+  data?: {
+    checkoutUrl?: string;
+    checkout_url?: string;
+    paymentLink?: string;
+    payment_link?: string;
+    url?: string;
+    transactionId?: number;
+    transaction_id?: number;
+  };
+  checkoutUrl?: string;
+  checkout_url?: string;
+  paymentLink?: string;
+  payment_link?: string;
+  url?: string;
+  transactionId?: number;
+  transaction_id?: number;
+};
+
 const DEFAULT_CHECKOUT_URL = 'https://wallet.wearemarz.com/checkout';
 
-export function getMarzPayCredentialInfo() {
-  return {
-    hasCheckoutUrl: Boolean(normalize(process.env.MARZPAY_CHECKOUT_URL)),
-    hasSecretKey: Boolean(normalize(process.env.MARZPAY_SECRET_KEY)),
-    hasVerifyUrl: Boolean(normalize(process.env.MARZPAY_VERIFY_URL)),
-  };
+function getCollectionsUrl(): string {
+  return normalize(process.env.MARZPAY_COLLECTIONS_URL);
 }
 
-export async function initializeMarzPayPayment(payload: MarzPayInitializePayload): Promise<{ paymentLink: string }> {
-  const checkoutUrl = normalize(process.env.MARZPAY_CHECKOUT_URL) || DEFAULT_CHECKOUT_URL;
+function getCheckoutUrl(): string {
+  return normalize(process.env.MARZPAY_CHECKOUT_URL) || DEFAULT_CHECKOUT_URL;
+}
+
+function getMarzSecretKey(): string {
+  return normalize(process.env.MARZPAY_SECRET_KEY);
+}
+
+function extractPaymentLink(body: MarzCollectionsCreateResponse): string {
+  return (
+    body.data?.checkoutUrl ??
+    body.data?.checkout_url ??
+    body.data?.paymentLink ??
+    body.data?.payment_link ??
+    body.data?.url ??
+    body.checkoutUrl ??
+    body.checkout_url ??
+    body.paymentLink ??
+    body.payment_link ??
+    body.url ??
+    ''
+  );
+}
+
+function fallbackPaymentLink(payload: MarzPayInitializePayload): string {
   const params = new URLSearchParams({
     tx_ref: payload.txRef,
     amount: String(payload.amount),
@@ -52,7 +92,61 @@ export async function initializeMarzPayPayment(payload: MarzPayInitializePayload
     params.set('name', payload.customerName);
   }
 
-  return { paymentLink: `${checkoutUrl}?${params.toString()}` };
+  return `${getCheckoutUrl()}?${params.toString()}`;
+}
+
+export function getMarzPayCredentialInfo() {
+  return {
+    hasCollectionsUrl: Boolean(getCollectionsUrl()),
+    hasCheckoutUrl: Boolean(normalize(process.env.MARZPAY_CHECKOUT_URL)),
+    hasSecretKey: Boolean(getMarzSecretKey()),
+    hasVerifyUrl: Boolean(normalize(process.env.MARZPAY_VERIFY_URL)),
+  };
+}
+
+export async function initializeMarzPayPayment(payload: MarzPayInitializePayload): Promise<{ paymentLink: string; transactionId?: number }> {
+  const collectionsUrl = getCollectionsUrl();
+
+  if (!collectionsUrl) {
+    return { paymentLink: fallbackPaymentLink(payload) };
+  }
+
+  const secret = getMarzSecretKey();
+  const response = await fetch(collectionsUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(secret ? { Authorization: `Bearer ${secret}` } : {}),
+    },
+    body: JSON.stringify({
+      tx_ref: payload.txRef,
+      amount: payload.amount,
+      currency: payload.currency,
+      email: payload.customerEmail,
+      name: payload.customerName,
+      redirect_url: payload.redirectUrl,
+      meta: {
+        tenantId: payload.tenantId,
+        billingPlanId: payload.billingPlanId,
+      },
+    }),
+  });
+
+  const body = (await response.json().catch(() => ({}))) as MarzCollectionsCreateResponse;
+
+  if (!response.ok) {
+    throw new Error(body.message || 'Marz Pay collections initialization failed');
+  }
+
+  const paymentLink = extractPaymentLink(body);
+  if (!paymentLink) {
+    throw new Error('Marz Pay collections response did not include a checkout URL');
+  }
+
+  return {
+    paymentLink,
+    transactionId: body.data?.transactionId ?? body.data?.transaction_id ?? body.transactionId ?? body.transaction_id,
+  };
 }
 
 export async function verifyMarzPayTransaction(input: MarzPayVerificationInput): Promise<MarzPayVerificationResult> {
@@ -60,7 +154,7 @@ export async function verifyMarzPayTransaction(input: MarzPayVerificationInput):
   const status = normalize(input.status).toLowerCase();
 
   if (verifyUrl) {
-    const secret = normalize(process.env.MARZPAY_SECRET_KEY);
+    const secret = getMarzSecretKey();
     const url = new URL(verifyUrl);
     url.searchParams.set('tx_ref', input.txRef);
     if (input.reference) url.searchParams.set('reference', input.reference);

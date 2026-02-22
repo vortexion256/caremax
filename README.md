@@ -39,18 +39,20 @@ Put your `.env` in the **repo root** (`e:\caremax\.env`). The API loads it from 
   - **Option B**: In `.env` set `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and `FIREBASE_PRIVATE_KEY` (copy these from the same service account JSON; keep the key in quotes and use `\n` for newlines).
 - Optionally set `FIREBASE_STORAGE_BUCKET`, `ALLOWED_ORIGINS`, `PORT`.
 - For Marz Pay billing, configure checkout + optional server-side verification:
-  - `MARZPAY_CHECKOUT_URL`
+  - `MARZPAY_COLLECTIONS_URL` (recommended, from Marz collections docs)
+  - `MARZPAY_CHECKOUT_URL` (fallback only)
   - `MARZPAY_SECRET_KEY`
   - `ADMIN_APP_URL` (e.g. `http://localhost:3002`)
   - `MARZPAY_VERIFY_URL` (optional verification endpoint if available)
   - Notes:
     - Use raw values only (no surrounding quotes and no `Bearer ` prefix).
-    - `MARZPAY_SECRET_KEY` is optional unless your verification endpoint requires bearer auth.
+    - `MARZPAY_SECRET_KEY` is recommended for collections API auth and optional for verification if your verify endpoint requires bearer auth.
     - If credentials are updated, redeploy/restart the API so new env vars are loaded.
 
 Example `.env` snippet:
 
 ```bash
+MARZPAY_COLLECTIONS_URL=https://wallet.wearemarz.com/api/collections
 MARZPAY_CHECKOUT_URL=https://wallet.wearemarz.com/checkout
 MARZPAY_SECRET_KEY=your_secret_if_needed
 ADMIN_APP_URL=http://localhost:3002
