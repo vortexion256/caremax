@@ -47,18 +47,17 @@ type MarzCollectionsCreateResponse = {
   transaction_id?: number;
 };
 
-const DEFAULT_CHECKOUT_URL = 'https://wallet.wearemarz.com/checkout';
-
 function getCollectionsUrl(): string {
   return normalize(process.env.MARZPAY_COLLECTIONS_URL);
 }
 
-function getCheckoutUrl(): string {
-  return normalize(process.env.MARZPAY_CHECKOUT_URL) || DEFAULT_CHECKOUT_URL;
+function getConfiguredPaymentUrl(): string {
+  return normalize(process.env.MARZPAY_PAYMENT_LINK) || normalize(process.env.MARZPAY_CHECKOUT_URL);
 }
 
 function getMarzSecretKey(): string {
-  return normalize(process.env.MARZPAY_SECRET_KEY);
+  const raw = normalize(process.env.MARZPAY_SECRET_KEY);
+  return raw.replace(/^Bearer\s+/i, '');
 }
 
 function extractPaymentLink(body: MarzCollectionsCreateResponse): string {
@@ -78,6 +77,11 @@ function extractPaymentLink(body: MarzCollectionsCreateResponse): string {
 }
 
 function fallbackPaymentLink(payload: MarzPayInitializePayload): string {
+  const checkoutUrl = getConfiguredPaymentUrl();
+  if (!checkoutUrl) {
+    throw new Error('Marz Pay is not configured: set MARZPAY_COLLECTIONS_URL (recommended), MARZPAY_PAYMENT_LINK, or MARZPAY_CHECKOUT_URL');
+  }
+
   const params = new URLSearchParams({
     tx_ref: payload.txRef,
     amount: String(payload.amount),
@@ -92,12 +96,13 @@ function fallbackPaymentLink(payload: MarzPayInitializePayload): string {
     params.set('name', payload.customerName);
   }
 
-  return `${getCheckoutUrl()}?${params.toString()}`;
+  return `${checkoutUrl}?${params.toString()}`;
 }
 
 export function getMarzPayCredentialInfo() {
   return {
     hasCollectionsUrl: Boolean(getCollectionsUrl()),
+    hasPaymentLink: Boolean(normalize(process.env.MARZPAY_PAYMENT_LINK)),
     hasCheckoutUrl: Boolean(normalize(process.env.MARZPAY_CHECKOUT_URL)),
     hasSecretKey: Boolean(getMarzSecretKey()),
     hasVerifyUrl: Boolean(normalize(process.env.MARZPAY_VERIFY_URL)),
@@ -105,9 +110,10 @@ export function getMarzPayCredentialInfo() {
 }
 
 export async function initializeMarzPayPayment(payload: MarzPayInitializePayload): Promise<{ paymentLink: string; transactionId?: number }> {
+  const configuredFallbackUrl = getConfiguredPaymentUrl();
   const collectionsUrl = getCollectionsUrl();
 
-  if (!collectionsUrl) {
+  if (!collectionsUrl || (configuredFallbackUrl && !getMarzSecretKey())) {
     return { paymentLink: fallbackPaymentLink(payload) };
   }
 
@@ -135,6 +141,9 @@ export async function initializeMarzPayPayment(payload: MarzPayInitializePayload
   const body = (await response.json().catch(() => ({}))) as MarzCollectionsCreateResponse;
 
   if (!response.ok) {
+    if (configuredFallbackUrl) {
+      return { paymentLink: fallbackPaymentLink(payload) };
+    }
     throw new Error(body.message || 'Marz Pay collections initialization failed');
   }
 
