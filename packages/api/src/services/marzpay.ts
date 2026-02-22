@@ -47,14 +47,12 @@ type MarzCollectionsCreateResponse = {
   transaction_id?: number;
 };
 
-const DEFAULT_CHECKOUT_URL = 'https://wallet.wearemarz.com/checkout';
-
 function getCollectionsUrl(): string {
   return normalize(process.env.MARZPAY_COLLECTIONS_URL);
 }
 
-function getCheckoutUrl(): string {
-  return normalize(process.env.MARZPAY_CHECKOUT_URL) || DEFAULT_CHECKOUT_URL;
+function getConfiguredPaymentUrl(): string {
+  return normalize(process.env.MARZPAY_PAYMENT_LINK) || normalize(process.env.MARZPAY_CHECKOUT_URL);
 }
 
 function getMarzSecretKey(): string {
@@ -78,6 +76,11 @@ function extractPaymentLink(body: MarzCollectionsCreateResponse): string {
 }
 
 function fallbackPaymentLink(payload: MarzPayInitializePayload): string {
+  const checkoutUrl = getConfiguredPaymentUrl();
+  if (!checkoutUrl) {
+    throw new Error('Marz Pay is not configured: set MARZPAY_COLLECTIONS_URL (recommended), MARZPAY_PAYMENT_LINK, or MARZPAY_CHECKOUT_URL');
+  }
+
   const params = new URLSearchParams({
     tx_ref: payload.txRef,
     amount: String(payload.amount),
@@ -92,12 +95,13 @@ function fallbackPaymentLink(payload: MarzPayInitializePayload): string {
     params.set('name', payload.customerName);
   }
 
-  return `${getCheckoutUrl()}?${params.toString()}`;
+  return `${checkoutUrl}?${params.toString()}`;
 }
 
 export function getMarzPayCredentialInfo() {
   return {
     hasCollectionsUrl: Boolean(getCollectionsUrl()),
+    hasPaymentLink: Boolean(normalize(process.env.MARZPAY_PAYMENT_LINK)),
     hasCheckoutUrl: Boolean(normalize(process.env.MARZPAY_CHECKOUT_URL)),
     hasSecretKey: Boolean(getMarzSecretKey()),
     hasVerifyUrl: Boolean(normalize(process.env.MARZPAY_VERIFY_URL)),

@@ -40,7 +40,8 @@ Put your `.env` in the **repo root** (`e:\caremax\.env`). The API loads it from 
 - Optionally set `FIREBASE_STORAGE_BUCKET`, `ALLOWED_ORIGINS`, `PORT`.
 - For Marz Pay billing, configure checkout + optional server-side verification:
   - `MARZPAY_COLLECTIONS_URL` (recommended, from Marz collections docs)
-  - `MARZPAY_CHECKOUT_URL` (fallback only)
+  - `MARZPAY_PAYMENT_LINK` (direct hosted payment link fallback, e.g. `https://wallet.wearemarz.com/pay/<id>`)
+  - `MARZPAY_CHECKOUT_URL` (legacy fallback only)
   - `MARZPAY_SECRET_KEY`
   - `ADMIN_APP_URL` (e.g. `http://localhost:3002`)
   - `MARZPAY_VERIFY_URL` (optional verification endpoint if available)
@@ -53,12 +54,17 @@ Example `.env` snippet:
 
 ```bash
 MARZPAY_COLLECTIONS_URL=https://wallet.wearemarz.com/api/collections
+MARZPAY_PAYMENT_LINK=https://wallet.wearemarz.com/pay/c0f2b42d-e620-4d7a-9ad2-59d89cec398e
 MARZPAY_CHECKOUT_URL=https://wallet.wearemarz.com/checkout
 MARZPAY_SECRET_KEY=your_secret_if_needed
 ADMIN_APP_URL=http://localhost:3002
 MARZPAY_VERIFY_URL=https://wallet.wearemarz.com/api/verify
 ```
 - Tenant checkout and verification routes: `POST /tenants/:tenantId/payments/marzpay/initialize` and `POST /tenants/:tenantId/payments/marzpay/verify`
+- Callback URL for Marz hosted links should point back to your admin billing page, for example:
+  - local: `http://localhost:5173/billing?payment=marzpay`
+  - production: `https://caremax-admin.vercel.app/billing?payment=marzpay`
+  - If Marz supports placeholders, append `&tx_ref={tx_ref}` so verification can map transactions reliably.
 - **Widget**: Set `VITE_API_URL` to your API URL (e.g. `http://localhost:3001`).
 - **Admin**: Set `VITE_API_URL` and Firebase client env vars (`VITE_FIREBASE_*`).
 
