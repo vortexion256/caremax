@@ -146,7 +146,7 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
     }
 
     const txRef = `caremax-${tenantId}-${body.data.billingPlanId}-${Date.now()}`;
-    const adminBaseUrl = process.env.ADMIN_APP_URL ?? 'http://localhost:5173';
+    const adminBaseUrl = process.env.ADMIN_APP_URL ?? 'https://caremax-admin.vercel.app';
     const redirectUrl = `${adminBaseUrl.replace(/\/$/, '')}/billing?payment=marzpay&tx_ref=${encodeURIComponent(txRef)}`;
 
     const initResult = await initializeMarzPayPayment({
