@@ -38,26 +38,25 @@ Put your `.env` in the **repo root** (`e:\caremax\.env`). The API loads it from 
   - **Option A**: Download the service account JSON (Firebase Console → Project settings → Service accounts → Generate new private key). Save it as `service-account.json` in the repo root. In `.env` set `GOOGLE_APPLICATION_CREDENTIALS=./service-account.json`.
   - **Option B**: In `.env` set `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and `FIREBASE_PRIVATE_KEY` (copy these from the same service account JSON; keep the key in quotes and use `\n` for newlines).
 - Optionally set `FIREBASE_STORAGE_BUCKET`, `ALLOWED_ORIGINS`, `PORT`.
-- For Flutterwave billing, use **OAuth client credentials only**:
-  - `FLUTTERWAVE_CLIENT_ID`
-  - `FLUTTERWAVE_CLIENT_SECRET`
+- For Marz Pay billing, configure checkout + optional server-side verification:
+  - `MARZPAY_CHECKOUT_URL`
+  - `MARZPAY_SECRET_KEY`
   - `ADMIN_APP_URL` (e.g. `http://localhost:3002`)
-  - `FLUTTERWAVE_WEBHOOK_SECRET_HASH` (from Flutterwave dashboard webhook settings)
+  - `MARZPAY_VERIFY_URL` (optional verification endpoint if available)
   - Notes:
     - Use raw values only (no surrounding quotes and no `Bearer ` prefix).
-    - `FLUTTERWAVE_CLIENT_SECRET` must be the OAuth client secret; do not use a public key (`FLWPUBK...`) or encryption key (`FLWENC...`).
-    - Sandbox OAuth credentials only work in sandbox mode, and live OAuth credentials only work in live mode.
+    - `MARZPAY_SECRET_KEY` is optional unless your verification endpoint requires bearer auth.
     - If credentials are updated, redeploy/restart the API so new env vars are loaded.
 
 Example `.env` snippet:
 
 ```bash
-FLUTTERWAVE_CLIENT_ID=your_client_id
-FLUTTERWAVE_CLIENT_SECRET=your_client_secret
+MARZPAY_CHECKOUT_URL=https://wallet.wearemarz.com/checkout
+MARZPAY_SECRET_KEY=your_secret_if_needed
 ADMIN_APP_URL=http://localhost:3002
-FLUTTERWAVE_WEBHOOK_SECRET_HASH=your_webhook_hash
+MARZPAY_VERIFY_URL=https://wallet.wearemarz.com/api/verify
 ```
-- Webhook endpoint to configure in Flutterwave: `POST /flutterwave/webhook`
+- Tenant checkout and verification routes: `POST /tenants/:tenantId/payments/marzpay/initialize` and `POST /tenants/:tenantId/payments/marzpay/verify`
 - **Widget**: Set `VITE_API_URL` to your API URL (e.g. `http://localhost:3001`).
 - **Admin**: Set `VITE_API_URL` and Firebase client env vars (`VITE_FIREBASE_*`).
 
