@@ -59,11 +59,14 @@ export default function TenantBilling() {
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') return;
-    const txRef = searchParams.get('tx_ref');
-    const transactionIdRaw = searchParams.get('transaction_id');
+    const txRef = searchParams.get('tx_ref') ?? searchParams.get('txRef') ?? searchParams.get('trxref');
+    const transactionIdRaw = searchParams.get('transaction_id') ?? searchParams.get('transactionId');
     const reference = searchParams.get('reference');
     const status = searchParams.get('status');
-    const transactionId = transactionIdRaw ? Number(transactionIdRaw) : undefined;
+    const parsedTransactionId = transactionIdRaw ? Number(transactionIdRaw) : undefined;
+    const transactionId = typeof parsedTransactionId === 'number' && Number.isFinite(parsedTransactionId) && parsedTransactionId > 0
+      ? parsedTransactionId
+      : undefined;
 
     if (!txRef) return;
     if (status && !['successful', 'success', 'completed', 'paid'].includes(status.toLowerCase())) {
@@ -71,9 +74,14 @@ export default function TenantBilling() {
       return;
     }
 
+    const payload: { txRef: string; transactionId?: number; status?: string; reference?: string } = { txRef };
+    if (transactionId) payload.transactionId = transactionId;
+    if (status) payload.status = status;
+    if (reference) payload.reference = reference;
+
     api(`/tenants/${tenantId}/payments/marzpay/verify`, {
       method: 'POST',
-      body: JSON.stringify({ txRef, transactionId, status, reference }),
+      body: JSON.stringify(payload),
     })
       .then(() => {
         setActionError(null);
