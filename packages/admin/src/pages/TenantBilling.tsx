@@ -61,18 +61,19 @@ export default function TenantBilling() {
     if (!tenantId || tenantId === 'platform') return;
     const txRef = searchParams.get('tx_ref');
     const transactionIdRaw = searchParams.get('transaction_id');
+    const reference = searchParams.get('reference');
     const status = searchParams.get('status');
-    const transactionId = transactionIdRaw ? Number(transactionIdRaw) : NaN;
+    const transactionId = transactionIdRaw ? Number(transactionIdRaw) : undefined;
 
-    if (!txRef || !Number.isFinite(transactionId) || transactionId <= 0) return;
-    if (status && status !== 'successful') {
-      setActionError('Flutterwave payment was not successful. Please try again.');
+    if (!txRef) return;
+    if (status && !['successful', 'success', 'completed', 'paid'].includes(status.toLowerCase())) {
+      setActionError('Marz Pay payment was not successful. Please try again.');
       return;
     }
 
-    api(`/tenants/${tenantId}/payments/flutterwave/verify`, {
+    api(`/tenants/${tenantId}/payments/marzpay/verify`, {
       method: 'POST',
-      body: JSON.stringify({ txRef, transactionId }),
+      body: JSON.stringify({ txRef, transactionId, status, reference }),
     })
       .then(() => {
         setActionError(null);
@@ -88,7 +89,7 @@ export default function TenantBilling() {
     if (!tenantId || tenantId === 'platform') return;
     setBusyPlan(billingPlanId);
     try {
-      const res = await api<{ paymentLink: string }>(`/tenants/${tenantId}/payments/flutterwave/initialize`, {
+      const res = await api<{ paymentLink: string }>(`/tenants/${tenantId}/payments/marzpay/initialize`, {
         method: 'POST',
         body: JSON.stringify({ billingPlanId }),
       });
@@ -155,7 +156,7 @@ export default function TenantBilling() {
                     disabled={busyPlan === plan.id}
                     style={{ marginTop: 10, padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
                   >
-                    {busyPlan === plan.id ? 'Redirecting…' : 'Pay with Flutterwave'}
+                    {busyPlan === plan.id ? 'Redirecting…' : 'Pay with Marz Pay'}
                   </button>
                 )}
               </div>

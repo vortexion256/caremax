@@ -3,7 +3,7 @@ import { db, auth, bucket } from '../config/firebase.js';
 import { requireAuth, requirePlatformAdmin } from '../middleware/auth.js';
 import { z } from 'zod';
 import { getTenantBillingStatus } from '../services/billing.js';
-import { getFlutterwaveCredentialInfo } from '../services/flutterwave.js';
+import { getMarzPayCredentialInfo } from '../services/marzpay.js';
 
 export const platformRouter: Router = Router();
 
@@ -421,17 +421,17 @@ platformRouter.patch('/tenants/:tenantId/billing', async (req, res) => {
 
 
 
-platformRouter.get('/billing/providers/flutterwave/status', async (_req, res) => {
+platformRouter.get('/billing/providers/marzpay/status', async (_req, res) => {
   try {
-    const credentials = getFlutterwaveCredentialInfo();
+    const credentials = getMarzPayCredentialInfo();
     res.json({
-      provider: 'flutterwave',
+      provider: 'marzpay',
       credentials,
-      readyForCheckout: credentials.hasClientSecret && credentials.hasWebhookSecretHash,
+      readyForCheckout: credentials.hasCollectionsUrl || credentials.hasCheckoutUrl,
     });
   } catch (e) {
-    console.error('Failed to load Flutterwave credential status:', e);
-    res.status(500).json({ error: 'Failed to load Flutterwave credential status' });
+    console.error('Failed to load Marz Pay credential status:', e);
+    res.status(500).json({ error: 'Failed to load Marz Pay credential status' });
   }
 });
 
@@ -454,7 +454,7 @@ platformRouter.get('/billing/payments', async (req, res) => {
       const data = d.data();
       return {
         paymentId: d.id,
-        provider: data.provider ?? 'flutterwave',
+        provider: data.provider ?? 'marzpay',
         tenantId: data.tenantId ?? null,
         billingPlanId: data.billingPlanId ?? null,
         txRef: data.txRef ?? d.id,

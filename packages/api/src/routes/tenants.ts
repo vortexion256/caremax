@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireTenantParam } from '../middleware/auth.js';
 import { db } from '../config/firebase.js';
 import { activateTenantSubscription, getTenantBillingStatus } from '../services/billing.js';
-import { initializeFlutterwavePayment, verifyFlutterwaveTransactionById } from '../services/flutterwave.js';
+import { initializeMarzPayPayment, verifyMarzPayTransaction } from '../services/marzpay.js';
 import { z } from 'zod';
 
 export const tenantRouter: Router = Router();
@@ -109,7 +109,7 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
   });
 });
 
-tenantRouter.post('/:tenantId/payments/flutterwave/initialize', requireTenantParam, async (req, res) => {
+tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, async (req, res) => {
   const body = z.object({ billingPlanId: z.string().min(1) }).safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
@@ -147,29 +147,21 @@ tenantRouter.post('/:tenantId/payments/flutterwave/initialize', requireTenantPar
 
     const txRef = `caremax-${tenantId}-${body.data.billingPlanId}-${Date.now()}`;
     const adminBaseUrl = process.env.ADMIN_APP_URL ?? 'http://localhost:5173';
-    const redirectUrl = `${adminBaseUrl.replace(/\/$/, '')}/billing?payment=flutterwave&tx_ref=${encodeURIComponent(txRef)}`;
+    const redirectUrl = `${adminBaseUrl.replace(/\/$/, '')}/billing?payment=marzpay&tx_ref=${encodeURIComponent(txRef)}`;
 
-    const initResult = await initializeFlutterwavePayment({
-      tx_ref: txRef,
+    const initResult = await initializeMarzPayPayment({
+      txRef,
       amount,
       currency: 'USD',
-      redirect_url: redirectUrl,
-      customer: {
-        email: customerEmail,
-        name: typeof tenantData.name === 'string' ? tenantData.name : undefined,
-      },
-      customizations: {
-        title: 'CareMax Subscription',
-        description: `Payment for ${(plan.name as string | undefined) ?? body.data.billingPlanId} plan`,
-      },
-      meta: {
-        tenantId,
-        billingPlanId: body.data.billingPlanId,
-      },
+      redirectUrl,
+      customerEmail,
+      customerName: typeof tenantData.name === 'string' ? tenantData.name : undefined,
+      tenantId,
+      billingPlanId: body.data.billingPlanId,
     });
 
     await db.collection('payments').doc(txRef).set({
-      provider: 'flutterwave',
+      provider: 'marzpay',
       tenantId,
       billingPlanId: body.data.billingPlanId,
       amount,
@@ -178,6 +170,7 @@ tenantRouter.post('/:tenantId/payments/flutterwave/initialize', requireTenantPar
       status: 'pending',
       customerEmail,
       paymentLink: initResult.paymentLink,
+      providerTransactionId: initResult.transactionId ?? null,
       createdByUid: res.locals.uid,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -185,14 +178,14 @@ tenantRouter.post('/:tenantId/payments/flutterwave/initialize', requireTenantPar
 
     res.json({ txRef, paymentLink: initResult.paymentLink });
   } catch (e) {
-    const message = e instanceof Error ? e.message : 'Failed to initialize Flutterwave payment';
-    console.error('Failed to initialize Flutterwave payment:', e);
+    const message = e instanceof Error ? e.message : 'Failed to initialize Marz Pay payment';
+    console.error('Failed to initialize Marz Pay payment:', e);
     res.status(502).json({ error: message });
   }
 });
 
-tenantRouter.post('/:tenantId/payments/flutterwave/verify', requireTenantParam, async (req, res) => {
-  const body = z.object({ txRef: z.string().min(1), transactionId: z.number().int().positive() }).safeParse(req.body);
+tenantRouter.post('/:tenantId/payments/marzpay/verify', requireTenantParam, async (req, res) => {
+  const body = z.object({ txRef: z.string().min(1), transactionId: z.number().int().positive().optional(), status: z.string().optional(), reference: z.string().optional() }).safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
     return;
@@ -213,27 +206,22 @@ tenantRouter.post('/:tenantId/payments/flutterwave/verify', requireTenantParam, 
       return;
     }
 
-    const verified = await verifyFlutterwaveTransactionById(body.data.transactionId);
+    const verified = await verifyMarzPayTransaction(body.data);
     if (!verified) {
       res.status(400).json({ error: 'Payment verification failed' });
       return;
     }
     const billingPlanId = typeof paymentData.billingPlanId === 'string' ? paymentData.billingPlanId : null;
-    const expectedAmount = typeof paymentData.amount === 'number' ? paymentData.amount : 0;
-    const status = verified.status === 'successful' ? 'completed' : 'failed';
-    const verifiedAmount = typeof verified.amount === 'number' ? verified.amount : 0;
+    const verificationStatus = (verified.status ?? '').toLowerCase();
+    const status = ['successful', 'success', 'completed', 'paid'].includes(verificationStatus) ? 'completed' : 'failed';
 
-    const isValid =
-      verified.tx_ref === body.data.txRef
-      && verified.status === 'successful'
-      && verifiedAmount >= expectedAmount
-      && billingPlanId;
+    const isValid = status === 'completed' && billingPlanId;
 
     if (!isValid || !billingPlanId) {
       await paymentRef.set({
         status: 'failed',
         failureReason: 'Verification mismatch or incomplete payment',
-        providerTransactionId: verified.id,
+        providerTransactionId: verified.transactionId ?? body.data.transactionId ?? null,
         providerStatus: verified.status ?? 'unknown',
         updatedAt: new Date(),
       }, { merge: true });
@@ -245,17 +233,17 @@ tenantRouter.post('/:tenantId/payments/flutterwave/verify', requireTenantParam, 
 
     await paymentRef.set({
       status,
-      providerTransactionId: verified.id,
+      providerTransactionId: verified.transactionId ?? body.data.transactionId ?? null,
       providerStatus: verified.status ?? 'unknown',
-      paidAt: verified.created_at ? new Date(verified.created_at) : new Date(),
+      paidAt: verified.paidAt ? new Date(verified.paidAt) : new Date(),
       verifiedByUid: res.locals.uid,
       updatedAt: new Date(),
     }, { merge: true });
 
     res.json({ success: true, status: 'completed', billingPlanId, durationDays: 30 });
   } catch (e) {
-    console.error('Failed to verify Flutterwave payment:', e);
-    res.status(500).json({ error: 'Failed to verify Flutterwave payment' });
+    console.error('Failed to verify Marz Pay payment:', e);
+    res.status(500).json({ error: 'Failed to verify Marz Pay payment' });
   }
 });
 

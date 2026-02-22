@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 
-type FlutterwaveCredentialStatus = {
-  provider: 'flutterwave';
+type MarzPayCredentialStatus = {
+  provider: 'marzpay';
   credentials: {
-    hasClientId: boolean;
-    hasClientSecret: boolean;
-    hasEncryptionKey: boolean;
-    hasWebhookSecretHash: boolean;
+    hasCollectionsUrl: boolean;
+    hasCheckoutUrl: boolean;
+    hasSecretKey: boolean;
+    hasVerifyUrl: boolean;
   };
   readyForCheckout: boolean;
 };
@@ -32,12 +32,12 @@ export default function PlatformPayments() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [providerStatus, setProviderStatus] = useState<FlutterwaveCredentialStatus | null>(null);
+  const [providerStatus, setProviderStatus] = useState<MarzPayCredentialStatus | null>(null);
 
   useEffect(() => {
     Promise.all([
       api<{ payments: Payment[] }>('/platform/billing/payments'),
-      api<FlutterwaveCredentialStatus>('/platform/billing/providers/flutterwave/status'),
+      api<MarzPayCredentialStatus>('/platform/billing/providers/marzpay/status'),
     ])
       .then(([paymentsRes, providerRes]) => {
         setPayments(paymentsRes.payments);
@@ -56,12 +56,12 @@ export default function PlatformPayments() {
   return (
     <div>
       <h1 style={{ marginTop: 0 }}>Payment Transactions</h1>
-      <p style={{ color: '#64748b' }}>Monitor Flutterwave payment attempts and completed subscription purchases.</p>
+      <p style={{ color: '#64748b' }}>Monitor Marz Pay payment attempts and completed subscription purchases.</p>
 
       {providerStatus && (
         <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, border: '1px solid #cbd5e1', background: '#f8fafc' }}>
-          <strong>Flutterwave credentials:</strong>{' '}
-          clientId={String(providerStatus.credentials.hasClientId)}, secret={String(providerStatus.credentials.hasClientSecret)}, encryptionKey={String(providerStatus.credentials.hasEncryptionKey)}, webhookHash={String(providerStatus.credentials.hasWebhookSecretHash)}
+          <strong>Marz Pay config:</strong>{' '}
+          collectionsUrl={String(providerStatus.credentials.hasCollectionsUrl)}, checkoutUrl={String(providerStatus.credentials.hasCheckoutUrl)}, secret={String(providerStatus.credentials.hasSecretKey)}, verifyUrl={String(providerStatus.credentials.hasVerifyUrl)}
         </div>
       )}
 
