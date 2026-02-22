@@ -77,7 +77,11 @@ function getStaticApiSecret(): string {
       'Flutterwave credential is misconfigured: received a Public Key (FLWPUBK...). Use a server-side secret or OAuth client credentials instead.',
     );
   }
-
+  if (!/^FLWSECK/i.test(key)) {
+    throw new Error(
+      'Flutterwave secret is misconfigured: expected a Secret Key that starts with FLWSECK.... Double-check the copied value and environment variable name.',
+    );
+  }
   return key;
 }
 
@@ -167,8 +171,17 @@ export function getFlutterwaveCredentialInfo(): {
   hasWebhookSecretHash: boolean;
 } {
   return {
-    hasClientId: Boolean(getOAuthClientId()),
-    hasClientSecret: Boolean(getStaticApiSecret() || getOAuthClientSecret()),
+    hasClientId: Boolean(process.env.FLUTTERWAVE_CLIENT_ID),
+    hasClientSecret: Boolean(
+      normalizeEnvSecret(
+        process.env.FLUTTERWAVE_SECRET_KEY ??
+          process.env.FLUTTERWAVE_CLIENT_SECRET ??
+          process.env.FLW_SECRET_KEY ??
+          process.env.FLUTTERWAVE_SECRET ??
+          process.env.FLUTTERWAVE_SECRETKEY ??
+          process.env.FLW_SECRET,
+      ),
+    ),
     hasEncryptionKey: Boolean(process.env.FLUTTERWAVE_ENCRYPTION_KEY),
     hasWebhookSecretHash: Boolean(process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH),
   };
