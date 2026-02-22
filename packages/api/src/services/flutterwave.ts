@@ -59,14 +59,21 @@ function normalizeEnvSecret(rawKey?: string): string {
     .replace(/[\r\n]+/g, '');
 }
 
-function getStaticApiSecret(): string {
-  const key = normalizeEnvSecret(
+function getRawDirectSecretFromEnv(): string | undefined {
+  return (
     process.env.FLUTTERWAVE_SECRET_KEY ??
-      process.env.FLW_SECRET_KEY ??
-      process.env.FLUTTERWAVE_SECRET ??
-      process.env.FLUTTERWAVE_SECRETKEY ??
-      process.env.FLW_SECRET,
+    process.env.FLW_SECRET_KEY ??
+    process.env.FLUTTERWAVE_SECRET ??
+    process.env.FLUTTERWAVE_SECRETKEY ??
+    process.env.FLW_SECRET ??
+    // Legacy/alternate names seen in older deployments.
+    process.env.RAVE_SECRET_KEY ??
+    process.env.FLWSECK
   );
+}
+
+function getStaticApiSecret(): string {
+  const key = normalizeEnvSecret(getRawDirectSecretFromEnv());
 
   if (!key) {
     return '';
@@ -142,15 +149,18 @@ async function getOAuthAccessToken(): Promise<string> {
 }
 
 async function getAuthorizationToken(): Promise<string> {
+  const clientId = getOAuthClientId();
+  const clientSecret = getOAuthClientSecret();
+
+  // Prefer OAuth whenever both OAuth credentials are present.
+  // This avoids accidental use of stale/mis-entered direct secrets in mixed configurations.
+  if (clientId && clientSecret) {
+    return getOAuthAccessToken();
+  }
+
   const staticSecret = getStaticApiSecret();
   if (staticSecret) {
     return staticSecret;
-  }
-
-  const clientId = getOAuthClientId();
-  const clientSecret = getOAuthClientSecret();
-  if (clientId && clientSecret) {
-    return getOAuthAccessToken();
   }
 
   if (clientSecret && !clientId) {
@@ -178,12 +188,9 @@ export function getFlutterwaveCredentialInfo(): {
     hasClientId: Boolean(process.env.FLUTTERWAVE_CLIENT_ID),
     hasClientSecret: Boolean(
       normalizeEnvSecret(
-        process.env.FLUTTERWAVE_SECRET_KEY ??
+        getRawDirectSecretFromEnv() ??
           process.env.FLUTTERWAVE_CLIENT_SECRET ??
-          process.env.FLW_SECRET_KEY ??
-          process.env.FLUTTERWAVE_SECRET ??
-          process.env.FLUTTERWAVE_SECRETKEY ??
-          process.env.FLW_SECRET,
+          process.env.FLW_CLIENT_SECRET,
       ),
     ),
     hasEncryptionKey: Boolean(process.env.FLUTTERWAVE_ENCRYPTION_KEY),
