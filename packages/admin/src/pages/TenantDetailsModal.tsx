@@ -22,6 +22,7 @@ type TenantDetails = {
     isActive: boolean;
     isTrialPlan: boolean;
     isExpired: boolean;
+    expiredReason?: string | null;
     daysRemaining: number | null;
     trialEndsAt: number | null;
     subscriptionEndsAt: number | null;
@@ -30,6 +31,24 @@ type TenantDetails = {
   byUsageType: Array<{ usageType: string; calls: number; totalTokens: number; costUsd: number }>;
   recentEvents: Array<{ eventId: string; usageType: string; measurementSource: string; inputTokens: number; outputTokens: number; costUsd: number; createdAt: number | null }>;
 };
+
+const UGX_PER_USD = 3800;
+const formatUgx = (amount: number) => `UGX ${Math.round(amount).toLocaleString()}`;
+const formatUsageCostUgx = (costUsd: number) => formatUgx(costUsd * UGX_PER_USD);
+
+function getExpiryMessage(reason?: string | null): string {
+  switch (reason) {
+    case 'user_token_limit_reached':
+      return 'Expired early: assigned token balance depleted';
+    case 'user_spend_limit_reached':
+      return 'Expired early: assigned spend amount depleted';
+    case 'duration_elapsed':
+    case 'trial_ended':
+      return 'Expired: billing days elapsed';
+    default:
+      return 'Package expired';
+  }
+}
 
 type Props = {
   tenantId: string;
@@ -227,14 +246,14 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
               {details.billingStatus && (
                 <div style={{ marginBottom: 12, padding: 10, borderRadius: 6, border: `1px solid ${details.billingStatus.isExpired ? '#fecaca' : '#bfdbfe'}`, background: details.billingStatus.isExpired ? '#fef2f2' : '#eff6ff' }}>
                   {details.billingStatus.isExpired
-                    ? 'Trial expired'
+                    ? getExpiryMessage(details.billingStatus.expiredReason)
                     : `Status: active${details.billingStatus.daysRemaining != null ? ` (${details.billingStatus.daysRemaining} day(s) remaining)` : ''}`}
                 </div>
               )}
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
                 <Metric label="API Calls" value={details.totals.calls.toLocaleString()} />
                 <Metric label="Tokens Used" value={details.totals.totalTokens.toLocaleString()} />
-                <Metric label="Cost" value={`$${details.totals.costUsd.toFixed(4)}`} />
+                <Metric label="Cost" value={formatUsageCostUgx(details.totals.costUsd)} />
               </div>
 
               {details.billingStatus?.isTrialPlan && !details.billingStatus.isExpired && (
@@ -303,7 +322,7 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
                             <td style={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{row.usageType}</td>
                             <td align="right">{row.calls}</td>
                             <td align="right">{row.totalTokens.toLocaleString()}</td>
-                            <td align="right">${row.costUsd.toFixed(6)}</td>
+                            <td align="right">{formatUsageCostUgx(row.costUsd)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -332,7 +351,7 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
                             <td>{event.measurementSource}</td>
                             <td align="right">{event.inputTokens}</td>
                             <td align="right">{event.outputTokens}</td>
-                            <td align="right">${event.costUsd.toFixed(6)}</td>
+                            <td align="right">{formatUsageCostUgx(event.costUsd)}</td>
                           </tr>
                         ))}
                       </tbody>

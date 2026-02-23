@@ -13,6 +13,8 @@ type TenantBillingDoc = {
   trialStartedAt?: Timestamp | Date | { toMillis?: () => number };
   trialEndsAt?: Timestamp | Date | { toMillis?: () => number };
   subscriptionEndsAt?: Timestamp | Date | { toMillis?: () => number };
+  subscriptionStatus?: 'active' | 'expired' | 'trialing' | string;
+  subscriptionExpiredReason?: string;
   trialUsed?: boolean;
 };
 
@@ -45,6 +47,7 @@ export async function getTenantBillingStatus(tenantId: string): Promise<{
   isTrialPlan: boolean;
   isActive: boolean;
   isExpired: boolean;
+  expiredReason: string | null;
   daysRemaining: number | null;
   trialEndsAt: number | null;
   subscriptionEndsAt: number | null;
@@ -61,6 +64,7 @@ export async function getTenantBillingStatus(tenantId: string): Promise<{
       isTrialPlan: true,
       isActive: false,
       isExpired: true,
+      expiredReason: 'tenant_not_found',
       daysRemaining: 0,
       trialEndsAt: null,
       subscriptionEndsAt: null,
@@ -79,15 +83,19 @@ export async function getTenantBillingStatus(tenantId: string): Promise<{
   const trialEndsAtMs = toMillis(data.trialEndsAt) ?? (trialStartedAtMs + configuredTrialDays * DAY_MS);
 
   const subscriptionEndsAtMs = toMillis(data.subscriptionEndsAt);
+  const forceExpired = data.subscriptionStatus === 'expired';
+  const storedExpiredReason = typeof data.subscriptionExpiredReason === 'string' ? data.subscriptionExpiredReason : null;
   const trialUsed = data.trialUsed === true || isTrialPlan || Boolean(toMillis(data.trialEndsAt));
 
   if (isTrialPlan) {
-    const isActive = nowMs <= trialEndsAtMs;
+    const isActive = !forceExpired && nowMs <= trialEndsAtMs;
+    const expiredReason = isActive ? null : (storedExpiredReason ?? 'trial_ended');
     return {
       billingPlanId,
       isTrialPlan,
       isActive,
       isExpired: !isActive,
+      expiredReason,
       daysRemaining: remainingDays(trialEndsAtMs, nowMs),
       trialEndsAt: trialEndsAtMs,
       subscriptionEndsAt: null,
@@ -96,11 +104,14 @@ export async function getTenantBillingStatus(tenantId: string): Promise<{
   }
 
   if (!subscriptionEndsAtMs) {
+    const isActive = !forceExpired;
+    const expiredReason = isActive ? null : (storedExpiredReason ?? 'limit_reached');
     return {
       billingPlanId,
       isTrialPlan,
-      isActive: true,
-      isExpired: false,
+      isActive,
+      isExpired: !isActive,
+      expiredReason,
       daysRemaining: null,
       trialEndsAt: trialEndsAtMs,
       subscriptionEndsAt: null,
@@ -108,12 +119,14 @@ export async function getTenantBillingStatus(tenantId: string): Promise<{
     };
   }
 
-  const isActive = nowMs <= subscriptionEndsAtMs;
+  const isActive = !forceExpired && nowMs <= subscriptionEndsAtMs;
+  const expiredReason = isActive ? null : (storedExpiredReason ?? 'duration_elapsed');
   return {
     billingPlanId,
     isTrialPlan,
     isActive,
     isExpired: !isActive,
+    expiredReason,
     daysRemaining: remainingDays(subscriptionEndsAtMs, nowMs),
     trialEndsAt: trialEndsAtMs,
     subscriptionEndsAt: subscriptionEndsAtMs,

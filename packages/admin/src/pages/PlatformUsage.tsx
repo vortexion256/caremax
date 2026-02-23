@@ -12,6 +12,10 @@ type UsageSummary = {
   lastUsed: number | null;
 };
 
+const UGX_PER_USD = 3800;
+const formatUgx = (amount: number) => `UGX ${Math.round(amount).toLocaleString()}`;
+const toUgx = (usdAmount: number) => usdAmount * UGX_PER_USD;
+
 type UsageEvent = {
   eventId: string;
   tenantId: string | null;
@@ -133,7 +137,7 @@ export default function PlatformUsage() {
     return <p style={{ color: '#c62828' }}>Platform admin access required.</p>;
   }
 
-  const totalCost = summary.reduce((sum, u) => sum + u.totalCostUsd, 0);
+  const totalCostUgx = toUgx(summary.reduce((sum, u) => sum + u.totalCostUsd, 0));
   const totalTokens = summary.reduce((sum, u) => sum + u.totalTokens, 0);
   const totalCalls = summary.reduce((sum, u) => sum + u.calls, 0);
 
@@ -193,7 +197,7 @@ export default function PlatformUsage() {
         >
           <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Total Cost</div>
           <div style={{ fontSize: 24, fontWeight: 600, color: '#d32f2f' }}>
-            ${totalCost.toFixed(4)}
+            {formatUgx(totalCostUgx)}
           </div>
         </div>
         <div
@@ -305,7 +309,7 @@ export default function PlatformUsage() {
                       {u.totalTokens.toLocaleString()}
                     </td>
                     <td style={{ padding: 12, fontSize: 14, textAlign: 'right', fontWeight: 600, color: '#d32f2f' }}>
-                      ${u.totalCostUsd.toFixed(4)}
+                      {formatUgx(toUgx(u.totalCostUsd))}
                     </td>
                     <td style={{ padding: 12, fontSize: 13, color: '#666' }}>
                       {u.lastUsed ? new Date(u.lastUsed).toLocaleDateString() : '—'}
@@ -378,7 +382,7 @@ export default function PlatformUsage() {
                           {e.totalTokens.toLocaleString()}
                         </td>
                         <td style={{ padding: 10, fontSize: 12, textAlign: 'right', color: '#d32f2f' }}>
-                          ${e.costUsd.toFixed(6)}
+                          {formatUgx(toUgx(e.costUsd))}
                         </td>
                         <td style={{ padding: 10, fontSize: 11, color: '#666', fontFamily: 'monospace' }}>{e.usageType ?? 'unknown'}</td>
                         <td style={{ padding: 10, fontSize: 11, color: '#666' }}>{e.measurementSource ?? 'provider'}</td>
