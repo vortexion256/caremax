@@ -43,6 +43,8 @@ Put your `.env` in the **repo root** (`e:\caremax\.env`). The API loads it from 
   - `MARZPAY_API_KEY` and `MARZPAY_API_SECRET` (used to build Basic auth as `base64(key:secret)`)
     - optional alternative: `MARZPAY_API_CREDENTIALS` (already base64-encoded `key:secret`)
   - `ADMIN_APP_URL` (e.g. `http://localhost:3002`, used for hosted-link redirects)
+  - `MARZPAY_CALLBACK_URL` (recommended, e.g. `https://caremax-api.vercel.app/integrations/marzpay/callback`)
+  - `API_BASE_URL` (optional fallback base URL used to build callback endpoint when `MARZPAY_CALLBACK_URL` is not set; defaults to `https://caremax-api.vercel.app`)
   - `MARZPAY_VERIFY_URL` (optional server-side verification endpoint)
   - Fallback (legacy hosted checkout): `MARZPAY_PAYMENT_LINK` or `MARZPAY_CHECKOUT_URL`, with optional `MARZPAY_SECRET_KEY` bearer auth.
   - Notes:
@@ -59,6 +61,8 @@ MARZPAY_API_SECRET=your_api_secret
 # MARZPAY_API_CREDENTIALS=base64_of_key_colon_secret
 
 ADMIN_APP_URL=http://localhost:3002
+MARZPAY_CALLBACK_URL=https://caremax-api.vercel.app/integrations/marzpay/callback
+API_BASE_URL=https://caremax-api.vercel.app
 MARZPAY_VERIFY_URL=https://wallet.wearemarz.com/api/v1/collect-money/verify
 
 # optional legacy fallback:
@@ -68,7 +72,9 @@ MARZPAY_VERIFY_URL=https://wallet.wearemarz.com/api/v1/collect-money/verify
 ```
 - Tenant checkout and verification routes: `POST /tenants/:tenantId/payments/marzpay/initialize` and `POST /tenants/:tenantId/payments/marzpay/verify`.
   - `initialize` now supports direct collection fields in request body: `phoneNumber`, `country` (default `UG`), `description`, `callbackUrl`.
+  - You can send customer phone using either camelCase (`phoneNumber`) or snake_case (`phone_number`).
   - You can send callback using either camelCase (`callbackUrl`) or Marz-style snake_case (`callback_url`).
+  - If callback is not provided by the client, API auto-fills callback to `MARZPAY_CALLBACK_URL`, or `${API_BASE_URL}/integrations/marzpay/callback` (default `https://caremax-api.vercel.app/integrations/marzpay/callback`), then finally `<current-api-origin>/integrations/marzpay/callback`.
   - Example:
 
 ```bash
@@ -83,6 +89,7 @@ curl -X POST "https://your-api.com/tenants/<tenantId>/payments/marzpay/initializ
     "callback_url": "https://your-app.com/marz/callback"
   }'
 ```
+- For collection webhooks, callback URL must point to your API webhook endpoint (not admin UI): `https://<api-domain>/integrations/marzpay/callback`.
 - Callback URL for Marz hosted links should point back to your admin billing page, for example:
   - local: `http://localhost:5173/billing?payment=marzpay`
   - production: `https://caremax-admin.vercel.app/billing?payment=marzpay`
