@@ -66,19 +66,20 @@ export default function Dashboard() {
       {billing && (
         <div
           style={{
-            marginBottom: 20,
-            padding: '14px 16px',
+            marginBottom: 16,
+            padding: '10px 12px',
+            maxWidth: isMobile ? '100%' : 560,
             borderRadius: 10,
             border: `1px solid ${billing.isExpired ? '#fecaca' : '#bfdbfe'}`,
             background: billing.isExpired ? '#fef2f2' : '#eff6ff',
           }}
         >
-          <strong style={{ display: 'block', marginBottom: 6 }}>
+          <strong style={{ display: 'block', marginBottom: 4, fontSize: 14 }}>
             {billingTitle}
           </strong>
-          {billingDescription && <span style={{ color: '#475569', fontSize: 14 }}>{billingDescription}</span>}
+          {billingDescription && <span style={{ color: '#475569', fontSize: 13 }}>{billingDescription}</span>}
           {!isExpiredPaidPackage && (
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: 8 }}>
               <Link to="/billing" style={{ color: '#1d4ed8', fontWeight: 600, textDecoration: 'none' }}>
                 View billing options →
               </Link>
@@ -86,54 +87,6 @@ export default function Dashboard() {
           )}
         </div>
       )}
-
-      <section
-        style={{
-          marginTop: 20,
-          display: 'grid',
-          gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))',
-          gap: 14,
-        }}
-      >
-        <div
-          style={{
-            border: '1px solid #e2e8f0',
-            borderRadius: 12,
-            padding: isMobile ? 16 : 20,
-            background: '#f8fafc'
-          }}
-        >
-          <h2 style={{ margin: '0 0 6px 0', fontSize: 20, color: '#0f172a' }}>Agent Config</h2>
-          <p style={{ margin: '0 0 12px 0', color: '#64748b', fontSize: 13 }}>
-            Quick dashboard menu for all agent administration pages.
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-            {agentConfigLinks.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                style={{
-                  display: 'block',
-                  textDecoration: 'none',
-                  color: '#0f172a',
-                  background: '#fff',
-                  border: '1px solid #dbeafe',
-                  borderRadius: 10,
-                  padding: '12px 14px',
-                  boxShadow: '0 1px 2px rgba(15,23,42,0.04)'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-                  <span style={{ fontWeight: 700, color: '#1e3a8a', fontSize: 14 }}>{item.label}</span>
-                  <span style={{ color: '#2563eb', fontWeight: 700 }}>→</span>
-                </div>
-                <div style={{ marginTop: 6, fontSize: 12, color: '#64748b', lineHeight: 1.4 }}>{item.description}</div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
 
       <AnalyticsUI isMobile={isMobile} />
 
@@ -169,6 +122,40 @@ export default function Dashboard() {
           </Link>
         </div>
       )}
+
+      <section style={{ marginTop: 28 }}>
+        <h2 style={{ margin: '0 0 10px 0', fontSize: 18, color: '#0f172a' }}>Agent Config</h2>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(5, minmax(0, 1fr))',
+            gap: 10,
+          }}
+        >
+          {agentConfigLinks.map((item) => (
+            <Link
+              key={item.path}
+              to={item.path}
+              style={{
+                display: 'block',
+                textDecoration: 'none',
+                color: '#0f172a',
+                background: '#fff',
+                border: '1px solid #dbeafe',
+                borderRadius: 10,
+                padding: '10px 12px',
+                boxShadow: '0 1px 2px rgba(15,23,42,0.04)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontWeight: 700, color: '#1e3a8a', fontSize: 13 }}>{item.label}</span>
+                <span style={{ color: '#2563eb', fontWeight: 700 }}>→</span>
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: '#64748b', lineHeight: 1.35 }}>{item.description}</div>
+            </Link>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
