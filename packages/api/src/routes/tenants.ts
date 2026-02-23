@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import { requireAuth, requireTenantParam } from '../middleware/auth.js';
 import { db } from '../config/firebase.js';
 import { activateTenantSubscription, getTenantBillingStatus } from '../services/billing.js';
@@ -9,6 +9,29 @@ import { z } from 'zod';
 export const tenantRouter: Router = Router();
 
 tenantRouter.use(requireAuth);
+
+
+function resolveMarzPayCallbackUrl(req: Request, requestedCallbackUrl?: string): string {
+  const explicit = (requestedCallbackUrl ?? '').trim();
+  if (explicit) return explicit;
+
+  const fromEnv = (process.env.MARZPAY_CALLBACK_URL ?? '').trim();
+  if (fromEnv) return fromEnv;
+
+  const fromApiBase = (process.env.API_BASE_URL ?? 'https://caremax-api.vercel.app').trim();
+  if (fromApiBase) {
+    return `${fromApiBase.replace(/\/$/, '')}/integrations/marzpay/callback`;
+  }
+
+  const forwardedProto = (req.header('x-forwarded-proto') ?? '').split(',')[0]?.trim();
+  const protocol = forwardedProto || req.protocol || 'https';
+  const host = req.get('host');
+  if (!host) {
+    throw new Error('Unable to resolve callback URL host. Set MARZPAY_CALLBACK_URL explicitly.');
+  }
+
+  return `${protocol}://${host}/integrations/marzpay/callback`;
+}
 
 tenantRouter.get('/:tenantId', requireTenantParam, async (req, res) => {
   const tenantId = res.locals.tenantId as string;
@@ -121,15 +144,25 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
 tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, async (req, res) => {
   const body = z.object({
     billingPlanId: z.string().min(1),
-    phoneNumber: z.string().trim().regex(/^\+\d{10,15}$/),
+    phoneNumber: z.string().trim().regex(/^\+\d{10,15}$/).optional(),
+    phone_number: z.string().trim().regex(/^\+\d{10,15}$/).optional(),
     country: z.string().trim().length(2).default('UG'),
     description: z.string().trim().max(255).optional(),
     callbackUrl: z.string().url().max(255).optional(),
+    callback_url: z.string().url().max(255).optional(),
   }).safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
     return;
   }
+
+  const phoneNumber = body.data.phoneNumber ?? body.data.phone_number;
+  if (!phoneNumber) {
+    res.status(400).json({ error: 'Invalid body', details: { phoneNumber: ['Required'] } });
+    return;
+  }
+
+  const callbackUrl = resolveMarzPayCallbackUrl(req, body.data.callbackUrl ?? body.data.callback_url);
 
   try {
     const tenantId = res.locals.tenantId as string;
@@ -160,10 +193,10 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
     const initResult = await initializeMarzPayPayment({
       reference: txRef,
       amount: priceUgx,
-      phoneNumber: body.data.phoneNumber,
+      phoneNumber,
       country: body.data.country.toUpperCase(),
       description: body.data.description ?? `Subscription payment for ${body.data.billingPlanId}`,
-      callbackUrl: body.data.callbackUrl,
+      callbackUrl,
     });
 
     await db.collection('payments').doc(txRef).set({
@@ -174,7 +207,7 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
       currency: 'UGX',
       txRef,
       status: initResult.status,
-      phoneNumber: body.data.phoneNumber,
+      phoneNumber,
       providerCollectionUuid: initResult.collectionUuid,
       providerReference: initResult.providerReference ?? null,
       createdByUid: res.locals.uid,
@@ -185,7 +218,7 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
     res.json({
       txRef,
       collectionUuid: initResult.collectionUuid,
-      callbackUrl: body.data.callbackUrl ?? null,
+      callbackUrl: callbackUrl ?? null,
       provider: 'marzpay',
       status: initResult.status,
       message: 'Collection initiated. Prompt customer to approve payment on their phone.',
