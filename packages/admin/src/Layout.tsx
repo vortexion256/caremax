@@ -19,8 +19,6 @@ export default function Layout() {
     { path: '/agent', label: 'Agent Settings' },
     { path: '/conversations', label: 'Conversations' },
     { path: '/handoffs', label: 'Handoff Queue' },
-    { path: '/notifications', label: 'Notifications' },
-    { path: '/logs', label: 'Logs' },
   ];
 
   const navGroups: NavGroup[] = [
