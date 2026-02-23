@@ -5,6 +5,7 @@ import { db } from '../config/firebase.js';
 import { activateTenantSubscription, getTenantBillingStatus } from '../services/billing.js';
 import { initializeMarzPayPayment, verifyMarzPayTransaction } from '../services/marzpay.js';
 import { z } from 'zod';
+import { createTenantNotification } from '../services/tenant-notifications.js';
 
 export const tenantRouter: Router = Router();
 
@@ -32,6 +33,18 @@ function resolveMarzPayCallbackUrl(req: Request, requestedCallbackUrl?: string):
 
   return `${protocol}://${host}/integrations/marzpay/callback`;
 }
+
+
+
+type TenantNotification = {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: number | null;
+  metadata?: Record<string, unknown> | null;
+};
 
 tenantRouter.get('/:tenantId', requireTenantParam, async (req, res) => {
   const tenantId = res.locals.tenantId as string;
@@ -134,9 +147,12 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
     billingPlanId,
     currentPlan,
     billingStatus,
-    availablePlans: plans.filter((plan) => plan.active !== false),
+    availablePlans: plans.filter((plan) => plan.active !== false && plan.id !== 'free'),
     totals,
     byUsageType: Object.entries(summaryByType).map(([usageType, v]) => ({ usageType, ...v })),
+    showUsageByApiFlow: tenantData.showUsageByApiFlow === true,
+    maxTokensPerUser: typeof tenantData.maxTokensPerUser === 'number' ? tenantData.maxTokensPerUser : null,
+    maxSpendUgxPerUser: typeof tenantData.maxSpendUgxPerUser === 'number' ? tenantData.maxSpendUgxPerUser : null,
     recentEvents: events,
   });
 });
@@ -179,6 +195,15 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
     }
 
     const plan = planDoc.data() ?? {};
+    const tenantData = tenantDoc.data() ?? {};
+    const currentPlanId = typeof tenantData.billingPlanId === 'string' ? tenantData.billingPlanId : 'free';
+    const billingStatus = await getTenantBillingStatus(tenantId);
+
+    if (currentPlanId !== 'free' && billingStatus.isActive && body.data.billingPlanId !== currentPlanId) {
+      res.status(400).json({ error: 'Plan changes are only allowed after your current package expires.' });
+      return;
+    }
+
     const priceUgx = typeof plan.priceUgx === 'number'
       ? plan.priceUgx
       : (typeof plan.priceUsd === 'number' ? Math.round(plan.priceUsd * Number(process.env.MARZPAY_USD_TO_UGX_RATE ?? 3800)) : 0);
@@ -308,6 +333,13 @@ tenantRouter.post('/:tenantId/payments/marzpay/verify', requireTenantParam, asyn
         providerStatus: verified.status ?? 'unknown',
         updatedAt: new Date(),
       }, { merge: true });
+      await createTenantNotification({
+        tenantId,
+        type: 'payment_failed',
+        title: 'Payment failed',
+        message: 'Your latest subscription payment could not be verified. Please try again.',
+        metadata: { txRef: body.data.txRef },
+      });
       res.status(400).json({ error: 'Payment verification failed' });
       return;
     }
@@ -323,10 +355,78 @@ tenantRouter.post('/:tenantId/payments/marzpay/verify', requireTenantParam, asyn
       updatedAt: new Date(),
     }, { merge: true });
 
+    await createTenantNotification({
+      tenantId,
+      type: 'payment_success',
+      title: 'Payment successful',
+      message: `Your subscription payment for package "${billingPlanId}" has been completed.`,
+      metadata: { txRef: body.data.txRef, billingPlanId },
+    });
+
     res.json({ success: true, status: 'completed', billingPlanId, durationDays: 30 });
   } catch (e) {
     console.error('Failed to verify Marz Pay payment:', e);
     res.status(500).json({ error: 'Failed to verify Marz Pay payment' });
+  }
+});
+
+
+
+tenantRouter.get('/:tenantId/notifications', requireTenantParam, async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 200);
+
+  try {
+    const snap = await db
+      .collection('tenant_notifications')
+      .where('tenantId', '==', tenantId)
+      .orderBy('createdAt', 'desc')
+      .limit(limit)
+      .get();
+
+    const notifications: TenantNotification[] = snap.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        type: typeof data.type === 'string' ? data.type : 'info',
+        title: typeof data.title === 'string' ? data.title : 'Notification',
+        message: typeof data.message === 'string' ? data.message : '',
+        read: data.read === true,
+        metadata: (data.metadata as Record<string, unknown>) ?? null,
+        createdAt: data.createdAt?.toMillis?.() ?? null,
+      };
+    });
+
+    res.json({ notifications });
+  } catch (e) {
+    console.error('Failed to load tenant notifications:', e);
+    res.status(500).json({ error: 'Failed to load tenant notifications' });
+  }
+});
+
+tenantRouter.patch('/:tenantId/notifications/:notificationId/read', requireTenantParam, async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const { notificationId } = req.params;
+
+  try {
+    const ref = db.collection('tenant_notifications').doc(notificationId);
+    const doc = await ref.get();
+    if (!doc.exists) {
+      res.status(404).json({ error: 'Notification not found' });
+      return;
+    }
+
+    const data = doc.data() ?? {};
+    if (data.tenantId !== tenantId) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+
+    await ref.set({ read: true, readAt: new Date() }, { merge: true });
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Failed to mark notification as read:', e);
+    res.status(500).json({ error: 'Failed to update notification' });
   }
 });
 

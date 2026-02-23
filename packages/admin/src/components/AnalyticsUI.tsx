@@ -11,12 +11,19 @@ type AnalyticsData = {
 
 type AnalyticsResponse = Record<string, AnalyticsData>;
 
+type ConversationAnalytics = {
+  period: string;
+  totalConversations: number;
+  conversations: Array<{ conversationId: string; createdAt: number; totalMessages: number }>;
+};
+
 export default function AnalyticsUI({ isMobile }: { isMobile: boolean }) {
   const { tenantId } = useTenant();
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState('7d');
+  const [conversationAnalytics, setConversationAnalytics] = useState<ConversationAnalytics | null>(null);
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') return;
@@ -24,8 +31,12 @@ export default function AnalyticsUI({ isMobile }: { isMobile: boolean }) {
     const fetchAnalytics = async () => {
       try {
         setLoading(true);
-        const res = await api<AnalyticsResponse>(`/tenants/${tenantId}/analytics/interactions`);
+        const [res, convRes] = await Promise.all([
+          api<AnalyticsResponse>(`/tenants/${tenantId}/analytics/interactions`),
+          api<ConversationAnalytics>(`/tenants/${tenantId}/analytics/conversations?period=${period}`),
+        ]);
         setData(res);
+        setConversationAnalytics(convRes);
         setError(null);
       } catch (err) {
         console.error('Failed to fetch analytics:', err);
@@ -36,7 +47,7 @@ export default function AnalyticsUI({ isMobile }: { isMobile: boolean }) {
     };
 
     fetchAnalytics();
-  }, [tenantId]);
+  }, [tenantId, period]);
 
   if (loading) return <div style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>Loading analytics...</div>;
   if (error) return <div style={{ padding: 20, textAlign: 'center', color: '#ef4444' }}>{error}</div>;
@@ -102,6 +113,45 @@ export default function AnalyticsUI({ isMobile }: { isMobile: boolean }) {
             </div>
           </div>
         ))}
+      </div>
+
+
+      <div style={{
+        marginTop: 24,
+        padding: 24,
+        background: '#fff',
+        borderRadius: 12,
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+      }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: 16, color: '#0f172a' }}>Conversation Analytics</h3>
+        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+          Total conversations: {conversationAnalytics?.totalConversations ?? 0}
+        </div>
+        {conversationAnalytics?.conversations?.length ? (
+          <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th align="left">Conversation</th>
+                  <th align="left">Started</th>
+                  <th align="right">Messages</th>
+                </tr>
+              </thead>
+              <tbody>
+                {conversationAnalytics.conversations.slice(0, 20).map((row) => (
+                  <tr key={row.conversationId} style={{ borderTop: '1px solid #e2e8f0' }}>
+                    <td style={{ padding: '6px 0', fontFamily: 'monospace' }}>{row.conversationId}</td>
+                    <td>{new Date(row.createdAt).toLocaleString()}</td>
+                    <td align="right">{row.totalMessages}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ color: '#94a3b8', fontSize: 12 }}>No conversation data for this period.</div>
+        )}
       </div>
 
       {/* Simple Bar Visualization */}
