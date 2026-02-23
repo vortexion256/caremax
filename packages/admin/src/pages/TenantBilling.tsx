@@ -232,11 +232,13 @@ export default function TenantBilling() {
   if (!data) return null;
 
   const planChangeLocked = data.billingPlanId !== 'free' && data.billingStatus?.isActive;
+  const currentPackageExpired = Boolean(data.billingStatus?.isExpired);
+  const selectedPlan = data.availablePlans?.find((plan) => plan.id === collectingPlanId) ?? null;
 
   return (
     <div>
-      <h1 style={{ marginTop: 0 }}>Billing & Token Usage</h1>
-      <p style={{ color: '#64748b' }}>Track token usage for each API usage type in your tenant.</p>
+      <h1 style={{ marginTop: 0 }}>Billing</h1>
+      <p style={{ color: '#64748b' }}>Billing and subscription package details</p>
       {notice && <NoticeBanner tone={notice.tone} message={notice.message} />}
       <p><strong>Plan:</strong> {data.currentPlan?.name ?? data.billingPlanId} ({data.currentPlan ? `${formatUgx(data.currentPlan.priceUgx)}/mo` : 'custom'})</p>
 
@@ -261,78 +263,92 @@ export default function TenantBilling() {
 
       {(data.availablePlans?.length ?? 0) > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <h3 style={{ marginBottom: 8 }}>Available upgrade options</h3>
+          <h3 style={{ marginBottom: 8 }}>CareMax Packages</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-            {data.availablePlans?.map((plan) => (
-              <div
-                key={plan.id}
-                style={{
-                  border: `1px solid ${plan.id === data.billingPlanId ? '#6366f1' : '#e2e8f0'}`,
-                  borderRadius: 10,
-                  padding: 12,
-                  background: plan.id === data.billingPlanId ? '#eef2ff' : '#fff',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ fontWeight: 600, color: '#0f172a' }}>{plan.name}</div>
-                  {plan.id === data.billingPlanId && (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#4338ca', background: '#e0e7ff', padding: '2px 8px', borderRadius: 999 }}>
-                      Current package
-                    </span>
-                  )}
-                </div>
-                <div style={{ marginTop: 4, color: '#1e293b', fontSize: 14 }}>{formatUgx(plan.priceUgx)}/mo</div>
-                {plan.description && <div style={{ marginTop: 4, color: '#64748b', fontSize: 13 }}>({plan.description})</div>}
-                <div style={{ marginTop: 6, color: '#475569', fontSize: 12 }}>
-                  <div>Max tokens: {plan.maxTokensPerPackage ? plan.maxTokensPerPackage.toLocaleString() : 'Not limited'}</div>
-                  <div>Max usage amount: {plan.maxUsageAmountUgxPerPackage ? formatUgx(plan.maxUsageAmountUgxPerPackage) : 'Not limited'}</div>
-                </div>
-                {plan.id !== data.billingPlanId && plan.priceUgx > 0 && (
-                  <>
-                        <button
-                          onClick={() => {
-                            setNotice(null);
-                            setCollectingPlanId(plan.id);
-                          }}
-                      disabled={busyPlan === plan.id || planChangeLocked}
+            {data.availablePlans?.map((plan) => {
+              const isCurrentPlan = plan.id === data.billingPlanId;
+              const isCurrentExpiredPlan = isCurrentPlan && currentPackageExpired;
+              const canPayPlan = plan.priceUgx > 0 && (!isCurrentPlan || isCurrentExpiredPlan);
+
+              return (
+                <div
+                  key={plan.id}
+                  style={{
+                    border: `1px solid ${isCurrentExpiredPlan ? '#dc2626' : isCurrentPlan ? '#6366f1' : '#e2e8f0'}`,
+                    borderRadius: 10,
+                    padding: 12,
+                    background: isCurrentExpiredPlan ? '#fef2f2' : isCurrentPlan ? '#eef2ff' : '#fff',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontWeight: 600, color: '#0f172a' }}>{plan.name}</div>
+                    {isCurrentPlan && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: isCurrentExpiredPlan ? '#b91c1c' : '#4338ca', background: isCurrentExpiredPlan ? '#fee2e2' : '#e0e7ff', padding: '2px 8px', borderRadius: 999 }}>
+                        {isCurrentExpiredPlan ? 'Expired package' : 'Current package'}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ marginTop: 4, color: '#1e293b', fontSize: 14 }}>{formatUgx(plan.priceUgx)}/mo</div>
+                  {plan.description && <div style={{ marginTop: 4, color: '#64748b', fontSize: 13 }}>({plan.description})</div>}
+                  <div style={{ marginTop: 6, color: '#475569', fontSize: 12 }}>
+                    <div>Max tokens: {plan.maxTokensPerPackage ? plan.maxTokensPerPackage.toLocaleString() : 'Not limited'}</div>
+                    <div>Max usage amount: {plan.maxUsageAmountUgxPerPackage ? formatUgx(plan.maxUsageAmountUgxPerPackage) : 'Not limited'}</div>
+                  </div>
+                  {canPayPlan && (
+                    <button
+                      onClick={() => {
+                        setNotice(null);
+                        setCollectingPlanId(plan.id);
+                      }}
+                      disabled={busyPlan === plan.id || (!isCurrentExpiredPlan && planChangeLocked)}
                       style={{ marginTop: 10, padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
                     >
-                      {planChangeLocked ? 'Locked until package expires' : busyPlan === plan.id ? 'Requesting…' : 'Pay with Marz Pay'}
+                      {!isCurrentExpiredPlan && planChangeLocked
+                        ? 'Locked until package expires'
+                        : busyPlan === plan.id
+                          ? 'Requesting…'
+                          : isCurrentExpiredPlan
+                            ? 'Pay & Resume package'
+                            : 'Pay with Marz Pay'}
                     </button>
-
-                    {collectingPlanId === plan.id && (
-                      <div style={{ marginTop: 10, border: '1px solid #cbd5e1', borderRadius: 8, padding: 10, background: '#f8fafc' }}>
-                        <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#334155' }}>
-                          Mobile money number
-                        </label>
-                        <input
-                          value={phoneNumber}
-                          onChange={(e) => setPhoneNumber(e.target.value)}
-                          placeholder="+256700000000"
-                          style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }}
-                        />
-                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                          <button
-                            onClick={() => startUpgrade(plan.id)}
-                            disabled={busyPlan === plan.id || planChangeLocked}
-                            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
-                          >
-                            {busyPlan === plan.id ? 'Requesting…' : 'Confirm payment request'}
-                          </button>
-                          <button
-                            onClick={() => setCollectingPlanId(null)}
-                            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer' }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              );
+            })}
           </div>
+
+          {selectedPlan && (
+            <div style={{ marginTop: 14, border: '1px solid #bfdbfe', borderRadius: 12, padding: 14, background: '#eff6ff' }}>
+              <h4 style={{ margin: '0 0 8px', color: '#1d4ed8' }}>Complete payment with Marz Pay</h4>
+              <div style={{ fontSize: 14, color: '#1e3a8a', marginBottom: 8 }}>
+                You are about to activate <strong>{selectedPlan.name}</strong> for <strong>{formatUgx(selectedPlan.priceUgx)}/mo</strong>.
+              </div>
+              <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#334155' }}>
+                Mobile money number
+              </label>
+              <input
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="+256700000000"
+                style={{ width: '100%', maxWidth: 360, padding: '8px 10px', borderRadius: 6, border: '1px solid #93c5fd', background: '#fff' }}
+              />
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button
+                  onClick={() => startUpgrade(selectedPlan.id)}
+                  disabled={busyPlan === selectedPlan.id || planChangeLocked}
+                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #60a5fa', background: '#dbeafe', cursor: 'pointer' }}
+                >
+                  {busyPlan === selectedPlan.id ? 'Requesting…' : 'Confirm payment request'}
+                </button>
+                <button
+                  onClick={() => setCollectingPlanId(null)}
+                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
