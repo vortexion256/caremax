@@ -377,14 +377,28 @@ tenantRouter.get('/:tenantId/notifications', requireTenantParam, async (req, res
   const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 200);
 
   try {
-    const snap = await db
-      .collection('tenant_notifications')
-      .where('tenantId', '==', tenantId)
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get();
+    let snap;
+    try {
+      snap = await db
+        .collection('tenant_notifications')
+        .where('tenantId', '==', tenantId)
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .get();
+    } catch (e: any) {
+      if (e?.code === 9 || e?.message?.includes('index')) {
+        console.warn('Firestore index missing for tenant notifications, falling back to in-memory sorting');
+        snap = await db
+          .collection('tenant_notifications')
+          .where('tenantId', '==', tenantId)
+          .limit(limit)
+          .get();
+      } else {
+        throw e;
+      }
+    }
 
-    const notifications: TenantNotification[] = snap.docs.map((doc) => {
+    let notifications: TenantNotification[] = snap.docs.map((doc) => {
       const data = doc.data();
       return {
         id: doc.id,
@@ -396,6 +410,10 @@ tenantRouter.get('/:tenantId/notifications', requireTenantParam, async (req, res
         createdAt: data.createdAt?.toMillis?.() ?? null,
       };
     });
+
+    notifications = notifications
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+      .slice(0, limit);
 
     res.json({ notifications });
   } catch (e) {
