@@ -31,6 +31,23 @@ export default function Dashboard() {
     return <Navigate to="/platform" replace />;
   }
 
+  const isExpiredTrial = Boolean(billing?.isExpired && billing.isTrialPlan);
+  const isExpiredPaidPackage = Boolean(billing?.isExpired && !billing.isTrialPlan);
+
+  const billingTitle = isExpiredTrial
+    ? 'Your trial has ended.'
+    : isExpiredPaidPackage
+      ? 'Package Expired'
+      : billing?.isTrialPlan
+        ? `Trial active: ${billing.daysRemaining ?? 0} day(s) remaining.`
+        : 'Subscription active.';
+
+  const billingDescription = isExpiredTrial
+    ? 'Upgrade now to reactivate your widget and continue conversations.'
+    : isExpiredPaidPackage
+      ? null
+      : 'Manage your package and available upgrade options from billing.';
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
       <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Dashboard</h1>
@@ -49,16 +66,16 @@ export default function Dashboard() {
           }}
         >
           <strong style={{ display: 'block', marginBottom: 6 }}>
-            {billing.isExpired ? 'Your trial has ended.' : billing.isTrialPlan ? `Trial active: ${billing.daysRemaining ?? 0} day(s) remaining.` : 'Subscription active.'}
+            {billingTitle}
           </strong>
-          <span style={{ color: '#475569', fontSize: 14 }}>
-            {billing.isExpired ? 'Upgrade now to reactivate your widget and continue conversations.' : 'Manage your package and available upgrade options from billing.'}
-          </span>
-          <div style={{ marginTop: 10 }}>
-            <Link to="/billing" style={{ color: '#1d4ed8', fontWeight: 600, textDecoration: 'none' }}>
-              View billing options →
-            </Link>
-          </div>
+          {billingDescription && <span style={{ color: '#475569', fontSize: 14 }}>{billingDescription}</span>}
+          {!isExpiredPaidPackage && (
+            <div style={{ marginTop: 10 }}>
+              <Link to="/billing" style={{ color: '#1d4ed8', fontWeight: 600, textDecoration: 'none' }}>
+                View billing options →
+              </Link>
+            </div>
+          )}
         </div>
       )}
 
