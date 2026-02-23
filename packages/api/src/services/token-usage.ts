@@ -121,8 +121,6 @@ export async function recordUsage(modelName: string, usage: UsageMetadata, ctx: 
       createdAt,
     });
 
-    if (!ctx.userId) return;
-
     const tenantRef = db.collection('tenants').doc(ctx.tenantId);
     const tenantDoc = await tenantRef.get();
     if (!tenantDoc.exists) return;
@@ -137,7 +135,9 @@ export async function recordUsage(modelName: string, usage: UsageMetadata, ctx: 
     const maxTokensPerPackage = typeof planData.maxTokensPerPackage === 'number' ? planData.maxTokensPerPackage : null;
     const maxUsageAmountUgxPerPackage = typeof planData.maxUsageAmountUgxPerPackage === 'number' ? planData.maxUsageAmountUgxPerPackage : null;
 
-    if (!maxTokensPerUser && !maxSpendUgxPerUser && !maxTokensPerPackage && !maxUsageAmountUgxPerPackage) return;
+    const hasUserLimits = Boolean(maxTokensPerUser || maxSpendUgxPerUser);
+    const hasPackageLimits = Boolean(maxTokensPerPackage || maxUsageAmountUgxPerPackage);
+    if (!hasUserLimits && !hasPackageLimits) return;
 
     const cycleStart = tenantData.subscriptionStartedAt?.toMillis?.() ?? tenantData.trialStartedAt?.toMillis?.() ?? (Date.now() - 30 * 24 * 60 * 60 * 1000);
     const usageSnap = await db
@@ -159,7 +159,7 @@ export async function recordUsage(modelName: string, usage: UsageMetadata, ctx: 
       totalTokens += eventTokens;
       totalCostUsd += eventCostUsd;
 
-      if (eventUserId === ctx.userId) {
+      if (ctx.userId && eventUserId === ctx.userId) {
         userTokens += eventTokens;
         userCostUsd += eventCostUsd;
       }
@@ -167,8 +167,8 @@ export async function recordUsage(modelName: string, usage: UsageMetadata, ctx: 
 
     const userCostUgx = Math.round(userCostUsd * Number(process.env.MARZPAY_USD_TO_UGX_RATE ?? 3800));
     const totalCostUgx = Math.round(totalCostUsd * Number(process.env.MARZPAY_USD_TO_UGX_RATE ?? 3800));
-    const exceededUserTokens = typeof maxTokensPerUser === 'number' && userTokens >= maxTokensPerUser;
-    const exceededUserSpend = typeof maxSpendUgxPerUser === 'number' && userCostUgx >= maxSpendUgxPerUser;
+    const exceededUserTokens = Boolean(ctx.userId) && typeof maxTokensPerUser === 'number' && userTokens >= maxTokensPerUser;
+    const exceededUserSpend = Boolean(ctx.userId) && typeof maxSpendUgxPerUser === 'number' && userCostUgx >= maxSpendUgxPerUser;
     const exceededPackageTokens = typeof maxTokensPerPackage === 'number' && totalTokens >= maxTokensPerPackage;
     const exceededPackageSpend = typeof maxUsageAmountUgxPerPackage === 'number' && totalCostUgx >= maxUsageAmountUgxPerPackage;
 

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Request, Router } from 'express';
 import { requireAuth, requireTenantParam } from '../middleware/auth.js';
 import { db } from '../config/firebase.js';
-import { activateTenantSubscription, getTenantBillingStatus } from '../services/billing.js';
+import { activateTenantSubscription, getTenantBillingStatus, getTenantUsageTotalsSince } from '../services/billing.js';
 import { initializeMarzPayPayment, verifyMarzPayTransaction } from '../services/marzpay.js';
 import { z } from 'zod';
 import { createTenantNotification } from '../services/tenant-notifications.js';
@@ -78,15 +78,26 @@ tenantRouter.get('/:tenantId/account', requireTenantParam, async (_req, res) => 
 tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => {
   const tenantId = res.locals.tenantId as string;
 
+  const tenantDoc = await db.collection('tenants').doc(tenantId).get();
+  const tenantData = tenantDoc.data() ?? {};
+  const cycleStartMs =
+    tenantData.subscriptionStartedAt?.toMillis?.()
+    ?? tenantData.trialStartedAt?.toMillis?.()
+    ?? tenantData.createdAt?.toMillis?.()
+    ?? (Date.now() - (30 * 24 * 60 * 60 * 1000));
+
+  const totals = await getTenantUsageTotalsSince(tenantId, cycleStartMs);
+
   const usageSnap = await db
     .collection('usage_events')
     .where('tenantId', '==', tenantId)
+    .where('createdAt', '>=', new Date(cycleStartMs))
     .orderBy('createdAt', 'desc')
     .limit(200)
     .get();
 
   const summaryByType: Record<string, { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }> = {};
-  let totals = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 };
+  let summarizedTotals = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 };
 
   const events = usageSnap.docs.map((doc) => {
     const data = doc.data();
@@ -106,11 +117,11 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
     summaryByType[usageType].totalTokens += totalTokens;
     summaryByType[usageType].costUsd += costUsd;
 
-    totals.calls += 1;
-    totals.inputTokens += inputTokens;
-    totals.outputTokens += outputTokens;
-    totals.totalTokens += totalTokens;
-    totals.costUsd += costUsd;
+    summarizedTotals.calls += 1;
+    summarizedTotals.inputTokens += inputTokens;
+    summarizedTotals.outputTokens += outputTokens;
+    summarizedTotals.totalTokens += totalTokens;
+    summarizedTotals.costUsd += costUsd;
 
     return {
       eventId: doc.id,
@@ -125,8 +136,6 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
     };
   });
 
-  const tenantDoc = await db.collection('tenants').doc(tenantId).get();
-  const tenantData = tenantDoc.data() ?? {};
   const billingPlanId = tenantData.billingPlanId ?? 'free';
 
   const plansSnap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
@@ -150,6 +159,7 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
     availablePlans: plans.filter((plan) => plan.active !== false && plan.id !== 'free'),
     totals,
     byUsageType: Object.entries(summaryByType).map(([usageType, v]) => ({ usageType, ...v })),
+    recentUsageWindowTotals: summarizedTotals,
     showUsageByApiFlow: tenantData.showUsageByApiFlow === true,
     maxTokensPerUser: typeof tenantData.maxTokensPerUser === 'number' ? tenantData.maxTokensPerUser : null,
     maxSpendUgxPerUser: typeof tenantData.maxSpendUgxPerUser === 'number' ? tenantData.maxSpendUgxPerUser : null,

@@ -5,6 +5,8 @@ type BillingPlan = {
   id: string;
   trialDays?: number;
   billingCycle?: 'monthly';
+  maxTokensPerPackage?: number | null;
+  maxUsageAmountUgxPerPackage?: number | null;
 };
 
 type TenantBillingDoc = {
@@ -36,6 +38,54 @@ function toMillis(value: unknown): number | null {
 
 function remainingDays(untilMs: number, nowMs: number): number {
   return Math.max(0, Math.ceil((untilMs - nowMs) / DAY_MS));
+}
+
+function toFiniteNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+export type TenantUsageTotals = {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  costUgx: number;
+};
+
+export async function getTenantUsageTotalsSince(tenantId: string, sinceMs: number): Promise<TenantUsageTotals> {
+  const usageSnap = await db
+    .collection('usage_events')
+    .where('tenantId', '==', tenantId)
+    .where('createdAt', '>=', new Date(sinceMs))
+    .get();
+
+  const totals: TenantUsageTotals = {
+    calls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    costUsd: 0,
+    costUgx: 0,
+  };
+
+  usageSnap.forEach((doc) => {
+    const data = doc.data();
+    const inputTokens = toFiniteNumber(data.inputTokens);
+    const outputTokens = toFiniteNumber(data.outputTokens);
+    const totalTokens = toFiniteNumber(data.totalTokens) || inputTokens + outputTokens;
+    const costUsd = toFiniteNumber(data.costUsd);
+
+    totals.calls += 1;
+    totals.inputTokens += inputTokens;
+    totals.outputTokens += outputTokens;
+    totals.totalTokens += totalTokens;
+    totals.costUsd += costUsd;
+  });
+
+  const ugxRate = Number(process.env.MARZPAY_USD_TO_UGX_RATE ?? 3800);
+  totals.costUgx = Math.round(totals.costUsd * ugxRate);
+  return totals;
 }
 
 async function loadPlans(): Promise<Map<string, BillingPlan>> {
@@ -122,8 +172,22 @@ export async function getTenantBillingStatus(tenantId: string): Promise<{
     };
   }
 
-  const isActive = !forceExpired && nowMs <= inferredSubscriptionEndsAtMs;
-  const expiredReason = isActive ? null : (storedExpiredReason ?? 'duration_elapsed');
+  let usageExceededReason: string | null = null;
+  if (subscriptionStartedAtMs) {
+    const usageTotals = await getTenantUsageTotalsSince(tenantId, subscriptionStartedAtMs);
+    const plan = plans.get(billingPlanId);
+    const maxTokensPerPackage = typeof plan?.maxTokensPerPackage === 'number' ? plan.maxTokensPerPackage : null;
+    const maxUsageAmountUgxPerPackage = typeof plan?.maxUsageAmountUgxPerPackage === 'number' ? plan.maxUsageAmountUgxPerPackage : null;
+
+    if (typeof maxTokensPerPackage === 'number' && usageTotals.totalTokens >= maxTokensPerPackage) {
+      usageExceededReason = 'package_token_limit_reached';
+    } else if (typeof maxUsageAmountUgxPerPackage === 'number' && usageTotals.costUgx >= maxUsageAmountUgxPerPackage) {
+      usageExceededReason = 'package_usage_amount_limit_reached';
+    }
+  }
+
+  const isActive = !forceExpired && !usageExceededReason && nowMs <= inferredSubscriptionEndsAtMs;
+  const expiredReason = isActive ? null : (usageExceededReason ?? storedExpiredReason ?? 'duration_elapsed');
   return {
     billingPlanId,
     isTrialPlan,
