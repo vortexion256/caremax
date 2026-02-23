@@ -131,52 +131,87 @@ export async function recordUsage(modelName: string, usage: UsageMetadata, ctx: 
     const maxTokensPerUser = typeof tenantData.maxTokensPerUser === 'number' ? tenantData.maxTokensPerUser : null;
     const maxSpendUgxPerUser = typeof tenantData.maxSpendUgxPerUser === 'number' ? tenantData.maxSpendUgxPerUser : null;
 
-    if (!maxTokensPerUser && !maxSpendUgxPerUser) return;
+    const billingPlanId = typeof tenantData.billingPlanId === 'string' ? tenantData.billingPlanId : 'free';
+    const planDoc = await db.collection('billing_plans').doc(billingPlanId).get();
+    const planData = planDoc.data() ?? {};
+    const maxTokensPerPackage = typeof planData.maxTokensPerPackage === 'number' ? planData.maxTokensPerPackage : null;
+    const maxUsageAmountUgxPerPackage = typeof planData.maxUsageAmountUgxPerPackage === 'number' ? planData.maxUsageAmountUgxPerPackage : null;
+
+    if (!maxTokensPerUser && !maxSpendUgxPerUser && !maxTokensPerPackage && !maxUsageAmountUgxPerPackage) return;
 
     const cycleStart = tenantData.subscriptionStartedAt?.toMillis?.() ?? tenantData.trialStartedAt?.toMillis?.() ?? (Date.now() - 30 * 24 * 60 * 60 * 1000);
     const usageSnap = await db
       .collection('usage_events')
       .where('tenantId', '==', ctx.tenantId)
-      .where('userId', '==', ctx.userId)
       .where('createdAt', '>=', new Date(cycleStart))
       .get();
 
+    let userTokens = 0;
+    let userCostUsd = 0;
     let totalTokens = 0;
     let totalCostUsd = 0;
     usageSnap.forEach((doc) => {
       const data = doc.data();
-      totalTokens += typeof data.totalTokens === 'number' ? data.totalTokens : 0;
-      totalCostUsd += typeof data.costUsd === 'number' ? data.costUsd : 0;
+      const eventTokens = typeof data.totalTokens === 'number' ? data.totalTokens : 0;
+      const eventCostUsd = typeof data.costUsd === 'number' ? data.costUsd : 0;
+      const eventUserId = typeof data.userId === 'string' ? data.userId : null;
+
+      totalTokens += eventTokens;
+      totalCostUsd += eventCostUsd;
+
+      if (eventUserId === ctx.userId) {
+        userTokens += eventTokens;
+        userCostUsd += eventCostUsd;
+      }
     });
 
+    const userCostUgx = Math.round(userCostUsd * Number(process.env.MARZPAY_USD_TO_UGX_RATE ?? 3800));
     const totalCostUgx = Math.round(totalCostUsd * Number(process.env.MARZPAY_USD_TO_UGX_RATE ?? 3800));
-    const exceededTokens = typeof maxTokensPerUser === 'number' && totalTokens >= maxTokensPerUser;
-    const exceededSpend = typeof maxSpendUgxPerUser === 'number' && totalCostUgx >= maxSpendUgxPerUser;
+    const exceededUserTokens = typeof maxTokensPerUser === 'number' && userTokens >= maxTokensPerUser;
+    const exceededUserSpend = typeof maxSpendUgxPerUser === 'number' && userCostUgx >= maxSpendUgxPerUser;
+    const exceededPackageTokens = typeof maxTokensPerPackage === 'number' && totalTokens >= maxTokensPerPackage;
+    const exceededPackageSpend = typeof maxUsageAmountUgxPerPackage === 'number' && totalCostUgx >= maxUsageAmountUgxPerPackage;
 
-    if (!exceededTokens && !exceededSpend) return;
+    if (!exceededUserTokens && !exceededUserSpend && !exceededPackageTokens && !exceededPackageSpend) return;
+
+    const exceededReason = exceededPackageTokens
+      ? 'package_token_limit_reached'
+      : exceededPackageSpend
+        ? 'package_usage_amount_limit_reached'
+        : exceededUserTokens
+          ? 'user_token_limit_reached'
+          : 'user_spend_limit_reached';
+
+    const expiredMessage = exceededReason === 'package_token_limit_reached'
+      ? 'Your package token limit has been depleted, so your subscription expired before month end.'
+      : exceededReason === 'package_usage_amount_limit_reached'
+        ? 'Your package usage amount has been depleted, so your subscription expired before month end.'
+        : exceededReason === 'user_token_limit_reached'
+          ? 'Your per-user token limit has been depleted, so your subscription expired before month end.'
+          : 'Your per-user spend limit has been depleted, so your subscription expired before month end.';
 
     await tenantRef.set({
       subscriptionStatus: 'expired',
       subscriptionEndsAt: new Date(),
       updatedAt: new Date(),
-      subscriptionExpiredReason: exceededTokens
-        ? 'user_token_limit_reached'
-        : 'user_spend_limit_reached',
+      subscriptionExpiredReason: exceededReason,
     }, { merge: true });
 
     await createTenantNotification({
       tenantId: ctx.tenantId,
       type: 'subscription_expired',
       title: 'Subscription expired early',
-      message: exceededTokens
-        ? 'Your per-user token limit has been depleted, so your subscription expired before month end.'
-        : 'Your per-user spend limit has been depleted, so your subscription expired before month end.',
+      message: expiredMessage,
       metadata: {
         userId: ctx.userId,
+        userTokens,
+        userCostUgx,
         totalTokens,
         totalCostUgx,
         maxTokensPerUser,
         maxSpendUgxPerUser,
+        maxTokensPerPackage,
+        maxUsageAmountUgxPerPackage,
       },
     });
   } catch (e) {

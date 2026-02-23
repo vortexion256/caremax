@@ -42,6 +42,10 @@ function getExpiryMessage(reason?: string | null): string {
       return 'Expired early: assigned token balance depleted';
     case 'user_spend_limit_reached':
       return 'Expired early: assigned spend amount depleted';
+    case 'package_token_limit_reached':
+      return 'Expired early: package token limit depleted';
+    case 'package_usage_amount_limit_reached':
+      return 'Expired early: package usage amount depleted';
     case 'duration_elapsed':
     case 'trial_ended':
       return 'Expired: billing days elapsed';
