@@ -113,17 +113,11 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
 tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, async (req, res) => {
   const body = z.object({
     billingPlanId: z.string().min(1),
-    phoneNumber: z.string().trim().regex(/^\+\d{10,15}$/).optional(),
-    phone_number: z.string().trim().regex(/^\+\d{10,15}$/).optional(),
-    country: z.string().trim().length(2).optional(),
+    phoneNumber: z.string().trim().regex(/^\+\d{10,15}$/),
+    country: z.string().trim().length(2).default('UG'),
     description: z.string().trim().max(255).optional(),
     callbackUrl: z.string().url().max(255).optional(),
-    callback_url: z.string().url().max(255).optional(),
-  }).transform((data) => ({
-    ...data,
-    phoneNumber: data.phoneNumber ?? data.phone_number,
-    callbackUrl: data.callbackUrl ?? data.callback_url,
-  })).safeParse(req.body);
+  }).safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
     return;
@@ -144,52 +138,37 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
     }
 
     const plan = planDoc.data() ?? {};
-    const amount = typeof plan.priceUsd === 'number' ? plan.priceUsd : 0;
-    if (amount <= 0) {
-      res.status(400).json({ error: 'Selected plan is not payable' });
-      return;
-    }
+    const priceUgx = typeof plan.priceUgx === 'number'
+      ? plan.priceUgx
+      : (typeof plan.priceUsd === 'number' ? Math.round(plan.priceUsd * Number(process.env.MARZPAY_USD_TO_UGX_RATE ?? 3800)) : 0);
 
-    const localsEmail = typeof res.locals.email === 'string' ? res.locals.email : undefined;
-    const tenantData = tenantDoc.data() ?? {};
-    const customerEmail = localsEmail ?? tenantData.ownerEmail;
-    if (!customerEmail) {
-      res.status(400).json({ error: 'User email is required to initialize payment.' });
+    if (!Number.isFinite(priceUgx) || priceUgx < 500) {
+      res.status(400).json({ error: 'Selected plan amount is invalid for Marz Pay collection (minimum 500 UGX).' });
       return;
     }
 
     const txRef = randomUUID();
-    const adminBaseUrl = process.env.ADMIN_APP_URL ?? 'https://caremax-admin.vercel.app';
-    const redirectUrl = `${adminBaseUrl.replace(/\/$/, '')}/billing?payment=marzpay&tx_ref=${encodeURIComponent(txRef)}`;
 
     const initResult = await initializeMarzPayPayment({
-      txRef,
-      amount,
-      currency: 'USD',
-      redirectUrl,
-      customerEmail,
-      customerName: typeof tenantData.name === 'string' ? tenantData.name : undefined,
-      tenantId,
-      billingPlanId: body.data.billingPlanId,
-    }, body.data.phoneNumber ? {
+      reference: txRef,
+      amount: priceUgx,
       phoneNumber: body.data.phoneNumber,
-      country: (body.data.country ?? 'UG').toUpperCase(),
+      country: body.data.country.toUpperCase(),
       description: body.data.description ?? `Subscription payment for ${body.data.billingPlanId}`,
       callbackUrl: body.data.callbackUrl,
-    } : undefined);
+    });
 
     await db.collection('payments').doc(txRef).set({
       provider: 'marzpay',
       tenantId,
       billingPlanId: body.data.billingPlanId,
-      amount,
-      currency: 'USD',
+      amount: priceUgx,
+      currency: 'UGX',
       txRef,
-      status: 'pending',
-      customerEmail,
-      paymentLink: initResult.paymentLink,
-      providerTransactionId: initResult.transactionId ?? null,
-      providerCollectionUuid: initResult.collectionUuid ?? null,
+      status: initResult.status,
+      phoneNumber: body.data.phoneNumber,
+      providerCollectionUuid: initResult.collectionUuid,
+      providerReference: initResult.providerReference ?? null,
       createdByUid: res.locals.uid,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -197,11 +176,11 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
 
     res.json({
       txRef,
-      paymentLink: initResult.paymentLink || null,
-      collectionUuid: initResult.collectionUuid ?? null,
+      collectionUuid: initResult.collectionUuid,
       callbackUrl: body.data.callbackUrl ?? null,
       provider: 'marzpay',
-      status: 'pending',
+      status: initResult.status,
+      message: 'Collection initiated. Prompt customer to approve payment on their phone.',
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to initialize Marz Pay payment';
@@ -211,7 +190,7 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
 });
 
 tenantRouter.post('/:tenantId/payments/marzpay/verify', requireTenantParam, async (req, res) => {
-  const body = z.object({ txRef: z.string().min(1), transactionId: z.number().int().positive().optional(), status: z.string().optional(), reference: z.string().optional() }).safeParse(req.body);
+  const body = z.object({ txRef: z.string().min(1), collectionUuid: z.string().uuid().optional(), status: z.string().optional() }).safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
     return;
@@ -247,7 +226,7 @@ tenantRouter.post('/:tenantId/payments/marzpay/verify', requireTenantParam, asyn
       await paymentRef.set({
         status: 'failed',
         failureReason: 'Verification mismatch or incomplete payment',
-        providerTransactionId: verified.transactionId ?? body.data.transactionId ?? null,
+        providerTransactionId: verified.transactionId ?? body.data.collectionUuid ?? null,
         providerStatus: verified.status ?? 'unknown',
         updatedAt: new Date(),
       }, { merge: true });
@@ -259,7 +238,7 @@ tenantRouter.post('/:tenantId/payments/marzpay/verify', requireTenantParam, asyn
 
     await paymentRef.set({
       status,
-      providerTransactionId: verified.transactionId ?? body.data.transactionId ?? null,
+      providerTransactionId: verified.transactionId ?? body.data.collectionUuid ?? null,
       providerStatus: verified.status ?? 'unknown',
       paidAt: verified.paidAt ? new Date(verified.paidAt) : new Date(),
       verifiedByUid: res.locals.uid,

@@ -27,6 +27,7 @@ export default function TenantBilling() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
+  const [phoneNumber, setPhoneNumber] = useState('+256');
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
@@ -95,13 +96,18 @@ export default function TenantBilling() {
 
   const startUpgrade = async (billingPlanId: string) => {
     if (!tenantId || tenantId === 'platform') return;
+    if (!/^\+\d{10,15}$/.test(phoneNumber.trim())) {
+      setActionError('Enter a valid phone number in international format, e.g. +2567XXXXXXXX.');
+      return;
+    }
     setBusyPlan(billingPlanId);
     try {
-      const res = await api<{ paymentLink: string }>(`/tenants/${tenantId}/payments/marzpay/initialize`, {
+      const res = await api<{ status: string; message?: string }>(`/tenants/${tenantId}/payments/marzpay/initialize`, {
         method: 'POST',
-        body: JSON.stringify({ billingPlanId }),
+        body: JSON.stringify({ billingPlanId, phoneNumber, country: 'UG' }),
       });
-      window.location.href = res.paymentLink;
+      setActionError(res.message ?? `Collection status: ${res.status}`);
+      loadBilling();
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Unable to initialize payment';
       setActionError(message);
@@ -119,6 +125,17 @@ export default function TenantBilling() {
       <h1 style={{ marginTop: 0 }}>Billing & Token Usage</h1>
       <p style={{ color: '#64748b' }}>Track token usage for each API usage type in your tenant.</p>
       {actionError && <p style={{ color: '#dc2626' }}>{actionError}</p>}
+      <div style={{ marginBottom: 12, maxWidth: 320 }}>
+        <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#334155' }}>
+          Mobile money number for Marz Pay collection
+        </label>
+        <input
+          value={phoneNumber}
+          onChange={(e) => setPhoneNumber(e.target.value)}
+          placeholder="+256700000000"
+          style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }}
+        />
+      </div>
       <p><strong>Plan:</strong> {data.currentPlan?.name ?? data.billingPlanId} ({data.currentPlan ? `$${data.currentPlan.priceUsd}/mo` : 'custom'})</p>
 
       {data.billingStatus && (
@@ -164,7 +181,7 @@ export default function TenantBilling() {
                     disabled={busyPlan === plan.id}
                     style={{ marginTop: 10, padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
                   >
-                    {busyPlan === plan.id ? 'Redirecting…' : 'Pay with Marz Pay'}
+                    {busyPlan === plan.id ? 'Requesting…' : 'Collect with Marz Pay'}
                   </button>
                 )}
               </div>

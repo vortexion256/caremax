@@ -427,7 +427,7 @@ platformRouter.get('/billing/providers/marzpay/status', async (_req, res) => {
     res.json({
       provider: 'marzpay',
       credentials,
-      readyForCheckout: credentials.hasCollectionsUrl || credentials.hasPaymentLink || credentials.hasCheckoutUrl,
+      readyForCheckout: credentials.hasApiCredentials || (credentials.hasApiKey && credentials.hasApiSecret),
     });
   } catch (e) {
     console.error('Failed to load Marz Pay credential status:', e);

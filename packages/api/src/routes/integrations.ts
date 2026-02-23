@@ -6,6 +6,9 @@ import {
   disconnectGoogle,
 } from '../services/google-sheets.js';
 import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/auth.js';
+import { db } from '../config/firebase.js';
+import { activateTenantSubscription } from '../services/billing.js';
+import { verifyMarzPayTransaction } from '../services/marzpay.js';
 
 /** Callback from Google OAuth - no auth; state = tenantId. Redirects to admin. */
 export const integrationsCallbackRouter: Router = Router();
@@ -27,6 +30,78 @@ integrationsCallbackRouter.get('/google/callback', async (req: Request, res: Res
   } catch (e) {
     console.error('Google OAuth callback error:', e);
     res.redirect(errorUrl);
+  }
+});
+
+
+type MarzPayCallbackPayload = {
+  event_type?: string;
+  transaction?: {
+    uuid?: string;
+    reference?: string;
+    status?: string;
+    updated_at?: string;
+  };
+  collection?: {
+    provider_transaction_id?: string;
+  };
+};
+
+integrationsCallbackRouter.post('/marzpay/callback', async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as MarzPayCallbackPayload;
+  const txRef = body.transaction?.reference;
+
+  if (!txRef) {
+    res.status(400).json({ error: 'Missing transaction reference' });
+    return;
+  }
+
+  try {
+    const paymentRef = db.collection('payments').doc(txRef);
+    const paymentDoc = await paymentRef.get();
+    if (!paymentDoc.exists) {
+      res.status(404).json({ error: 'Payment not found' });
+      return;
+    }
+
+    const paymentData = paymentDoc.data() ?? {};
+    const tenantId = typeof paymentData.tenantId === 'string' ? paymentData.tenantId : null;
+    const billingPlanId = typeof paymentData.billingPlanId === 'string' ? paymentData.billingPlanId : null;
+    const collectionUuid = typeof paymentData.providerCollectionUuid === 'string' ? paymentData.providerCollectionUuid : body.transaction?.uuid;
+
+    if (!tenantId || !billingPlanId) {
+      await paymentRef.set({ status: 'failed', failureReason: 'Invalid payment metadata', updatedAt: new Date() }, { merge: true });
+      res.status(400).json({ error: 'Invalid payment metadata' });
+      return;
+    }
+
+    const verified = await verifyMarzPayTransaction({
+      txRef,
+      collectionUuid,
+      status: body.transaction?.status,
+    });
+
+    const success = verified.status === 'completed';
+
+    if (success) {
+      await activateTenantSubscription(tenantId, billingPlanId);
+    }
+
+    await paymentRef.set({
+      status: success ? 'completed' : 'failed',
+      providerStatus: body.transaction?.status ?? verified.status,
+      providerTransactionId: body.collection?.provider_transaction_id ?? verified.transactionId ?? null,
+      providerCollectionUuid: collectionUuid ?? null,
+      paidAt: success ? new Date(verified.paidAt ?? body.transaction?.updated_at ?? new Date().toISOString()) : null,
+      callbackEvent: body.event_type ?? null,
+      callbackPayload: body,
+      updatedAt: new Date(),
+    }, { merge: true });
+
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    console.error('Marz Pay callback processing error:', error);
+    res.status(500).json({ error: 'Failed to process callback' });
   }
 });
 
