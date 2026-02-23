@@ -143,9 +143,9 @@ export default function PlatformUsage() {
 
   return (
     <div>
-      <h1 style={{ margin: '0 0 16px 0' }}>Usage & Billing</h1>
+      <h1 style={{ margin: '0 0 16px 0' }}>Data & Analytics</h1>
       <p style={{ color: '#666', marginBottom: 24 }}>
-        Track Gemini API usage and costs per tenant. All AI calls go through your backend for accurate tracking.
+        Platform-wide analytics for tenant activity, token consumption, and billing impact. Drill down into each tenant and perform metering admin actions.
       </p>
 
       {/* Date Range Filter */}
