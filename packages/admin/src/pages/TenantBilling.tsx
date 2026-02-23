@@ -31,6 +31,7 @@ export default function TenantBilling() {
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('+256');
   const [collectingPlanId, setCollectingPlanId] = useState<string | null>(null);
+  const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
@@ -43,6 +44,43 @@ export default function TenantBilling() {
 
     loadBilling();
   }, [tenantId]);
+
+  useEffect(() => {
+    if (!tenantId || tenantId === 'platform' || !pendingPlanId) return;
+
+    const poll = () => {
+      api<BillingSummary>(`/tenants/${tenantId}/billing`)
+        .then((res) => {
+          setData(res);
+          setLoadError(null);
+
+          if (res.billingPlanId === pendingPlanId && !res.billingStatus?.isExpired) {
+            setPendingPlanId(null);
+            setCollectingPlanId(null);
+            setActionError('Payment confirmed. Your package has been updated.');
+          }
+        })
+        .catch((e) => {
+          const message = e instanceof Error ? e.message : 'Failed to refresh billing data';
+          setLoadError(message);
+        });
+    };
+
+    poll();
+    const interval = window.setInterval(poll, 5000);
+    const timeout = window.setTimeout(() => {
+      setPendingPlanId((currentPending) => {
+        if (currentPending !== pendingPlanId) return currentPending;
+        setActionError('Payment request is still pending. Once approved on phone, this page will update automatically.');
+        return null;
+      });
+    }, 120000);
+
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+    };
+  }, [tenantId, pendingPlanId]);
 
   const loadBilling = () => {
     setLoadError(null);
@@ -107,6 +145,7 @@ export default function TenantBilling() {
         body: JSON.stringify({ billingPlanId, phoneNumber, country: 'UG' }),
       });
       setActionError(res.message ?? `Collection status: ${res.status}`);
+      setPendingPlanId(billingPlanId);
       setCollectingPlanId(null);
       loadBilling();
     } catch (e) {
