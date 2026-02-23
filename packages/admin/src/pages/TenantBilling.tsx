@@ -11,6 +11,7 @@ type BillingSummary = {
     isActive: boolean;
     isTrialPlan: boolean;
     isExpired: boolean;
+    expiredReason?: string | null;
     daysRemaining: number | null;
     trialEndsAt: number | null;
     subscriptionEndsAt: number | null;
@@ -48,6 +49,22 @@ type PaymentStatusResponse = {
 };
 
 const formatUgx = (amount: number) => `UGX ${Math.round(amount).toLocaleString()}`;
+const UGX_PER_USD = 3800;
+const formatUsageCostUgx = (costUsd: number) => formatUgx(costUsd * UGX_PER_USD);
+
+function getExpiryMessage(reason?: string | null): string {
+  switch (reason) {
+    case 'user_token_limit_reached':
+      return 'Package expired early because your assigned token balance was depleted.';
+    case 'user_spend_limit_reached':
+      return 'Package expired early because your assigned spend amount was depleted.';
+    case 'duration_elapsed':
+    case 'trial_ended':
+      return 'Package expired because the billing period has ended.';
+    default:
+      return 'Package expired. Your widget is paused until you upgrade.';
+  }
+}
 
 export default function TenantBilling() {
   const { tenantId, isPlatformAdmin } = useTenant();
@@ -229,7 +246,7 @@ export default function TenantBilling() {
         <div style={{ marginBottom: 18, padding: 12, borderRadius: 8, border: `1px solid ${data.billingStatus.isExpired ? '#fecaca' : '#c7d2fe'}`, background: data.billingStatus.isExpired ? '#fef2f2' : '#eef2ff' }}>
           <strong>
             {data.billingStatus.isExpired
-              ? 'Trial expired. Your widget is paused until you upgrade.'
+              ? getExpiryMessage(data.billingStatus.expiredReason)
               : `Status: active${data.billingStatus.daysRemaining != null ? ` (${data.billingStatus.daysRemaining} day(s) remaining)` : ''}`}
           </strong>
           <div style={{ marginTop: 8, fontSize: 14, color: '#475569' }}>
@@ -315,7 +332,7 @@ export default function TenantBilling() {
         <Metric label="API Calls" value={data.totals.calls.toLocaleString()} />
         <Metric label="Input Tokens" value={data.totals.inputTokens.toLocaleString()} />
         <Metric label="Output Tokens" value={data.totals.outputTokens.toLocaleString()} />
-        <Metric label="Total Cost" value={`$${data.totals.costUsd.toFixed(4)}`} />
+        <Metric label="Total Cost" value={formatUsageCostUgx(data.totals.costUsd)} />
       </div>
 
       {(isPlatformAdmin || data.showUsageByApiFlow) && data.byUsageType.length > 0 ? (
@@ -330,7 +347,7 @@ export default function TenantBilling() {
                     <td style={{ padding: '6px 0', fontFamily: 'monospace', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{row.usageType}</td>
                     <td align="right">{row.calls}</td>
                     <td align="right">{row.totalTokens.toLocaleString()}</td>
-                    <td align="right">${row.costUsd.toFixed(6)}</td>
+                    <td align="right">{formatUsageCostUgx(row.costUsd)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -370,7 +387,7 @@ export default function TenantBilling() {
                     <td>{e.measurementSource}</td>
                     <td align="right">{e.inputTokens}</td>
                     <td align="right">{e.outputTokens}</td>
-                    <td align="right">${e.costUsd.toFixed(6)}</td>
+                    <td align="right">{formatUsageCostUgx(e.costUsd)}</td>
                   </tr>
                 ))}
               </tbody>
