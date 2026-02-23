@@ -243,6 +243,7 @@ function aggregateUsage(
 const billingPlanSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  priceUgx: z.number().int().nonnegative(),
   priceUsd: z.number().nonnegative(),
   billingCycle: z.enum(['monthly']),
   trialDays: z.number().int().nonnegative().default(0),
@@ -269,11 +270,11 @@ platformRouter.get('/billing/plans', async (_req, res) => {
 
     if (snap.empty) {
       const defaults = [
-        { id: 'free', name: '1 Month Free', priceUsd: 0, billingCycle: 'monthly', trialDays: 30, active: true, description: 'Worth 5 USD tokens' },
-        { id: 'starter', name: 'Starter Pack', priceUsd: 10, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Starter plan' },
-        { id: 'advanced', name: 'Advanced Pack', priceUsd: 20, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Advanced plan' },
-        { id: 'super', name: 'Super Pack', priceUsd: 60, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Super plan' },
-        { id: 'enterprise', name: 'Enterprise', priceUsd: 100, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Enterprise plan' },
+        { id: 'free', name: '1 Month Free', priceUgx: 0, priceUsd: 0, billingCycle: 'monthly', trialDays: 30, active: true, description: 'Worth 5 USD tokens' },
+        { id: 'starter', name: 'Starter Pack', priceUgx: 38000, priceUsd: 10, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Starter plan' },
+        { id: 'advanced', name: 'Advanced Pack', priceUgx: 76000, priceUsd: 20, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Advanced plan' },
+        { id: 'super', name: 'Super Pack', priceUgx: 228000, priceUsd: 60, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Super plan' },
+        { id: 'enterprise', name: 'Enterprise', priceUgx: 380000, priceUsd: 100, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Enterprise plan' },
       ];
       const batch = db.batch();
       for (const plan of defaults) {
@@ -283,7 +284,15 @@ platformRouter.get('/billing/plans', async (_req, res) => {
       snap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
     }
 
-    const plans = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const plans = snap.docs
+      .map((d) => {
+        const data = d.data();
+        const priceUgx = typeof data.priceUgx === 'number'
+          ? data.priceUgx
+          : (typeof data.priceUsd === 'number' ? Math.round(data.priceUsd * Number(process.env.MARZPAY_USD_TO_UGX_RATE ?? 3800)) : 0);
+        return { id: d.id, ...data, priceUgx };
+      })
+      .sort((a, b) => (a.priceUgx ?? 0) - (b.priceUgx ?? 0));
     res.json({ plans });
   } catch (e) {
     console.error('Failed to load billing plans:', e);

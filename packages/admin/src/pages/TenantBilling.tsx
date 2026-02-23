@@ -6,7 +6,7 @@ import { api } from '../api';
 type BillingSummary = {
   tenantId: string;
   billingPlanId: string;
-  currentPlan: { id: string; name: string; priceUsd: number } | null;
+  currentPlan: { id: string; name: string; priceUgx: number; priceUsd?: number } | null;
   billingStatus?: {
     isActive: boolean;
     isTrialPlan: boolean;
@@ -15,11 +15,13 @@ type BillingSummary = {
     trialEndsAt: number | null;
     subscriptionEndsAt: number | null;
   };
-  availablePlans?: Array<{ id: string; name: string; priceUsd: number; description?: string; billingCycle?: 'monthly' }>;
+  availablePlans?: Array<{ id: string; name: string; priceUgx: number; priceUsd?: number; description?: string; billingCycle?: 'monthly' }>;
   totals: { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number };
   byUsageType: Array<{ usageType: string; calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }>;
   recentEvents: Array<{ eventId: string; usageType: string; model: string | null; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number; measurementSource: string; createdAt: number | null }>;
 };
+
+const formatUgx = (amount: number) => `UGX ${Math.round(amount).toLocaleString()}`;
 
 export default function TenantBilling() {
   const { tenantId } = useTenant();
@@ -28,6 +30,7 @@ export default function TenantBilling() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('+256');
+  const [collectingPlanId, setCollectingPlanId] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
@@ -54,9 +57,6 @@ export default function TenantBilling() {
         setData(null);
       });
   };
-
-
-
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') return;
@@ -107,6 +107,7 @@ export default function TenantBilling() {
         body: JSON.stringify({ billingPlanId, phoneNumber, country: 'UG' }),
       });
       setActionError(res.message ?? `Collection status: ${res.status}`);
+      setCollectingPlanId(null);
       loadBilling();
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Unable to initialize payment';
@@ -125,18 +126,7 @@ export default function TenantBilling() {
       <h1 style={{ marginTop: 0 }}>Billing & Token Usage</h1>
       <p style={{ color: '#64748b' }}>Track token usage for each API usage type in your tenant.</p>
       {actionError && <p style={{ color: '#dc2626' }}>{actionError}</p>}
-      <div style={{ marginBottom: 12, maxWidth: 320 }}>
-        <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#334155' }}>
-          Mobile money number for Marz Pay collection
-        </label>
-        <input
-          value={phoneNumber}
-          onChange={(e) => setPhoneNumber(e.target.value)}
-          placeholder="+256700000000"
-          style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }}
-        />
-      </div>
-      <p><strong>Plan:</strong> {data.currentPlan?.name ?? data.billingPlanId} ({data.currentPlan ? `$${data.currentPlan.priceUsd}/mo` : 'custom'})</p>
+      <p><strong>Plan:</strong> {data.currentPlan?.name ?? data.billingPlanId} ({data.currentPlan ? `${formatUgx(data.currentPlan.priceUgx)}/mo` : 'custom'})</p>
 
       {data.billingStatus && (
         <div style={{ marginBottom: 18, padding: 12, borderRadius: 8, border: `1px solid ${data.billingStatus.isExpired ? '#fecaca' : '#c7d2fe'}`, background: data.billingStatus.isExpired ? '#fef2f2' : '#eef2ff' }}>
@@ -154,7 +144,7 @@ export default function TenantBilling() {
       {(data.availablePlans?.length ?? 0) > 0 && (
         <div style={{ marginBottom: 20 }}>
           <h3 style={{ marginBottom: 8 }}>Available upgrade options</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
             {data.availablePlans?.map((plan) => (
               <div
                 key={plan.id}
@@ -173,16 +163,50 @@ export default function TenantBilling() {
                     </span>
                   )}
                 </div>
-                <div style={{ marginTop: 4, color: '#1e293b', fontSize: 14 }}>${plan.priceUsd}/mo</div>
+                <div style={{ marginTop: 4, color: '#1e293b', fontSize: 14 }}>{formatUgx(plan.priceUgx)}/mo</div>
                 {plan.description && <div style={{ marginTop: 4, color: '#64748b', fontSize: 13 }}>({plan.description})</div>}
-                {plan.id !== data.billingPlanId && plan.priceUsd > 0 && (
-                  <button
-                    onClick={() => startUpgrade(plan.id)}
-                    disabled={busyPlan === plan.id}
-                    style={{ marginTop: 10, padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
-                  >
-                    {busyPlan === plan.id ? 'Requesting…' : 'Collect with Marz Pay'}
-                  </button>
+                {plan.id !== data.billingPlanId && plan.priceUgx > 0 && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setActionError(null);
+                        setCollectingPlanId(plan.id);
+                      }}
+                      disabled={busyPlan === plan.id}
+                      style={{ marginTop: 10, padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
+                    >
+                      {busyPlan === plan.id ? 'Requesting…' : 'Pay with Marz Pay'}
+                    </button>
+
+                    {collectingPlanId === plan.id && (
+                      <div style={{ marginTop: 10, border: '1px solid #cbd5e1', borderRadius: 8, padding: 10, background: '#f8fafc' }}>
+                        <label style={{ display: 'block', fontSize: 13, marginBottom: 4, color: '#334155' }}>
+                          Mobile money number
+                        </label>
+                        <input
+                          value={phoneNumber}
+                          onChange={(e) => setPhoneNumber(e.target.value)}
+                          placeholder="+256700000000"
+                          style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }}
+                        />
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <button
+                            onClick={() => startUpgrade(plan.id)}
+                            disabled={busyPlan === plan.id}
+                            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
+                          >
+                            {busyPlan === plan.id ? 'Requesting…' : 'Confirm payment request'}
+                          </button>
+                          <button
+                            onClick={() => setCollectingPlanId(null)}
+                            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer' }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ))}
