@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { useTenant } from '../TenantContext';
 import { api } from '../api';
 
@@ -26,8 +25,9 @@ export default function TenantBilling() {
   const [data, setData] = useState<BillingSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionInfo, setActionInfo] = useState<string | null>(null);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
-  const [searchParams] = useSearchParams();
+  const [phoneByPlan, setPhoneByPlan] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') {
@@ -54,56 +54,28 @@ export default function TenantBilling() {
       });
   };
 
-
-
-
-  useEffect(() => {
+  const startUpgrade = async (billingPlanId: string) => {
     if (!tenantId || tenantId === 'platform') return;
-    const txRef = searchParams.get('tx_ref') ?? searchParams.get('txRef') ?? searchParams.get('trxref');
-    const transactionIdRaw = searchParams.get('transaction_id') ?? searchParams.get('transactionId');
-    const reference = searchParams.get('reference');
-    const status = searchParams.get('status');
-    const parsedTransactionId = transactionIdRaw ? Number(transactionIdRaw) : undefined;
-    const transactionId = typeof parsedTransactionId === 'number' && Number.isFinite(parsedTransactionId) && parsedTransactionId > 0
-      ? parsedTransactionId
-      : undefined;
+    setActionError(null);
+    setActionInfo(null);
 
-    if (!txRef) return;
-    if (status && !['successful', 'success', 'completed', 'paid'].includes(status.toLowerCase())) {
-      setActionError('Marz Pay payment was not successful. Please try again.');
+    const phoneNumber = (phoneByPlan[billingPlanId] ?? '').trim();
+    if (!/^\+\d{10,15}$/.test(phoneNumber)) {
+      setActionError('Enter a valid phone number in format +2567XXXXXXXX before paying.');
       return;
     }
 
-    const payload: { txRef: string; transactionId?: number; status?: string; reference?: string } = { txRef };
-    if (transactionId) payload.transactionId = transactionId;
-    if (status) payload.status = status;
-    if (reference) payload.reference = reference;
-
-    api(`/tenants/${tenantId}/payments/marzpay/verify`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    })
-      .then(() => {
-        setActionError(null);
-        loadBilling();
-      })
-      .catch((e) => {
-        const message = e instanceof Error ? e.message : 'Failed to verify payment';
-        setActionError(message);
-      });
-  }, [tenantId, searchParams]);
-
-  const startUpgrade = async (billingPlanId: string) => {
-    if (!tenantId || tenantId === 'platform') return;
     setBusyPlan(billingPlanId);
     try {
-      const res = await api<{ paymentLink: string }>(`/tenants/${tenantId}/payments/marzpay/initialize`, {
+      const res = await api<{ txRef: string; status: string; message?: string }>(`/tenants/${tenantId}/payments/marzpay/initialize`, {
         method: 'POST',
-        body: JSON.stringify({ billingPlanId }),
+        body: JSON.stringify({ billingPlanId, phone_number: phoneNumber, country: 'UG' }),
       });
-      window.location.href = res.paymentLink;
+
+      setActionInfo(res.message ?? `Collection started. Approve the mobile money prompt on ${phoneNumber}.`);
+      loadBilling();
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Unable to initialize payment';
+      const message = e instanceof Error ? e.message : 'Unable to initialize collection';
       setActionError(message);
     } finally {
       setBusyPlan(null);
@@ -119,6 +91,7 @@ export default function TenantBilling() {
       <h1 style={{ marginTop: 0 }}>Billing & Token Usage</h1>
       <p style={{ color: '#64748b' }}>Track token usage for each API usage type in your tenant.</p>
       {actionError && <p style={{ color: '#dc2626' }}>{actionError}</p>}
+      {actionInfo && <p style={{ color: '#065f46' }}>{actionInfo}</p>}
       <p><strong>Plan:</strong> {data.currentPlan?.name ?? data.billingPlanId} ({data.currentPlan ? `$${data.currentPlan.priceUsd}/mo` : 'custom'})</p>
 
       {data.billingStatus && (
@@ -159,13 +132,22 @@ export default function TenantBilling() {
                 <div style={{ marginTop: 4, color: '#1e293b', fontSize: 14 }}>${plan.priceUsd}/mo</div>
                 {plan.description && <div style={{ marginTop: 4, color: '#64748b', fontSize: 13 }}>({plan.description})</div>}
                 {plan.id !== data.billingPlanId && plan.priceUsd > 0 && (
-                  <button
-                    onClick={() => startUpgrade(plan.id)}
-                    disabled={busyPlan === plan.id}
-                    style={{ marginTop: 10, padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
-                  >
-                    {busyPlan === plan.id ? 'Redirecting…' : 'Pay with Marz Pay'}
-                  </button>
+                  <>
+                    <input
+                      type="tel"
+                      placeholder="+2567XXXXXXXX"
+                      value={phoneByPlan[plan.id] ?? ''}
+                      onChange={(e) => setPhoneByPlan((prev) => ({ ...prev, [plan.id]: e.target.value }))}
+                      style={{ marginTop: 10, width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1' }}
+                    />
+                    <button
+                      onClick={() => startUpgrade(plan.id)}
+                      disabled={busyPlan === plan.id}
+                      style={{ marginTop: 10, padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
+                    >
+                      {busyPlan === plan.id ? 'Requesting collection…' : 'Pay with Mobile Money'}
+                    </button>
+                  </>
                 )}
               </div>
             ))}

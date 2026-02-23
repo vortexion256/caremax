@@ -1,8 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { requireAuth, requireTenantParam } from '../middleware/auth.js';
 import { db } from '../config/firebase.js';
 import { activateTenantSubscription, getTenantBillingStatus } from '../services/billing.js';
-import { initializeMarzPayPayment, verifyMarzPayTransaction } from '../services/marzpay.js';
+import { createMarzCollection, getMarzCollectionDetails } from '../services/marzpay.js';
 import { z } from 'zod';
 
 export const tenantRouter: Router = Router();
@@ -110,7 +111,19 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
 });
 
 tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, async (req, res) => {
-  const body = z.object({ billingPlanId: z.string().min(1) }).safeParse(req.body);
+  const body = z.object({
+    billingPlanId: z.string().min(1),
+    phoneNumber: z.string().trim().regex(/^\+\d{10,15}$/).optional(),
+    phone_number: z.string().trim().regex(/^\+\d{10,15}$/).optional(),
+    country: z.string().trim().length(2).optional(),
+    description: z.string().trim().max(255).optional(),
+    callbackUrl: z.string().url().max(255).optional(),
+    callback_url: z.string().url().max(255).optional(),
+  }).transform((data) => ({
+    ...data,
+    phoneNumber: data.phoneNumber ?? data.phone_number,
+    callbackUrl: data.callbackUrl ?? data.callback_url,
+  })).safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
     return;
@@ -131,52 +144,67 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
     }
 
     const plan = planDoc.data() ?? {};
-    const amount = typeof plan.priceUsd === 'number' ? plan.priceUsd : 0;
-    if (amount <= 0) {
-      res.status(400).json({ error: 'Selected plan is not payable' });
+    const usdAmount = typeof plan.priceUsd === 'number' ? plan.priceUsd : 0;
+    const ugxAmount = typeof plan.priceUgx === 'number'
+      ? plan.priceUgx
+      : Math.round(usdAmount * Number(process.env.MARZPAY_USD_TO_UGX_RATE ?? 3800));
+
+    if (ugxAmount < 500) {
+      res.status(400).json({ error: 'Selected plan amount is below Marz minimum collection amount (500 UGX).' });
       return;
     }
 
-    const localsEmail = typeof res.locals.email === 'string' ? res.locals.email : undefined;
-    const tenantData = tenantDoc.data() ?? {};
-    const customerEmail = localsEmail ?? tenantData.ownerEmail;
-    if (!customerEmail) {
-      res.status(400).json({ error: 'User email is required to initialize payment.' });
+    if (!body.data.phoneNumber) {
+      res.status(400).json({ error: 'phoneNumber (or phone_number) is required for Marz collection.' });
       return;
     }
 
-    const txRef = `caremax-${tenantId}-${body.data.billingPlanId}-${Date.now()}`;
-    const adminBaseUrl = process.env.ADMIN_APP_URL ?? 'https://caremax-admin.vercel.app';
-    const redirectUrl = `${adminBaseUrl.replace(/\/$/, '')}/billing?payment=marzpay&tx_ref=${encodeURIComponent(txRef)}`;
+    const txRef = randomUUID();
+    const webhookToken = process.env.MARZPAY_WEBHOOK_TOKEN?.trim();
+    const apiBaseUrl = (process.env.API_BASE_URL ?? '').replace(/\/$/, '');
+    const generatedCallbackBase = `${apiBaseUrl}/webhooks/marzpay/collections`;
+    const generatedCallbackUrl = webhookToken ? `${generatedCallbackBase}?token=${encodeURIComponent(webhookToken)}` : generatedCallbackBase;
+    const callbackUrl = body.data.callbackUrl ?? generatedCallbackUrl;
 
-    const initResult = await initializeMarzPayPayment({
-      txRef,
-      amount,
-      currency: 'USD',
-      redirectUrl,
-      customerEmail,
-      customerName: typeof tenantData.name === 'string' ? tenantData.name : undefined,
-      tenantId,
-      billingPlanId: body.data.billingPlanId,
+    if (!body.data.callbackUrl && !apiBaseUrl) {
+      res.status(400).json({ error: 'Set API_BASE_URL env or provide callbackUrl in request body.' });
+      return;
+    }
+
+    const initResult = await createMarzCollection({
+      amount: ugxAmount,
+      phoneNumber: body.data.phoneNumber,
+      country: (body.data.country ?? 'UG').toUpperCase(),
+      reference: txRef,
+      description: body.data.description ?? `Subscription payment for ${body.data.billingPlanId}`,
+      callbackUrl: callbackUrl || undefined,
     });
 
     await db.collection('payments').doc(txRef).set({
       provider: 'marzpay',
       tenantId,
       billingPlanId: body.data.billingPlanId,
-      amount,
-      currency: 'USD',
+      amount: ugxAmount,
+      currency: 'UGX',
       txRef,
-      status: 'pending',
-      customerEmail,
-      paymentLink: initResult.paymentLink,
-      providerTransactionId: initResult.transactionId ?? null,
+      status: 'processing',
+      providerCollectionUuid: initResult.transactionUuid,
+      providerTransactionId: initResult.providerReference,
+      providerStatus: initResult.transactionStatus,
+      callbackUrl: callbackUrl || null,
       createdByUid: res.locals.uid,
       createdAt: new Date(),
       updatedAt: new Date(),
     }, { merge: true });
 
-    res.json({ txRef, paymentLink: initResult.paymentLink });
+    res.json({
+      txRef,
+      collectionUuid: initResult.transactionUuid,
+      callbackUrl: callbackUrl || null,
+      provider: 'marzpay',
+      status: initResult.transactionStatus,
+      message: 'Collection initiated. Prompt sent to tenant phone for approval.',
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to initialize Marz Pay payment';
     console.error('Failed to initialize Marz Pay payment:', e);
@@ -185,7 +213,7 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
 });
 
 tenantRouter.post('/:tenantId/payments/marzpay/verify', requireTenantParam, async (req, res) => {
-  const body = z.object({ txRef: z.string().min(1), transactionId: z.number().int().positive().optional(), status: z.string().optional(), reference: z.string().optional() }).safeParse(req.body);
+  const body = z.object({ txRef: z.string().uuid() }).safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
     return;
@@ -206,41 +234,30 @@ tenantRouter.post('/:tenantId/payments/marzpay/verify', requireTenantParam, asyn
       return;
     }
 
-    const verified = await verifyMarzPayTransaction(body.data);
-    if (!verified) {
-      res.status(400).json({ error: 'Payment verification failed' });
+    const collectionUuid = typeof paymentData.providerCollectionUuid === 'string' ? paymentData.providerCollectionUuid : '';
+    if (!collectionUuid) {
+      res.status(400).json({ error: 'Missing collection uuid on payment record' });
       return;
     }
+
+    const details = await getMarzCollectionDetails(collectionUuid);
     const billingPlanId = typeof paymentData.billingPlanId === 'string' ? paymentData.billingPlanId : null;
-    const verificationStatus = (verified.status ?? '').toLowerCase();
-    const status = ['successful', 'success', 'completed', 'paid'].includes(verificationStatus) ? 'completed' : 'failed';
+    const status = ['successful', 'success', 'completed', 'paid'].includes(details.status) ? 'completed' : details.status;
 
-    const isValid = status === 'completed' && billingPlanId;
-
-    if (!isValid || !billingPlanId) {
-      await paymentRef.set({
-        status: 'failed',
-        failureReason: 'Verification mismatch or incomplete payment',
-        providerTransactionId: verified.transactionId ?? body.data.transactionId ?? null,
-        providerStatus: verified.status ?? 'unknown',
-        updatedAt: new Date(),
-      }, { merge: true });
-      res.status(400).json({ error: 'Payment verification failed' });
-      return;
+    if (status === 'completed' && billingPlanId) {
+      await activateTenantSubscription(tenantId, billingPlanId);
     }
-
-    await activateTenantSubscription(tenantId, billingPlanId);
 
     await paymentRef.set({
       status,
-      providerTransactionId: verified.transactionId ?? body.data.transactionId ?? null,
-      providerStatus: verified.status ?? 'unknown',
-      paidAt: verified.paidAt ? new Date(verified.paidAt) : new Date(),
+      providerStatus: details.status,
+      providerTransactionId: details.providerReference,
+      paidAt: status === 'completed' ? new Date() : null,
       verifiedByUid: res.locals.uid,
       updatedAt: new Date(),
     }, { merge: true });
 
-    res.json({ success: true, status: 'completed', billingPlanId, durationDays: 30 });
+    res.json({ success: true, status });
   } catch (e) {
     console.error('Failed to verify Marz Pay payment:', e);
     res.status(500).json({ error: 'Failed to verify Marz Pay payment' });
