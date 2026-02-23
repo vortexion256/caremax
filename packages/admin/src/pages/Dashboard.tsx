@@ -48,6 +48,21 @@ export default function Dashboard() {
       ? null
       : 'Manage your package and available upgrade options from billing.';
 
+  const agentConfigLinks = [
+    { label: 'Agent Settings', path: '/agent' },
+    { label: 'Auto Brain', path: '/agent-brain' },
+    { label: 'Agent Notebook', path: '/agent-notes' },
+    { label: 'Integrations', path: '/integrations' },
+    { label: 'Knowledge Base', path: '/rag' },
+  ];
+
+  const logMetrics = [
+    { label: 'API Calls', value: '1' },
+    { label: 'Input Tokens', value: '7,990' },
+    { label: 'Output Tokens', value: '24' },
+    { label: 'Total Cost', value: 'UGX 2' },
+  ];
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
       <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Dashboard</h1>
@@ -82,6 +97,73 @@ export default function Dashboard() {
       <AIBrainVisualization isMobile={isMobile} />
 
       <AnalyticsUI isMobile={isMobile} />
+
+      <section
+        style={{
+          marginTop: 28,
+          border: '1px solid #e2e8f0',
+          borderRadius: 12,
+          padding: isMobile ? 16 : 20,
+          background: '#f8fafc'
+        }}
+      >
+        <h2 style={{ margin: '0 0 12px 0', fontSize: 20, color: '#0f172a' }}>Agent Config</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+          {agentConfigLinks.map((item) => (
+            <Link
+              key={item.path}
+              to={item.path}
+              style={{
+                textDecoration: 'none',
+                color: '#1d4ed8',
+                fontWeight: 600,
+                background: '#fff',
+                border: '1px solid #dbeafe',
+                borderRadius: 10,
+                padding: '12px 14px'
+              }}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section
+        style={{
+          marginTop: 18,
+          border: '1px solid #e2e8f0',
+          borderRadius: 12,
+          padding: isMobile ? 16 : 20,
+          background: '#fff'
+        }}
+      >
+        <h2 style={{ margin: '0 0 8px 0', fontSize: 20, color: '#0f172a' }}>Notifications</h2>
+        <p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>
+          Notification updates will appear in this section.
+        </p>
+      </section>
+
+      <section
+        style={{
+          marginTop: 18,
+          border: '1px solid #e2e8f0',
+          borderRadius: 12,
+          padding: isMobile ? 16 : 20,
+          background: '#fff'
+        }}
+      >
+        <h2 style={{ margin: '0 0 12px 0', fontSize: 20, color: '#0f172a' }}>Logs</h2>
+        <div style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', marginBottom: 10 }}>Recent Metered Events</div>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+          {logMetrics.map((metric) => (
+            <div key={metric.label} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', background: '#f8fafc' }}>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>{metric.label}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{metric.value}</div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {isPlatformAdmin && (
         <div style={{ 
