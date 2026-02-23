@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { requireAuth, requireTenantParam } from '../middleware/auth.js';
 import { db } from '../config/firebase.js';
@@ -110,7 +111,19 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
 });
 
 tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, async (req, res) => {
-  const body = z.object({ billingPlanId: z.string().min(1) }).safeParse(req.body);
+  const body = z.object({
+    billingPlanId: z.string().min(1),
+    phoneNumber: z.string().trim().regex(/^\+\d{10,15}$/).optional(),
+    phone_number: z.string().trim().regex(/^\+\d{10,15}$/).optional(),
+    country: z.string().trim().length(2).optional(),
+    description: z.string().trim().max(255).optional(),
+    callbackUrl: z.string().url().max(255).optional(),
+    callback_url: z.string().url().max(255).optional(),
+  }).transform((data) => ({
+    ...data,
+    phoneNumber: data.phoneNumber ?? data.phone_number,
+    callbackUrl: data.callbackUrl ?? data.callback_url,
+  })).safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
     return;
@@ -145,7 +158,7 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
       return;
     }
 
-    const txRef = `caremax-${tenantId}-${body.data.billingPlanId}-${Date.now()}`;
+    const txRef = randomUUID();
     const adminBaseUrl = process.env.ADMIN_APP_URL ?? 'https://caremax-admin.vercel.app';
     const redirectUrl = `${adminBaseUrl.replace(/\/$/, '')}/billing?payment=marzpay&tx_ref=${encodeURIComponent(txRef)}`;
 
@@ -158,7 +171,12 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
       customerName: typeof tenantData.name === 'string' ? tenantData.name : undefined,
       tenantId,
       billingPlanId: body.data.billingPlanId,
-    });
+    }, body.data.phoneNumber ? {
+      phoneNumber: body.data.phoneNumber,
+      country: (body.data.country ?? 'UG').toUpperCase(),
+      description: body.data.description ?? `Subscription payment for ${body.data.billingPlanId}`,
+      callbackUrl: body.data.callbackUrl,
+    } : undefined);
 
     await db.collection('payments').doc(txRef).set({
       provider: 'marzpay',
@@ -171,12 +189,20 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
       customerEmail,
       paymentLink: initResult.paymentLink,
       providerTransactionId: initResult.transactionId ?? null,
+      providerCollectionUuid: initResult.collectionUuid ?? null,
       createdByUid: res.locals.uid,
       createdAt: new Date(),
       updatedAt: new Date(),
     }, { merge: true });
 
-    res.json({ txRef, paymentLink: initResult.paymentLink });
+    res.json({
+      txRef,
+      paymentLink: initResult.paymentLink || null,
+      collectionUuid: initResult.collectionUuid ?? null,
+      callbackUrl: body.data.callbackUrl ?? null,
+      provider: 'marzpay',
+      status: 'pending',
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to initialize Marz Pay payment';
     console.error('Failed to initialize Marz Pay payment:', e);
