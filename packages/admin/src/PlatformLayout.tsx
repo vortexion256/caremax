@@ -24,11 +24,12 @@ export default function PlatformLayout() {
   }
 
   const nav = [
-    { path: '/platform', label: 'Platform Dashboard' },
-    { path: '/platform/tenants', label: 'All Tenants' },
-    { path: '/platform/usage', label: 'Usage & Billing' },
+    { path: '/platform', label: 'SaaS Control Center' },
+    { path: '/platform/tenants', label: 'Tenants Directory' },
+    { path: '/platform/usage', label: 'Data & Analytics' },
     { path: '/platform/billing', label: 'Billing Plans' },
-    { path: '/platform/payments', label: 'Payments' },
+    { path: '/platform/payments', label: 'Payment Operations' },
+    { path: '/platform/advanced-prompts', label: 'Global Prompt Controls' },
   ];
 
   const sidebarWidth = isMobile ? 280 : 260;
@@ -51,7 +52,7 @@ export default function PlatformLayout() {
           justifyContent: 'space-between',
           color: '#fff'
         }}>
-          <span style={{ fontWeight: 600 }}>Platform Console</span>
+          <span style={{ fontWeight: 600 }}>SaaS Admin Console</span>
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             style={{
@@ -89,7 +90,7 @@ export default function PlatformLayout() {
           CareMax
         </div>
         <div style={{ padding: '0 12px 24px', fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Platform Console
+          SaaS Admin Console
         </div>
         
         <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>

@@ -15,6 +15,7 @@ export default function Layout() {
 
   const primaryNav: NavItem[] = [
     { path: '/', label: 'Dashboard' },
+    { path: '/agent', label: 'Agent Settings' },
     { path: '/conversations', label: 'Conversations' },
     { path: '/handoffs', label: 'Handoff Queue' },
   ];
