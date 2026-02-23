@@ -16,6 +16,9 @@ type BillingSummary = {
     subscriptionEndsAt: number | null;
   };
   availablePlans?: Array<{ id: string; name: string; priceUgx: number; priceUsd?: number; description?: string; billingCycle?: 'monthly' }>;
+  showUsageByApiFlow?: boolean;
+  maxTokensPerUser?: number | null;
+  maxSpendUgxPerUser?: number | null;
   totals: { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number };
   byUsageType: Array<{ usageType: string; calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }>;
   recentEvents: Array<{ eventId: string; usageType: string; model: string | null; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number; measurementSource: string; createdAt: number | null }>;
@@ -28,6 +31,15 @@ type UiNotice = {
   message: string;
 };
 
+type TenantNotification = {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: number | null;
+};
+
 type PaymentStatusResponse = {
   txRef: string;
   status: string;
@@ -38,7 +50,7 @@ type PaymentStatusResponse = {
 const formatUgx = (amount: number) => `UGX ${Math.round(amount).toLocaleString()}`;
 
 export default function TenantBilling() {
-  const { tenantId } = useTenant();
+  const { tenantId, isPlatformAdmin } = useTenant();
   const [data, setData] = useState<BillingSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<UiNotice | null>(null);
@@ -47,6 +59,7 @@ export default function TenantBilling() {
   const [collectingPlanId, setCollectingPlanId] = useState<string | null>(null);
   const [pendingPayment, setPendingPayment] = useState<{ txRef: string; billingPlanId: string } | null>(null);
   const [searchParams] = useSearchParams();
+  const [notifications, setNotifications] = useState<TenantNotification[]>([]);
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') {
@@ -57,6 +70,7 @@ export default function TenantBilling() {
     }
 
     loadBilling();
+    loadNotifications();
   }, [tenantId]);
 
   useEffect(() => {
@@ -72,6 +86,7 @@ export default function TenantBilling() {
             setCollectingPlanId(null);
             setNotice({ tone: 'success', message: 'Payment confirmed. Your package has been updated.' });
             loadBilling();
+            loadNotifications();
             return;
           }
 
@@ -84,6 +99,7 @@ export default function TenantBilling() {
                 ?? `Payment failed (${payment.providerStatus ?? normalizedStatus}). Please try again.`,
             });
             loadBilling();
+            loadNotifications();
           }
         })
         .catch((e) => {
@@ -122,6 +138,12 @@ export default function TenantBilling() {
       });
   };
 
+  const loadNotifications = () => {
+    api<{ notifications: TenantNotification[] }>(`/tenants/${tenantId}/notifications?limit=20`)
+      .then((res) => setNotifications(res.notifications ?? []))
+      .catch(() => setNotifications([]));
+  };
+
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') return;
     const txRef = searchParams.get('tx_ref') ?? searchParams.get('txRef') ?? searchParams.get('trxref');
@@ -151,6 +173,7 @@ export default function TenantBilling() {
       .then(() => {
         setNotice({ tone: 'success', message: 'Payment was verified and your package is now active.' });
         loadBilling();
+    loadNotifications();
       })
       .catch((e) => {
         const message = e instanceof Error ? e.message : 'Failed to verify payment';
@@ -174,6 +197,7 @@ export default function TenantBilling() {
       setPendingPayment({ txRef: res.txRef, billingPlanId });
       setCollectingPlanId(null);
       loadBilling();
+    loadNotifications();
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Unable to initialize payment';
       setNotice({ tone: 'error', message });
@@ -185,6 +209,8 @@ export default function TenantBilling() {
   if (!data && !loadError) return <p>Loading billing data...</p>;
   if (loadError) return <p style={{ color: '#dc2626' }}>Could not load billing data: {loadError}</p>;
   if (!data) return null;
+
+  const planChangeLocked = data.billingPlanId !== 'free' && data.billingStatus?.isActive;
 
   return (
     <div>
@@ -207,7 +233,7 @@ export default function TenantBilling() {
               : `Status: active${data.billingStatus.daysRemaining != null ? ` (${data.billingStatus.daysRemaining} day(s) remaining)` : ''}`}
           </strong>
           <div style={{ marginTop: 8, fontSize: 14, color: '#475569' }}>
-            {data.billingStatus.isExpired ? 'Upgrade to any available package below.' : 'Upgrade or change package.'}
+            {data.billingStatus.isExpired ? 'Upgrade to any available package below.' : (planChangeLocked ? 'Plan changes unlock when your current package expires.' : 'Upgrade or change package.')}
           </div>
         </div>
       )}
@@ -243,10 +269,10 @@ export default function TenantBilling() {
                             setNotice(null);
                             setCollectingPlanId(plan.id);
                           }}
-                      disabled={busyPlan === plan.id}
+                      disabled={busyPlan === plan.id || planChangeLocked}
                       style={{ marginTop: 10, padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
                     >
-                      {busyPlan === plan.id ? 'Requesting…' : 'Pay with Marz Pay'}
+                      {planChangeLocked ? 'Locked until package expires' : busyPlan === plan.id ? 'Requesting…' : 'Pay with Marz Pay'}
                     </button>
 
                     {collectingPlanId === plan.id && (
@@ -263,7 +289,7 @@ export default function TenantBilling() {
                         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                           <button
                             onClick={() => startUpgrade(plan.id)}
-                            disabled={busyPlan === plan.id}
+                            disabled={busyPlan === plan.id || planChangeLocked}
                             style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
                           >
                             {busyPlan === plan.id ? 'Requesting…' : 'Confirm payment request'}
@@ -292,7 +318,7 @@ export default function TenantBilling() {
         <Metric label="Total Cost" value={`$${data.totals.costUsd.toFixed(4)}`} />
       </div>
 
-      {data.byUsageType.length > 0 ? (
+      {(isPlatformAdmin || data.showUsageByApiFlow) && data.byUsageType.length > 0 ? (
         <>
           <h3>Usage by API Flow</h3>
           <div style={{ width: '100%', overflowX: 'auto' }}>
@@ -312,7 +338,22 @@ export default function TenantBilling() {
           </div>
         </>
       ) : (
-        <p style={{ color: '#64748b' }}>No data exists to use.</p>
+        <p style={{ color: '#64748b' }}>{isPlatformAdmin || data.showUsageByApiFlow ? 'No data exists to use.' : 'Usage by API Flow is managed by SaaS admin.'}</p>
+      )}
+
+      <h3 style={{ marginTop: 18 }}>Notifications</h3>
+      {notifications.length > 0 ? (
+        <div style={{ display: 'grid', gap: 8, marginBottom: 10 }}>
+          {notifications.map((n) => (
+            <div key={n.id} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, background: n.read ? '#fff' : '#f8fafc' }}>
+              <div style={{ fontWeight: 600 }}>{n.title}</div>
+              <div style={{ fontSize: 13, color: '#475569' }}>{n.message}</div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>{n.createdAt ? new Date(n.createdAt).toLocaleString() : '—'}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p style={{ color: '#64748b' }}>No notifications yet.</p>
       )}
 
       {data.recentEvents.length > 0 ? (
@@ -337,7 +378,7 @@ export default function TenantBilling() {
           </div>
         </>
       ) : (
-        <p style={{ color: '#64748b' }}>No data exists to use.</p>
+        <p style={{ color: '#64748b' }}>No metered events yet.</p>
       )}
     </div>
   );

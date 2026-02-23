@@ -15,6 +15,9 @@ type TenantDetails = {
     createdAt: number | null;
   } | null;
   billingPlanId: string;
+  showUsageByApiFlow?: boolean;
+  maxTokensPerUser?: number | null;
+  maxSpendUgxPerUser?: number | null;
   billingStatus?: {
     isActive: boolean;
     isTrialPlan: boolean;
@@ -38,6 +41,7 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [endingTrial, setEndingTrial] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -60,6 +64,25 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
       setError(e instanceof Error ? e.message : 'Failed to end trial early');
     } finally {
       setEndingTrial(false);
+    }
+  };
+
+
+  const saveTenantSettings = async (updates: { showUsageByApiFlow?: boolean; maxTokensPerUser?: number; maxSpendUgxPerUser?: number }) => {
+    if (savingSettings) return;
+    setSavingSettings(true);
+    setError(null);
+    try {
+      await api(`/platform/tenants/${tenantId}/settings`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+      });
+      const refreshed = await api<TenantDetails>(`/platform/tenants/${tenantId}`);
+      setDetails(refreshed);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save tenant settings');
+    } finally {
+      setSavingSettings(false);
     }
   };
 
@@ -233,6 +256,36 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
                   {endingTrial ? 'Ending Trial...' : 'End Trial Now'}
                 </button>
               )}
+
+
+              <div style={{ marginBottom: 12, padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Tenant Admin Visibility & Limits</div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={details.showUsageByApiFlow === true}
+                    onChange={(e) => saveTenantSettings({ showUsageByApiFlow: e.target.checked })}
+                    disabled={savingSettings}
+                  />
+                  Show “Usage by API Flow” in tenant admin
+                </label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => saveTenantSettings({ maxTokensPerUser: Number(prompt('Max tokens per user', String(details.maxTokensPerUser ?? 0)) ?? 0) || 0 })}
+                    disabled={savingSettings}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
+                  >
+                    Set max tokens/user ({details.maxTokensPerUser ?? 'not set'})
+                  </button>
+                  <button
+                    onClick={() => saveTenantSettings({ maxSpendUgxPerUser: Number(prompt('Max spend per user (UGX)', String(details.maxSpendUgxPerUser ?? 0)) ?? 0) || 0 })}
+                    disabled={savingSettings}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
+                  >
+                    Set max spend/user ({details.maxSpendUgxPerUser ?? 'not set'})
+                  </button>
+                </div>
+              </div>
 
               {details.byUsageType.length > 0 ? (
                 <>

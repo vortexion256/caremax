@@ -81,3 +81,54 @@ analyticsRouter.get('/interactions', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch analytics' });
   }
 });
+
+
+analyticsRouter.get('/conversations', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const period = typeof req.query.period === 'string' ? req.query.period : '7d';
+  const now = Date.now();
+
+  const offsetByPeriod: Record<string, number> = {
+    '1d': 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+    '1w': 7 * 24 * 60 * 60 * 1000,
+    '1m': 30 * 24 * 60 * 60 * 1000,
+    '1y': 365 * 24 * 60 * 60 * 1000,
+  };
+  const startTime = now - (offsetByPeriod[period] ?? offsetByPeriod['7d']);
+
+  try {
+    const [conversationSnap, messageSnap] = await Promise.all([
+      db.collection('conversations').where('tenantId', '==', tenantId).get(),
+      db.collection('messages').where('tenantId', '==', tenantId).get(),
+    ]);
+
+    const conversationMap = new Map<string, { conversationId: string; createdAt: number; totalMessages: number }>();
+    for (const doc of conversationSnap.docs) {
+      const data = doc.data();
+      const createdAt = data.createdAt?.toMillis?.() ?? 0;
+      if (createdAt >= startTime) {
+        conversationMap.set(doc.id, { conversationId: doc.id, createdAt, totalMessages: 0 });
+      }
+    }
+
+    for (const doc of messageSnap.docs) {
+      const data = doc.data();
+      const convId = typeof data.conversationId === 'string' ? data.conversationId : null;
+      if (!convId || !conversationMap.has(convId)) continue;
+      const bucket = conversationMap.get(convId)!;
+      bucket.totalMessages += 1;
+    }
+
+    const conversations = Array.from(conversationMap.values()).sort((a, b) => b.createdAt - a.createdAt);
+
+    res.json({
+      period,
+      totalConversations: conversations.length,
+      conversations,
+    });
+  } catch (e) {
+    console.error('Conversation analytics error:', e);
+    res.status(500).json({ error: 'Failed to fetch conversation analytics' });
+  }
+});

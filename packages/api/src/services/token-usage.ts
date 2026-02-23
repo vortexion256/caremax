@@ -1,5 +1,6 @@
 import type { BaseMessage } from '@langchain/core/messages';
 import { db } from '../config/firebase.js';
+import { createTenantNotification } from './tenant-notifications.js';
 
 export type UsageMetadata = {
   inputTokens: number;
@@ -105,6 +106,7 @@ export function computeCostUsd(model: string, usage: UsageMetadata): number {
 export async function recordUsage(modelName: string, usage: UsageMetadata, ctx: UsageContext): Promise<void> {
   try {
     const costUsd = computeCostUsd(modelName, usage);
+    const createdAt = new Date();
     await db.collection('usage_events').add({
       tenantId: ctx.tenantId,
       userId: ctx.userId ?? null,
@@ -116,7 +118,66 @@ export async function recordUsage(modelName: string, usage: UsageMetadata, ctx: 
       outputTokens: usage.outputTokens,
       totalTokens: usage.totalTokens,
       costUsd,
-      createdAt: new Date(),
+      createdAt,
+    });
+
+    if (!ctx.userId) return;
+
+    const tenantRef = db.collection('tenants').doc(ctx.tenantId);
+    const tenantDoc = await tenantRef.get();
+    if (!tenantDoc.exists) return;
+    const tenantData = tenantDoc.data() ?? {};
+
+    const maxTokensPerUser = typeof tenantData.maxTokensPerUser === 'number' ? tenantData.maxTokensPerUser : null;
+    const maxSpendUgxPerUser = typeof tenantData.maxSpendUgxPerUser === 'number' ? tenantData.maxSpendUgxPerUser : null;
+
+    if (!maxTokensPerUser && !maxSpendUgxPerUser) return;
+
+    const cycleStart = tenantData.subscriptionStartedAt?.toMillis?.() ?? tenantData.trialStartedAt?.toMillis?.() ?? (Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const usageSnap = await db
+      .collection('usage_events')
+      .where('tenantId', '==', ctx.tenantId)
+      .where('userId', '==', ctx.userId)
+      .where('createdAt', '>=', new Date(cycleStart))
+      .get();
+
+    let totalTokens = 0;
+    let totalCostUsd = 0;
+    usageSnap.forEach((doc) => {
+      const data = doc.data();
+      totalTokens += typeof data.totalTokens === 'number' ? data.totalTokens : 0;
+      totalCostUsd += typeof data.costUsd === 'number' ? data.costUsd : 0;
+    });
+
+    const totalCostUgx = Math.round(totalCostUsd * Number(process.env.MARZPAY_USD_TO_UGX_RATE ?? 3800));
+    const exceededTokens = typeof maxTokensPerUser === 'number' && totalTokens >= maxTokensPerUser;
+    const exceededSpend = typeof maxSpendUgxPerUser === 'number' && totalCostUgx >= maxSpendUgxPerUser;
+
+    if (!exceededTokens && !exceededSpend) return;
+
+    await tenantRef.set({
+      subscriptionStatus: 'expired',
+      subscriptionEndsAt: new Date(),
+      updatedAt: new Date(),
+      subscriptionExpiredReason: exceededTokens
+        ? 'user_token_limit_reached'
+        : 'user_spend_limit_reached',
+    }, { merge: true });
+
+    await createTenantNotification({
+      tenantId: ctx.tenantId,
+      type: 'subscription_expired',
+      title: 'Subscription expired early',
+      message: exceededTokens
+        ? 'Your per-user token limit has been depleted, so your subscription expired before month end.'
+        : 'Your per-user spend limit has been depleted, so your subscription expired before month end.',
+      metadata: {
+        userId: ctx.userId,
+        totalTokens,
+        totalCostUgx,
+        maxTokensPerUser,
+        maxSpendUgxPerUser,
+      },
     });
   } catch (e) {
     console.error('Failed to record usage event:', e);

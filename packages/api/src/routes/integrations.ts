@@ -9,6 +9,7 @@ import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/aut
 import { db } from '../config/firebase.js';
 import { activateTenantSubscription } from '../services/billing.js';
 import { verifyMarzPayTransaction } from '../services/marzpay.js';
+import { createTenantNotification } from '../services/tenant-notifications.js';
 
 /** Callback from Google OAuth - no auth; state = tenantId. Redirects to admin. */
 export const integrationsCallbackRouter: Router = Router();
@@ -85,6 +86,21 @@ integrationsCallbackRouter.post('/marzpay/callback', async (req: Request, res: R
 
     if (success) {
       await activateTenantSubscription(tenantId, billingPlanId);
+      await createTenantNotification({
+        tenantId,
+        type: 'payment_success',
+        title: 'Payment successful',
+        message: `Your subscription payment for package "${billingPlanId}" has been completed.`,
+        metadata: { txRef, billingPlanId },
+      });
+    } else {
+      await createTenantNotification({
+        tenantId,
+        type: 'payment_failed',
+        title: 'Payment failed',
+        message: 'Your payment was not completed. Please try again to keep your subscription active.',
+        metadata: { txRef, billingPlanId },
+      });
     }
 
     await paymentRef.set({

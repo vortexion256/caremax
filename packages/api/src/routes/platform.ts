@@ -26,6 +26,7 @@ platformRouter.get('/tenants', async (_req, res) => {
         allowedDomains: data.allowedDomains ?? [],
         createdAt: data.createdAt?.toMillis?.() ?? null,
         createdBy: data.createdBy ?? null,
+        showUsageByApiFlow: data.showUsageByApiFlow === true,
       };
     });
 
@@ -131,6 +132,9 @@ platformRouter.get('/tenants/:tenantId', async (req, res) => {
       createdByEmail,
       agentConfig,
       billingPlanId: data?.billingPlanId ?? 'free',
+      showUsageByApiFlow: data?.showUsageByApiFlow === true,
+      maxTokensPerUser: typeof data?.maxTokensPerUser === 'number' ? data.maxTokensPerUser : null,
+      maxSpendUgxPerUser: typeof data?.maxSpendUgxPerUser === 'number' ? data.maxSpendUgxPerUser : null,
       billingStatus,
       totals,
       byUsageType: Object.entries(summaryByType).map(([usageType, values]) => ({ usageType, ...values })),
@@ -258,6 +262,13 @@ const billingConfigSchema = z.object({
   availableModels: z.array(z.string().min(1)).min(1),
 });
 
+
+const tenantAdminSettingsSchema = z.object({
+  showUsageByApiFlow: z.boolean().optional(),
+  maxTokensPerUser: z.number().int().positive().optional(),
+  maxSpendUgxPerUser: z.number().positive().optional(),
+});
+
 const defaultBillingConfig = {
   inputCostPer1MTokensUsd: 0.15,
   outputCostPer1MTokensUsd: 0.6,
@@ -270,7 +281,7 @@ platformRouter.get('/billing/plans', async (_req, res) => {
 
     if (snap.empty) {
       const defaults = [
-        { id: 'free', name: '1 Month Free', priceUgx: 0, priceUsd: 0, billingCycle: 'monthly', trialDays: 30, active: true, description: 'Worth 5 USD tokens' },
+        { id: 'free', name: 'Free Trial', priceUgx: 0, priceUsd: 0, billingCycle: 'monthly', trialDays: 30, active: true, description: 'Trial only (not available for re-subscribe)' },
         { id: 'starter', name: 'Starter Pack', priceUgx: 38000, priceUsd: 10, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Starter plan' },
         { id: 'advanced', name: 'Advanced Pack', priceUgx: 76000, priceUsd: 20, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Advanced plan' },
         { id: 'super', name: 'Super Pack', priceUgx: 228000, priceUsd: 60, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Super plan' },
@@ -388,6 +399,13 @@ platformRouter.patch('/tenants/:tenantId/billing', async (req, res) => {
     const tenantData = tenantDoc.data() ?? {};
     const planData = planDoc.data() ?? {};
     const trialUsed = tenantData.trialUsed === true || Boolean(tenantData.trialEndsAt);
+    const currentPlanId = typeof tenantData.billingPlanId === 'string' ? tenantData.billingPlanId : 'free';
+    const billingStatus = await getTenantBillingStatus(req.params.tenantId);
+
+    if (currentPlanId !== 'free' && billingStatus.isActive && body.data.billingPlanId !== currentPlanId) {
+      res.status(400).json({ error: 'Plan change is blocked until the current paid package expires.' });
+      return;
+    }
 
     if (body.data.billingPlanId === 'free' && trialUsed && tenantData.billingPlanId !== 'free') {
       res.status(400).json({ error: 'Free trial can only be used once during registration.' });
@@ -429,6 +447,42 @@ platformRouter.patch('/tenants/:tenantId/billing', async (req, res) => {
 
 
 
+
+
+platformRouter.patch('/tenants/:tenantId/settings', async (req, res) => {
+  const parsed = tenantAdminSettingsSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    const { tenantId } = req.params;
+    const tenantRef = db.collection('tenants').doc(tenantId);
+    const tenantDoc = await tenantRef.get();
+    if (!tenantDoc.exists) {
+      res.status(404).json({ error: 'Tenant not found' });
+      return;
+    }
+
+    const payload: Record<string, unknown> = { updatedAt: new Date() };
+    if (typeof parsed.data.showUsageByApiFlow === 'boolean') {
+      payload.showUsageByApiFlow = parsed.data.showUsageByApiFlow;
+    }
+    if (typeof parsed.data.maxTokensPerUser === 'number') {
+      payload.maxTokensPerUser = parsed.data.maxTokensPerUser;
+    }
+    if (typeof parsed.data.maxSpendUgxPerUser === 'number') {
+      payload.maxSpendUgxPerUser = parsed.data.maxSpendUgxPerUser;
+    }
+
+    await tenantRef.set(payload, { merge: true });
+    res.json({ success: true, ...payload });
+  } catch (e) {
+    console.error('Failed to update tenant settings:', e);
+    res.status(500).json({ error: 'Failed to update tenant settings' });
+  }
+});
 
 platformRouter.get('/billing/providers/marzpay/status', async (_req, res) => {
   try {
