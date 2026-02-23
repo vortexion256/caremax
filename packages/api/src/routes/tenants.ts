@@ -179,6 +179,24 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
       description: body.data.description ?? `Subscription payment for ${body.data.billingPlanId}`,
       callbackUrl: callbackUrl || undefined,
     });
+    const adminBaseUrl = process.env.ADMIN_APP_URL ?? 'https://caremax-admin.vercel.app';
+    const redirectUrl = `${adminBaseUrl.replace(/\/$/, '')}/billing?payment=marzpay&tx_ref=${encodeURIComponent(txRef)}`;
+
+    const initResult = await initializeMarzPayPayment({
+      txRef,
+      amount,
+      currency: 'USD',
+      redirectUrl,
+      customerEmail,
+      customerName: typeof tenantData.name === 'string' ? tenantData.name : undefined,
+      tenantId,
+      billingPlanId: body.data.billingPlanId,
+    }, body.data.phoneNumber ? {
+      phoneNumber: body.data.phoneNumber,
+      country: (body.data.country ?? 'UG').toUpperCase(),
+      description: body.data.description ?? `Subscription payment for ${body.data.billingPlanId}`,
+      callbackUrl: body.data.callbackUrl,
+    } : undefined);
 
     await db.collection('payments').doc(txRef).set({
       provider: 'marzpay',
@@ -192,6 +210,11 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
       providerTransactionId: initResult.providerReference,
       providerStatus: initResult.transactionStatus,
       callbackUrl: callbackUrl || null,
+      status: 'pending',
+      customerEmail,
+      paymentLink: initResult.paymentLink,
+      providerTransactionId: initResult.transactionId ?? null,
+      providerCollectionUuid: initResult.collectionUuid ?? null,
       createdByUid: res.locals.uid,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -204,6 +227,11 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
       provider: 'marzpay',
       status: initResult.transactionStatus,
       message: 'Collection initiated. Prompt sent to tenant phone for approval.',
+      paymentLink: initResult.paymentLink || null,
+      collectionUuid: initResult.collectionUuid ?? null,
+      callbackUrl: body.data.callbackUrl ?? null,
+      provider: 'marzpay',
+      status: 'pending',
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to initialize Marz Pay payment';
