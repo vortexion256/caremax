@@ -15,9 +15,12 @@ export default function Layout() {
 
   const primaryNav: NavItem[] = [
     { path: '/', label: 'Dashboard' },
+    { path: '/visual-diagram', label: 'Visual Diagram' },
     { path: '/agent', label: 'Agent Settings' },
     { path: '/conversations', label: 'Conversations' },
     { path: '/handoffs', label: 'Handoff Queue' },
+    { path: '/notifications', label: 'Notifications' },
+    { path: '/logs', label: 'Logs' },
   ];
 
   const navGroups: NavGroup[] = [

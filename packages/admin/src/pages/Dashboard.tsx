@@ -2,7 +2,6 @@ import { Link, Navigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
-import AIBrainVisualization from '../components/AIBrainVisualization';
 import AnalyticsUI from '../components/AnalyticsUI';
 import { api } from '../api';
 
@@ -56,12 +55,6 @@ export default function Dashboard() {
     { label: 'Knowledge Base', description: 'Manage RAG sources and document sync.', path: '/rag' },
   ];
 
-  const logMetrics = [
-    { label: 'API Calls', value: '1' },
-    { label: 'Input Tokens', value: '7,990' },
-    { label: 'Output Tokens', value: '24' },
-    { label: 'Total Cost', value: 'UGX 2' },
-  ];
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
@@ -98,7 +91,7 @@ export default function Dashboard() {
         style={{
           marginTop: 20,
           display: 'grid',
-          gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))',
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))',
           gap: 14,
         }}
       >
@@ -139,43 +132,8 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
-
-        <div
-          style={{
-            border: '1px solid #e2e8f0',
-            borderRadius: 12,
-            padding: isMobile ? 16 : 20,
-            background: '#fff'
-          }}
-        >
-          <h2 style={{ margin: '0 0 8px 0', fontSize: 20, color: '#0f172a' }}>Notifications</h2>
-          <p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>
-            Notification updates will appear in this section.
-          </p>
-        </div>
-
-        <div
-          style={{
-            border: '1px solid #e2e8f0',
-            borderRadius: 12,
-            padding: isMobile ? 16 : 20,
-            background: '#fff'
-          }}
-        >
-          <h2 style={{ margin: '0 0 12px 0', fontSize: 20, color: '#0f172a' }}>Logs</h2>
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', marginBottom: 10 }}>Recent Metered Events</div>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-            {logMetrics.map((metric) => (
-              <div key={metric.label} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', background: '#f8fafc' }}>
-                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>{metric.label}</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{metric.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
       </section>
 
-      <AIBrainVisualization isMobile={isMobile} />
 
       <AnalyticsUI isMobile={isMobile} />
 
