@@ -4,6 +4,7 @@ import { api } from '../api';
 type Plan = {
   id: string;
   name: string;
+  priceUgx: number;
   priceUsd: number;
   billingCycle: 'monthly';
   trialDays: number;
@@ -22,6 +23,8 @@ const defaultBillingConfig: BillingConfig = {
   outputCostPer1MTokensUsd: 0.6,
   availableModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
 };
+
+const formatUgx = (amount: number) => `UGX ${Math.round(amount).toLocaleString()}`;
 
 export default function PlatformBilling() {
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -65,7 +68,7 @@ export default function PlatformBilling() {
   return (
     <div>
       <h1 style={{ marginTop: 0 }}>Billing Plan Management</h1>
-      <p style={{ color: '#64748b' }}>Configure SaaS billing types and monthly amount.</p>
+      <p style={{ color: '#64748b' }}>Configure SaaS billing types and monthly amount. Subscription collection uses UGX amounts.</p>
 
       <h3 style={{ marginBottom: 8 }}>SaaS Billing Types</h3>
       {plans.map((plan, idx) => (
@@ -90,12 +93,13 @@ export default function PlatformBilling() {
             />
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 12, color: '#475569' }}>Monthly Amount (USD)</span>
+            <span style={{ fontSize: 12, color: '#475569' }}>Monthly Amount (UGX)</span>
             <input
               type="number"
-              value={plan.priceUsd}
-              onChange={(e) => setPlans((p) => p.map((x, i) => (i === idx ? { ...x, priceUsd: Number(e.target.value) } : x)))}
+              value={plan.priceUgx}
+              onChange={(e) => setPlans((p) => p.map((x, i) => (i === idx ? { ...x, priceUgx: Number(e.target.value) } : x)))}
             />
+            <small style={{ color: '#64748b' }}>Shown as {formatUgx(plan.priceUgx)} to tenants.</small>
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
             <span style={{ fontSize: 12, color: '#475569' }}>Trial Days</span>

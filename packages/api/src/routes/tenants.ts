@@ -94,7 +94,15 @@ tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => 
   const billingPlanId = tenantData.billingPlanId ?? 'free';
 
   const plansSnap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
-  const plans = plansSnap.docs.map((d) => ({ id: d.id, ...(d.data() as { active?: boolean; [key: string]: unknown }) }));
+  const plans = plansSnap.docs
+    .map((d) => {
+      const data = d.data() as { active?: boolean; priceUgx?: number; priceUsd?: number; [key: string]: unknown };
+      const priceUgx = typeof data.priceUgx === 'number'
+        ? data.priceUgx
+        : (typeof data.priceUsd === 'number' ? Math.round(data.priceUsd * Number(process.env.MARZPAY_USD_TO_UGX_RATE ?? 3800)) : 0);
+      return { id: d.id, ...data, priceUgx };
+    })
+    .sort((a, b) => ((a.priceUgx as number) - (b.priceUgx as number)));
   const currentPlan = plans.find((p) => p.id === billingPlanId) ?? null;
   const billingStatus = await getTenantBillingStatus(tenantId);
 
