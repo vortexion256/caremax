@@ -28,6 +28,9 @@ import PlatformBilling from './pages/PlatformBilling';
 import PlatformPayments from './pages/PlatformPayments';
 import TenantBilling from './pages/TenantBilling';
 import TenantAccount from './pages/TenantAccount';
+import Logs from './pages/Logs';
+import Notifications from './pages/Notifications';
+import VisualDiagram from './pages/VisualDiagram';
 
 type MeResponse = { uid: string; email?: string; tenantId?: string; isAdmin?: boolean; isPlatformAdmin?: boolean };
 
@@ -182,6 +185,9 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="agent" element={<AgentSettings />} />
+          <Route path="visual-diagram" element={<VisualDiagram />} />
+          <Route path="notifications" element={<Notifications />} />
+          <Route path="logs" element={<Logs />} />
           <Route path="conversations" element={<Conversations />} />
           <Route path="conversations/:conversationId" element={<ConversationView />} />
           <Route path="handoffs" element={<HandoffQueue />} />
