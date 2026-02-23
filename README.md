@@ -42,6 +42,11 @@ Put your `.env` in the **repo root** (`e:\caremax\.env`). The API loads it from 
   - `MARZPAY_COLLECTIONS_URL=https://wallet.wearemarz.com/api/v1/collect-money`
   - `MARZPAY_API_KEY` and `MARZPAY_API_SECRET` (used to build Basic auth as `base64(key:secret)`)
     - optional alternative: `MARZPAY_API_CREDENTIALS` (already base64-encoded `key:secret`)
+  - `API_BASE_URL` (e.g. `https://api.yourdomain.com`, used to auto-generate callback URL)
+  - optional: `MARZPAY_WEBHOOK_TOKEN` (if set, callback URL includes `?token=...` and webhook validates it)
+  - optional: `MARZPAY_USD_TO_UGX_RATE` (default `3800`, used when plans only have `priceUsd`)
+  - Notes:
+    - This integration now uses **Collection API only** (no hosted payment-link fallback).
   - `ADMIN_APP_URL` (e.g. `http://localhost:3002`, used for hosted-link redirects)
   - `MARZPAY_VERIFY_URL` (optional server-side verification endpoint)
   - Fallback (legacy hosted checkout): `MARZPAY_PAYMENT_LINK` or `MARZPAY_CHECKOUT_URL`, with optional `MARZPAY_SECRET_KEY` bearer auth.
@@ -58,6 +63,31 @@ MARZPAY_API_SECRET=your_api_secret
 # optional if you prefer pre-encoded auth instead of key+secret:
 # MARZPAY_API_CREDENTIALS=base64_of_key_colon_secret
 
+API_BASE_URL=https://api.yourdomain.com
+MARZPAY_WEBHOOK_TOKEN=your_random_webhook_secret
+MARZPAY_USD_TO_UGX_RATE=3800
+```
+- Tenant collection routes: `POST /tenants/:tenantId/payments/marzpay/initialize` (start collection) and `POST /tenants/:tenantId/payments/marzpay/verify` (manual status sync).
+  - `initialize` now supports direct collection fields in request body: `phoneNumber`, `country` (default `UG`), `description`, `callbackUrl`.
+  - You can send callback using either camelCase (`callbackUrl`) or Marz-style snake_case (`callback_url`).
+  - Example:
+
+```bash
+curl -X POST "https://your-api.com/tenants/<tenantId>/payments/marzpay/initialize" \
+  -H "Authorization: Bearer <your_firebase_id_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "billingPlanId": "starter",
+    "phone_number": "+256781230949",
+    "country": "UG",
+    "description": "Tenant subscription payment",
+    "callback_url": "https://your-app.com/marz/callback"
+  }'
+```
+- Webhook endpoint to configure (or let backend auto-generate via `API_BASE_URL`):
+  - `POST https://<your-api>/webhooks/marzpay/collections`
+  - if `MARZPAY_WEBHOOK_TOKEN` is set, use: `POST https://<your-api>/webhooks/marzpay/collections?token=<token>`
+  - Marz callback payload should include `transaction.reference` (we save this as `txRef`) and final status events like `collection.completed`/`collection.failed`.
 ADMIN_APP_URL=http://localhost:3002
 MARZPAY_VERIFY_URL=https://wallet.wearemarz.com/api/v1/collect-money/verify
 

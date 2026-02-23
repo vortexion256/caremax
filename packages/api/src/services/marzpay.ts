@@ -2,6 +2,7 @@ function normalize(value?: string): string {
   return (value ?? '').trim();
 }
 
+export type MarzCollectionInput = {
 type MarzCollectionInput = {
   phoneNumber: string;
   country: string;
@@ -12,28 +13,14 @@ type MarzCollectionInput = {
 type MarzPayInitializePayload = {
   txRef: string;
   amount: number;
-  currency: string;
-  redirectUrl: string;
-  customerEmail: string;
-  customerName?: string;
-  billingPlanId: string;
-  tenantId: string;
+  phoneNumber: string;
+  country: string;
+  reference: string;
+  description?: string;
+  callbackUrl?: string;
 };
 
-type MarzPayVerificationInput = {
-  txRef: string;
-  status?: string;
-  transactionId?: number;
-  reference?: string;
-};
-
-type MarzPayVerificationResult = {
-  status: string;
-  transactionId?: number;
-  paidAt?: string;
-};
-
-type MarzCollectionsCreateResponse = {
+type MarzApiResponse = {
   status?: string;
   message?: string;
   data?: {
@@ -50,6 +37,16 @@ type MarzCollectionsCreateResponse = {
       status?: string;
       provider_reference?: string | null;
     };
+    collection?: {
+      provider?: string;
+      phone_number?: string;
+      amount?: {
+        raw?: number;
+        currency?: string;
+      };
+      mode?: string;
+    };
+  };
   };
   checkoutUrl?: string;
   checkout_url?: string;
@@ -67,18 +64,20 @@ type MarzCollectionsCreateResponse = {
 };
 
 function getCollectionsUrl(): string {
-  return normalize(process.env.MARZPAY_COLLECTIONS_URL);
+  return normalize(process.env.MARZPAY_COLLECTIONS_URL) || 'https://wallet.wearemarz.com/api/v1/collect-money';
 }
 
-function getConfiguredPaymentUrl(): string {
-  return normalize(process.env.MARZPAY_PAYMENT_LINK) || normalize(process.env.MARZPAY_CHECKOUT_URL);
+function getMarzApiKey(): string {
+  return normalize(process.env.MARZPAY_API_KEY);
 }
 
-function getMarzSecretKey(): string {
-  const raw = normalize(process.env.MARZPAY_SECRET_KEY);
-  return raw.replace(/^Bearer\s+/i, '');
+function getMarzApiSecret(): string {
+  return normalize(process.env.MARZPAY_API_SECRET);
 }
 
+function getMarzBasicAuthorization(): string {
+  const fromEnv = normalize(process.env.MARZPAY_API_CREDENTIALS);
+  if (fromEnv) return `Basic ${fromEnv}`;
 function getMarzApiKey(): string {
   return normalize(process.env.MARZPAY_API_KEY);
 }
@@ -116,31 +115,46 @@ function extractPaymentLink(body: MarzCollectionsCreateResponse): string {
   );
 }
 
-function fallbackPaymentLink(payload: MarzPayInitializePayload): string {
-  const checkoutUrl = getConfiguredPaymentUrl();
-  if (!checkoutUrl) {
-    throw new Error('Marz Pay is not configured: set MARZPAY_COLLECTIONS_URL (recommended), MARZPAY_PAYMENT_LINK, or MARZPAY_CHECKOUT_URL');
+  const apiKey = getMarzApiKey();
+  const apiSecret = getMarzApiSecret();
+  if (!apiKey || !apiSecret) {
+    return '';
   }
 
-  const params = new URLSearchParams({
-    tx_ref: payload.txRef,
-    amount: String(payload.amount),
-    currency: payload.currency,
-    email: payload.customerEmail,
-    redirect_url: payload.redirectUrl,
-    tenant_id: payload.tenantId,
-    plan_id: payload.billingPlanId,
-  });
+  return `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`;
+}
 
-  if (payload.customerName) {
-    params.set('name', payload.customerName);
+function requireCollectionConfig(): { collectionsUrl: string; authHeader: string } {
+  const collectionsUrl = getCollectionsUrl();
+  const authHeader = getMarzBasicAuthorization();
+
+  if (!authHeader) {
+    throw new Error('Marz Pay Basic Auth is required. Set MARZPAY_API_KEY + MARZPAY_API_SECRET (or MARZPAY_API_CREDENTIALS).');
   }
 
-  return `${checkoutUrl}?${params.toString()}`;
+  return { collectionsUrl, authHeader };
 }
 
 export function getMarzPayCredentialInfo() {
   return {
+    hasCollectionsUrl: Boolean(normalize(process.env.MARZPAY_COLLECTIONS_URL)),
+    hasApiKey: Boolean(getMarzApiKey()),
+    hasApiSecret: Boolean(getMarzApiSecret()),
+    hasApiCredentials: Boolean(normalize(process.env.MARZPAY_API_CREDENTIALS)),
+    hasPaymentLink: false,
+    hasCheckoutUrl: false,
+    hasSecretKey: false,
+    hasVerifyUrl: false,
+  };
+}
+
+export async function createMarzCollection(input: MarzCollectionInput): Promise<{
+  transactionUuid: string;
+  transactionStatus: string;
+  providerReference: string | null;
+}> {
+  const { collectionsUrl, authHeader } = requireCollectionConfig();
+
     hasCollectionsUrl: Boolean(getCollectionsUrl()),
     hasPaymentLink: Boolean(normalize(process.env.MARZPAY_PAYMENT_LINK)),
     hasCheckoutUrl: Boolean(normalize(process.env.MARZPAY_CHECKOUT_URL)),
@@ -193,20 +207,47 @@ export async function initializeMarzPayPayment(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Authorization: authHeader,
+    },
+    body: JSON.stringify({
+      amount: input.amount,
+      phone_number: input.phoneNumber,
+      country: input.country,
+      reference: input.reference,
+      description: input.description,
+      callback_url: input.callbackUrl,
+    }),
       ...(authorization ? { Authorization: authorization } : {}),
     },
     body: JSON.stringify(requestBody),
   });
 
-  const body = (await response.json().catch(() => ({}))) as MarzCollectionsCreateResponse;
-
+  const body = (await response.json().catch(() => ({}))) as MarzApiResponse;
   if (!response.ok) {
-    if (configuredFallbackUrl) {
-      return { paymentLink: fallbackPaymentLink(payload) };
-    }
-    throw new Error(body.message || 'Marz Pay collections initialization failed');
+    throw new Error(body.message || 'Marz Pay collection initialization failed');
   }
 
+  const transactionUuid = body.data?.transaction?.uuid;
+  const transactionStatus = body.data?.transaction?.status ?? 'processing';
+  if (!transactionUuid) {
+    throw new Error('Marz Pay collection response missing transaction uuid');
+  }
+
+  return {
+    transactionUuid,
+    transactionStatus,
+    providerReference: body.data?.transaction?.provider_reference ?? null,
+  };
+}
+
+export async function getMarzCollectionDetails(collectionUuid: string): Promise<{ status: string; providerReference: string | null }> {
+  const { collectionsUrl, authHeader } = requireCollectionConfig();
+  const response = await fetch(`${collectionsUrl.replace(/\/$/, '')}/${encodeURIComponent(collectionUuid)}`, {
+    headers: {
+      Authorization: authHeader,
+      'Content-Type': 'application/json',
+    },
+  });
   const paymentLink = extractPaymentLink(body);
   if (!paymentLink && !body.data?.transaction?.uuid) {
     throw new Error('Marz Pay collections response did not include a checkout URL');
@@ -250,13 +291,13 @@ export async function verifyMarzPayTransaction(input: MarzPayVerificationInput):
     };
   }
 
-  if (!['successful', 'success', 'completed', 'paid'].includes(status)) {
-    throw new Error('Payment verification failed');
+  const body = (await response.json().catch(() => ({}))) as MarzApiResponse;
+  if (!response.ok) {
+    throw new Error(body.message || 'Failed to fetch Marz collection details');
   }
 
   return {
-    status: 'successful',
-    transactionId: input.transactionId,
-    paidAt: new Date().toISOString(),
+    status: (body.data?.transaction?.status ?? 'unknown').toLowerCase(),
+    providerReference: body.data?.transaction?.provider_reference ?? null,
   };
 }
