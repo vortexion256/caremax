@@ -230,6 +230,43 @@ tenantRouter.post('/:tenantId/payments/marzpay/initialize', requireTenantParam, 
   }
 });
 
+tenantRouter.get('/:tenantId/payments/:txRef/status', requireTenantParam, async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const txRef = req.params.txRef;
+
+  if (!txRef || txRef.trim().length < 1) {
+    res.status(400).json({ error: 'Invalid transaction reference' });
+    return;
+  }
+
+  try {
+    const paymentDoc = await db.collection('payments').doc(txRef).get();
+    if (!paymentDoc.exists) {
+      res.status(404).json({ error: 'Payment not found' });
+      return;
+    }
+
+    const paymentData = paymentDoc.data() ?? {};
+    if (paymentData.tenantId !== tenantId) {
+      res.status(403).json({ error: 'Payment does not belong to this tenant' });
+      return;
+    }
+
+    res.json({
+      txRef,
+      status: typeof paymentData.status === 'string' ? paymentData.status : 'pending',
+      providerStatus: typeof paymentData.providerStatus === 'string' ? paymentData.providerStatus : null,
+      failureReason: typeof paymentData.failureReason === 'string' ? paymentData.failureReason : null,
+      billingPlanId: typeof paymentData.billingPlanId === 'string' ? paymentData.billingPlanId : null,
+      paidAt: paymentData.paidAt?.toMillis?.() ?? null,
+      updatedAt: paymentData.updatedAt?.toMillis?.() ?? null,
+    });
+  } catch (e) {
+    console.error('Failed to fetch payment status:', e);
+    res.status(500).json({ error: 'Failed to fetch payment status' });
+  }
+});
+
 tenantRouter.post('/:tenantId/payments/marzpay/verify', requireTenantParam, async (req, res) => {
   const body = z.object({ txRef: z.string().min(1), collectionUuid: z.string().uuid().optional(), status: z.string().optional() }).safeParse(req.body);
   if (!body.success) {

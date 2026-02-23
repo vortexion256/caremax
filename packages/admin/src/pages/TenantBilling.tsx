@@ -21,23 +21,37 @@ type BillingSummary = {
   recentEvents: Array<{ eventId: string; usageType: string; model: string | null; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number; measurementSource: string; createdAt: number | null }>;
 };
 
+type UiNoticeTone = 'success' | 'error' | 'info';
+
+type UiNotice = {
+  tone: UiNoticeTone;
+  message: string;
+};
+
+type PaymentStatusResponse = {
+  txRef: string;
+  status: string;
+  providerStatus?: string | null;
+  failureReason?: string | null;
+};
+
 const formatUgx = (amount: number) => `UGX ${Math.round(amount).toLocaleString()}`;
 
 export default function TenantBilling() {
   const { tenantId } = useTenant();
   const [data, setData] = useState<BillingSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<UiNotice | null>(null);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('+256');
   const [collectingPlanId, setCollectingPlanId] = useState<string | null>(null);
-  const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
+  const [pendingPayment, setPendingPayment] = useState<{ txRef: string; billingPlanId: string } | null>(null);
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') {
       setLoadError('Billing is only available for a tenant admin profile.');
-      setActionError(null);
+      setNotice(null);
       setData(null);
       return;
     }
@@ -46,32 +60,44 @@ export default function TenantBilling() {
   }, [tenantId]);
 
   useEffect(() => {
-    if (!tenantId || tenantId === 'platform' || !pendingPlanId) return;
+    if (!tenantId || tenantId === 'platform' || !pendingPayment) return;
 
     const poll = () => {
-      api<BillingSummary>(`/tenants/${tenantId}/billing`)
-        .then((res) => {
-          setData(res);
-          setLoadError(null);
+      api<PaymentStatusResponse>(`/tenants/${tenantId}/payments/${pendingPayment.txRef}/status`)
+        .then((payment) => {
+          const normalizedStatus = (payment.status ?? '').toLowerCase();
 
-          if (res.billingPlanId === pendingPlanId && !res.billingStatus?.isExpired) {
-            setPendingPlanId(null);
+          if (normalizedStatus === 'completed') {
+            setPendingPayment(null);
             setCollectingPlanId(null);
-            setActionError('Payment confirmed. Your package has been updated.');
+            setNotice({ tone: 'success', message: 'Payment confirmed. Your package has been updated.' });
+            loadBilling();
+            return;
+          }
+
+          if (normalizedStatus === 'failed' || normalizedStatus === 'cancelled' || normalizedStatus === 'canceled' || normalizedStatus === 'expired') {
+            setPendingPayment(null);
+            setCollectingPlanId(null);
+            setNotice({
+              tone: 'error',
+              message: payment.failureReason
+                ?? `Payment failed (${payment.providerStatus ?? normalizedStatus}). Please try again.`,
+            });
+            loadBilling();
           }
         })
         .catch((e) => {
-          const message = e instanceof Error ? e.message : 'Failed to refresh billing data';
-          setLoadError(message);
+          const message = e instanceof Error ? e.message : 'Failed to refresh payment status';
+          setNotice({ tone: 'error', message });
         });
     };
 
     poll();
     const interval = window.setInterval(poll, 5000);
     const timeout = window.setTimeout(() => {
-      setPendingPlanId((currentPending) => {
-        if (currentPending !== pendingPlanId) return currentPending;
-        setActionError('Payment request is still pending. Once approved on phone, this page will update automatically.');
+      setPendingPayment((currentPending) => {
+        if (!currentPending || currentPending.txRef !== pendingPayment.txRef) return currentPending;
+        setNotice({ tone: 'info', message: 'Payment request is still pending. Once approved on phone, this page will update automatically.' });
         return null;
       });
     }, 120000);
@@ -80,7 +106,7 @@ export default function TenantBilling() {
       window.clearInterval(interval);
       window.clearTimeout(timeout);
     };
-  }, [tenantId, pendingPlanId]);
+  }, [tenantId, pendingPayment]);
 
   const loadBilling = () => {
     setLoadError(null);
@@ -109,7 +135,7 @@ export default function TenantBilling() {
 
     if (!txRef) return;
     if (status && !['successful', 'success', 'completed', 'paid'].includes(status.toLowerCase())) {
-      setActionError('Marz Pay payment was not successful. Please try again.');
+      setNotice({ tone: 'error', message: 'Marz Pay payment was not successful. Please try again.' });
       return;
     }
 
@@ -123,34 +149,34 @@ export default function TenantBilling() {
       body: JSON.stringify(payload),
     })
       .then(() => {
-        setActionError(null);
+        setNotice({ tone: 'success', message: 'Payment was verified and your package is now active.' });
         loadBilling();
       })
       .catch((e) => {
         const message = e instanceof Error ? e.message : 'Failed to verify payment';
-        setActionError(message);
+        setNotice({ tone: 'error', message });
       });
   }, [tenantId, searchParams]);
 
   const startUpgrade = async (billingPlanId: string) => {
     if (!tenantId || tenantId === 'platform') return;
     if (!/^\+\d{10,15}$/.test(phoneNumber.trim())) {
-      setActionError('Enter a valid phone number in international format, e.g. +2567XXXXXXXX.');
+      setNotice({ tone: 'error', message: 'Enter a valid phone number in international format, e.g. +2567XXXXXXXX.' });
       return;
     }
     setBusyPlan(billingPlanId);
     try {
-      const res = await api<{ status: string; message?: string }>(`/tenants/${tenantId}/payments/marzpay/initialize`, {
+      const res = await api<{ txRef: string; status: string; message?: string }>(`/tenants/${tenantId}/payments/marzpay/initialize`, {
         method: 'POST',
         body: JSON.stringify({ billingPlanId, phoneNumber, country: 'UG' }),
       });
-      setActionError(res.message ?? `Collection status: ${res.status}`);
-      setPendingPlanId(billingPlanId);
+      setNotice({ tone: 'info', message: res.message ?? `Collection status: ${res.status}` });
+      setPendingPayment({ txRef: res.txRef, billingPlanId });
       setCollectingPlanId(null);
       loadBilling();
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Unable to initialize payment';
-      setActionError(message);
+      setNotice({ tone: 'error', message });
     } finally {
       setBusyPlan(null);
     }
@@ -164,8 +190,14 @@ export default function TenantBilling() {
     <div>
       <h1 style={{ marginTop: 0 }}>Billing & Token Usage</h1>
       <p style={{ color: '#64748b' }}>Track token usage for each API usage type in your tenant.</p>
-      {actionError && <p style={{ color: '#dc2626' }}>{actionError}</p>}
+      {notice && <NoticeBanner tone={notice.tone} message={notice.message} />}
       <p><strong>Plan:</strong> {data.currentPlan?.name ?? data.billingPlanId} ({data.currentPlan ? `${formatUgx(data.currentPlan.priceUgx)}/mo` : 'custom'})</p>
+
+      {pendingPayment && (
+        <div style={{ marginBottom: 12, border: '1px solid #bfdbfe', background: '#eff6ff', padding: 10, borderRadius: 8, color: '#1d4ed8' }}>
+          Waiting for payment confirmation for <strong>{pendingPayment.billingPlanId}</strong>. Approve the prompt on your phone.
+        </div>
+      )}
 
       {data.billingStatus && (
         <div style={{ marginBottom: 18, padding: 12, borderRadius: 8, border: `1px solid ${data.billingStatus.isExpired ? '#fecaca' : '#c7d2fe'}`, background: data.billingStatus.isExpired ? '#fef2f2' : '#eef2ff' }}>
@@ -206,11 +238,11 @@ export default function TenantBilling() {
                 {plan.description && <div style={{ marginTop: 4, color: '#64748b', fontSize: 13 }}>({plan.description})</div>}
                 {plan.id !== data.billingPlanId && plan.priceUgx > 0 && (
                   <>
-                    <button
-                      onClick={() => {
-                        setActionError(null);
-                        setCollectingPlanId(plan.id);
-                      }}
+                        <button
+                          onClick={() => {
+                            setNotice(null);
+                            setCollectingPlanId(plan.id);
+                          }}
                       disabled={busyPlan === plan.id}
                       style={{ marginTop: 10, padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
                     >
@@ -313,4 +345,20 @@ export default function TenantBilling() {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, minWidth: 140 }}><div style={{ fontSize: 12, color: '#64748b' }}>{label}</div><div style={{ fontSize: 18, fontWeight: 600 }}>{value}</div></div>;
+}
+
+function NoticeBanner({ tone, message }: UiNotice) {
+  const palette: Record<UiNoticeTone, { border: string; background: string; text: string; icon: string; title: string }> = {
+    success: { border: '#86efac', background: '#f0fdf4', text: '#166534', icon: '✅', title: 'Payment successful' },
+    error: { border: '#fecaca', background: '#fef2f2', text: '#991b1b', icon: '⚠️', title: 'Payment update' },
+    info: { border: '#bfdbfe', background: '#eff6ff', text: '#1d4ed8', icon: 'ℹ️', title: 'Payment in progress' },
+  };
+
+  const selected = palette[tone];
+  return (
+    <div style={{ marginBottom: 12, padding: 12, borderRadius: 10, border: `1px solid ${selected.border}`, background: selected.background, color: selected.text }}>
+      <div style={{ fontWeight: 700, marginBottom: 4 }}>{selected.icon} {selected.title}</div>
+      <div>{message}</div>
+    </div>
+  );
 }
