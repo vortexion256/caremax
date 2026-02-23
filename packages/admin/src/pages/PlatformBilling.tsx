@@ -26,12 +26,26 @@ const defaultBillingConfig: BillingConfig = {
   availableModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
 };
 
+const createEmptyPlan = (): Plan => ({
+  id: '',
+  name: '',
+  priceUgx: 0,
+  priceUsd: 0,
+  billingCycle: 'monthly',
+  trialDays: 0,
+  maxTokensPerPackage: null,
+  maxUsageAmountUgxPerPackage: null,
+  active: true,
+  description: '',
+});
+
 const formatUgx = (amount: number) => `UGX ${Math.round(amount).toLocaleString()}`;
 
 export default function PlatformBilling() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [billingConfig, setBillingConfig] = useState<BillingConfig>(defaultBillingConfig);
   const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
 
   const load = async () => {
     const [plansData, configData] = await Promise.all([
@@ -47,13 +61,47 @@ export default function PlatformBilling() {
   }, []);
 
   const save = async () => {
+    setNotice(null);
+
+    const normalizedPlans = plans.map((plan) => ({
+      ...plan,
+      id: plan.id.trim().toLowerCase(),
+      name: plan.name.trim(),
+      description: plan.description?.trim() ?? '',
+    }));
+
+    if (normalizedPlans.some((plan) => !plan.id || !plan.name)) {
+      setNotice({ tone: 'error', message: 'Each package must include both package ID and name.' });
+      return;
+    }
+
+    const uniqueIds = new Set(normalizedPlans.map((plan) => plan.id));
+    if (uniqueIds.size !== normalizedPlans.length) {
+      setNotice({ tone: 'error', message: 'Package IDs must be unique.' });
+      return;
+    }
+
     setSaving(true);
-    await Promise.all([
-      api('/platform/billing/plans', { method: 'PUT', body: JSON.stringify({ plans }) }),
-      api('/platform/billing/config', { method: 'PUT', body: JSON.stringify(billingConfig) }),
-    ]);
-    setSaving(false);
-    load();
+    try {
+      await Promise.all([
+        api('/platform/billing/plans', { method: 'PUT', body: JSON.stringify({ plans: normalizedPlans }) }),
+        api('/platform/billing/config', { method: 'PUT', body: JSON.stringify(billingConfig) }),
+      ]);
+      setNotice({ tone: 'success', message: 'Billing plans and config saved successfully.' });
+      await load();
+    } catch (error) {
+      setNotice({ tone: 'error', message: error instanceof Error ? error.message : 'Failed to save billing settings.' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addPlan = () => {
+    setPlans((prev) => [...prev, createEmptyPlan()]);
+  };
+
+  const removePlan = (idx: number) => {
+    setPlans((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const addModel = () => {
@@ -72,10 +120,25 @@ export default function PlatformBilling() {
       <h1 style={{ marginTop: 0 }}>Billing Plan Management</h1>
       <p style={{ color: '#64748b' }}>Configure SaaS billing types and monthly amount. Subscription collection uses UGX amounts.</p>
 
+      {notice && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: `1px solid ${notice.tone === 'success' ? '#86efac' : '#fecaca'}`,
+            background: notice.tone === 'success' ? '#f0fdf4' : '#fef2f2',
+            color: notice.tone === 'success' ? '#166534' : '#991b1b',
+          }}
+        >
+          {notice.message}
+        </div>
+      )}
+
       <h3 style={{ marginBottom: 8 }}>SaaS Billing Types</h3>
       {plans.map((plan, idx) => (
         <div
-          key={plan.id}
+          key={`${plan.id || 'new'}-${idx}`}
           style={{
             border: '1px solid #cbd5e1',
             borderRadius: 8,
@@ -86,7 +149,28 @@ export default function PlatformBilling() {
             gap: 10,
           }}
         >
-          <div style={{ gridColumn: '1 / -1', fontWeight: 600 }}>{plan.id.toUpperCase()} Plan</div>
+          <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <strong>{plan.id ? `${plan.id.toUpperCase()} Plan` : 'New Package'}</strong>
+            <button
+              type="button"
+              onClick={() => removePlan(idx)}
+              disabled={plan.id === 'free'}
+              style={{ padding: '4px 10px' }}
+              title={plan.id === 'free' ? 'Free plan cannot be deleted' : 'Delete package'}
+            >
+              Delete package
+            </button>
+          </div>
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span style={{ fontSize: 12, color: '#475569' }}>Package ID</span>
+            <input
+              value={plan.id}
+              onChange={(e) =>
+                setPlans((p) => p.map((x, i) => (i === idx ? { ...x, id: e.target.value.replace(/\s+/g, '-').toLowerCase() } : x)))
+              }
+              placeholder="e.g. growth"
+            />
+          </label>
           <label style={{ display: 'grid', gap: 6 }}>
             <span style={{ fontSize: 12, color: '#475569' }}>Plan Title</span>
             <input
@@ -139,11 +223,25 @@ export default function PlatformBilling() {
             />
             <small style={{ color: '#64748b' }}>If set, package expires early when this usage value is reached before 30 days.</small>
           </label>
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span style={{ fontSize: 12, color: '#475569' }}>Status</span>
+            <select
+              value={plan.active ? 'active' : 'inactive'}
+              onChange={(e) => setPlans((p) => p.map((x, i) => (i === idx ? { ...x, active: e.target.value === 'active' } : x)))}
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </label>
           {plan.id === 'free' && (
             <small style={{ gridColumn: '1 / -1', color: '#0f766e', fontWeight: 600 }}>Free plan value: Worth 5 USD tokens.</small>
           )}
         </div>
       ))}
+
+      <button type="button" onClick={addPlan} style={{ padding: '8px 12px', marginBottom: 16 }}>
+        + Add Package
+      </button>
 
       <div style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: 14, marginTop: 16 }}>
         <h3 style={{ marginTop: 0 }}>Token Pricing (per 1M tokens)</h3>

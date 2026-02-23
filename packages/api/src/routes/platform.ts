@@ -362,10 +362,25 @@ platformRouter.put('/billing/plans', async (req, res) => {
   }
 
   try {
+    const incomingPlanIds = new Set(parsed.data.plans.map((plan) => plan.id));
+    if (!incomingPlanIds.has('free')) {
+      res.status(400).json({ error: 'Free plan cannot be removed.' });
+      return;
+    }
+
+    const existingPlansSnap = await db.collection('billing_plans').get();
     const batch = db.batch();
+
     for (const plan of parsed.data.plans) {
       batch.set(db.collection('billing_plans').doc(plan.id), { ...plan, updatedAt: new Date() }, { merge: true });
     }
+
+    for (const doc of existingPlansSnap.docs) {
+      if (!incomingPlanIds.has(doc.id) && doc.id !== 'free') {
+        batch.delete(doc.ref);
+      }
+    }
+
     await batch.commit();
     res.json({ success: true, plans: parsed.data.plans });
   } catch (e) {
