@@ -130,6 +130,7 @@ export default function App() {
           <Routes>
             <Route path="/platform" element={<PlatformLayout />}>
               <Route index element={<PlatformDashboard />} />
+              <Route path="advanced-prompts" element={<AdvancedPromptSettings />} />
               <Route path="tenants" element={<PlatformTenants />} />
               <Route path="usage" element={<PlatformUsage />} />
               <Route path="billing" element={<PlatformBilling />} />
@@ -158,6 +159,7 @@ export default function App() {
         <Routes>
           <Route path="/platform" element={<PlatformLayout />}>
             <Route index element={<PlatformDashboard />} />
+            <Route path="advanced-prompts" element={<AdvancedPromptSettings />} />
             <Route path="tenants" element={<PlatformTenants />} />
             <Route path="usage" element={<PlatformUsage />} />
             <Route path="billing" element={<PlatformBilling />} />
@@ -180,9 +182,6 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="agent" element={<AgentSettings />} />
-          {userProfile.isPlatformAdmin && (
-            <Route path="advanced-prompts" element={<AdvancedPromptSettings />} />
-          )}
           <Route path="conversations" element={<Conversations />} />
           <Route path="conversations/:conversationId" element={<ConversationView />} />
           <Route path="handoffs" element={<HandoffQueue />} />
@@ -197,6 +196,7 @@ export default function App() {
         </Route>
         <Route path="/platform" element={<PlatformLayout />}>
           <Route index element={<PlatformDashboard />} />
+          <Route path="advanced-prompts" element={<AdvancedPromptSettings />} />
           <Route path="tenants" element={<PlatformTenants />} />
           <Route path="usage" element={<PlatformUsage />} />
           <Route path="billing" element={<PlatformBilling />} />
