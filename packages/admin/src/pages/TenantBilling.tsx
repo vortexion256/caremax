@@ -16,7 +16,7 @@ type BillingSummary = {
     trialEndsAt: number | null;
     subscriptionEndsAt: number | null;
   };
-  availablePlans?: Array<{ id: string; name: string; priceUgx: number; priceUsd?: number; description?: string; billingCycle?: 'monthly' }>;
+  availablePlans?: Array<{ id: string; name: string; priceUgx: number; priceUsd?: number; description?: string; billingCycle?: 'monthly'; maxTokensPerPackage?: number | null; maxUsageAmountUgxPerPackage?: number | null }>;
   showUsageByApiFlow?: boolean;
   maxTokensPerUser?: number | null;
   maxSpendUgxPerUser?: number | null;
@@ -58,6 +58,10 @@ function getExpiryMessage(reason?: string | null): string {
       return 'Package expired early because your assigned token balance was depleted.';
     case 'user_spend_limit_reached':
       return 'Package expired early because your assigned spend amount was depleted.';
+    case 'package_token_limit_reached':
+      return 'Package expired early because package token limit was depleted.';
+    case 'package_usage_amount_limit_reached':
+      return 'Package expired early because package usage amount was depleted.';
     case 'duration_elapsed':
     case 'trial_ended':
       return 'Package expired because the billing period has ended.';
@@ -279,6 +283,10 @@ export default function TenantBilling() {
                 </div>
                 <div style={{ marginTop: 4, color: '#1e293b', fontSize: 14 }}>{formatUgx(plan.priceUgx)}/mo</div>
                 {plan.description && <div style={{ marginTop: 4, color: '#64748b', fontSize: 13 }}>({plan.description})</div>}
+                <div style={{ marginTop: 6, color: '#475569', fontSize: 12 }}>
+                  <div>Max tokens: {plan.maxTokensPerPackage ? plan.maxTokensPerPackage.toLocaleString() : 'Not limited'}</div>
+                  <div>Max usage amount: {plan.maxUsageAmountUgxPerPackage ? formatUgx(plan.maxUsageAmountUgxPerPackage) : 'Not limited'}</div>
+                </div>
                 {plan.id !== data.billingPlanId && plan.priceUgx > 0 && (
                   <>
                         <button
