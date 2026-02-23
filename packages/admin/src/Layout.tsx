@@ -4,26 +4,55 @@ import { useTenant } from './TenantContext';
 import { auth } from './firebase';
 import { useIsMobile } from './hooks/useIsMobile';
 
+type NavItem = { path: string; label: string };
+type NavGroup = { key: string; label: string; items: NavItem[] };
+
 export default function Layout() {
   const location = useLocation();
   const { tenantId, isPlatformAdmin } = useTenant();
   const { isMobile } = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const nav = [
+  const primaryNav: NavItem[] = [
     { path: '/', label: 'Dashboard' },
-    { path: '/agent', label: 'Agent Settings' },
-    ...(isPlatformAdmin ? [{ path: '/advanced-prompts', label: 'Advanced Prompts' }] : []),
     { path: '/conversations', label: 'Conversations' },
     { path: '/handoffs', label: 'Handoff Queue' },
-    { path: '/agent-notes', label: 'Agent Notebook' },
-    { path: '/rag', label: 'Knowledge Base' },
-    { path: '/agent-brain', label: 'Auto Brain' },
-    { path: '/integrations', label: 'Integrations' },
-    { path: '/embed', label: 'Embed Widget' },
-    { path: '/account', label: 'Account Settings' },
-    { path: '/billing', label: 'Billing' },
   ];
+
+  const navGroups: NavGroup[] = [
+    {
+      key: 'agent',
+      label: 'Agent Config',
+      items: [
+        { path: '/agent', label: 'Agent Settings' },
+        { path: '/agent-notes', label: 'Agent Notebook' },
+        { path: '/rag', label: 'Knowledge Base' },
+        { path: '/agent-brain', label: 'Auto Brain' },
+        { path: '/integrations', label: 'Integrations' },
+        { path: '/embed', label: 'Embed Widget' },
+        ...(isPlatformAdmin ? [{ path: '/advanced-prompts', label: 'Advanced Prompts' }] : []),
+      ],
+    },
+    {
+      key: 'account',
+      label: 'Account',
+      items: [
+        { path: '/account', label: 'Account Settings' },
+        { path: '/billing', label: 'Billing' },
+      ],
+    },
+  ];
+
+  const initialExpandedState = navGroups.reduce<Record<string, boolean>>((acc, group) => {
+    acc[group.key] = group.items.some((item) => location.pathname === item.path);
+    return acc;
+  }, {});
+
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(initialExpandedState);
+
+  const toggleGroup = (groupKey: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
+  };
 
   const sidebarWidth = isMobile ? 280 : 240;
 
@@ -85,28 +114,88 @@ export default function Layout() {
             CareMax
           </div>
         )}
-        
-        <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {nav.map(({ path, label }) => {
-            const active = location.pathname === path;
+
+        <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {primaryNav.map(({ path, label }) => {
+              const active = location.pathname === path;
+              return (
+                <Link
+                  key={path}
+                  to={path}
+                  onClick={() => isMobile && setMenuOpen(false)}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    textDecoration: 'none',
+                    color: active ? '#2563eb' : '#475569',
+                    fontWeight: active ? 600 : 500,
+                    background: active ? '#eff6ff' : 'transparent',
+                    fontSize: 14,
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
+
+          {navGroups.map((group) => {
+            const hasActiveItem = group.items.some((item) => location.pathname === item.path);
+            const isExpanded = expandedGroups[group.key] || hasActiveItem;
+
             return (
-              <Link
-                key={path}
-                to={path}
-                onClick={() => isMobile && setMenuOpen(false)}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  textDecoration: 'none',
-                  color: active ? '#2563eb' : '#475569',
-                  fontWeight: active ? 600 : 500,
-                  background: active ? '#eff6ff' : 'transparent',
-                  fontSize: 14,
-                  transition: 'all 0.2s'
-                }}
-              >
-                {label}
-              </Link>
+              <div key={group.key} style={{ border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff' }}>
+                <button
+                  onClick={() => toggleGroup(group.key)}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#0f172a',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em'
+                  }}
+                >
+                  <span>{group.label}</span>
+                  <span style={{ color: '#64748b', fontSize: 14 }}>{isExpanded ? '−' : '+'}</span>
+                </button>
+
+                {isExpanded && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 6px 8px' }}>
+                    {group.items.map(({ path, label }) => {
+                      const active = location.pathname === path;
+                      return (
+                        <Link
+                          key={path}
+                          to={path}
+                          onClick={() => isMobile && setMenuOpen(false)}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            textDecoration: 'none',
+                            color: active ? '#2563eb' : '#475569',
+                            fontWeight: active ? 600 : 500,
+                            background: active ? '#eff6ff' : 'transparent',
+                            fontSize: 13,
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          {label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </nav>
@@ -116,24 +205,24 @@ export default function Layout() {
             <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tenant</div>
             <div style={{ fontSize: 13, fontWeight: 500, color: '#475569', marginTop: 2 }}>{tenantId}</div>
           </div>
-          
+
           {isPlatformAdmin && (
-            <Link 
-              to="/platform" 
-              style={{ 
+            <Link
+              to="/platform"
+              style={{
                 display: 'block',
                 padding: '8px 12px',
                 fontSize: 13,
                 color: '#2563eb',
                 textDecoration: 'none',
                 fontWeight: 500
-              }} 
+              }}
               onClick={() => isMobile && setMenuOpen(false)}
             >
               Platform Console
             </Link>
           )}
-          
+
           <button
             onClick={() => auth.signOut()}
             style={{
@@ -169,15 +258,15 @@ export default function Layout() {
         />
       )}
 
-      <main style={{ 
-        flex: 1, 
-        padding: isMobile ? '80px 20px 40px' : '40px 60px', 
+      <main style={{
+        flex: 1,
+        padding: isMobile ? '80px 20px 40px' : '40px 60px',
         minWidth: 0,
         marginLeft: isMobile ? 0 : sidebarWidth,
         background: 'transparent'
       }}>
-        <div className="main-content-container" style={{ 
-          maxWidth: 1000, 
+        <div className="main-content-container" style={{
+          maxWidth: 1000,
           margin: '0 auto',
           background: '#fff',
           padding: isMobile ? '20px' : '40px',
