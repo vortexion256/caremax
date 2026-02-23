@@ -49,11 +49,11 @@ export default function Dashboard() {
       : 'Manage your package and available upgrade options from billing.';
 
   const agentConfigLinks = [
-    { label: 'Agent Settings', path: '/agent' },
-    { label: 'Auto Brain', path: '/agent-brain' },
-    { label: 'Agent Notebook', path: '/agent-notes' },
-    { label: 'Integrations', path: '/integrations' },
-    { label: 'Knowledge Base', path: '/rag' },
+    { label: 'Agent Settings', description: 'Configure behavior, tone, and goals.', path: '/agent' },
+    { label: 'Auto Brain', description: 'Manage memory and autonomous responses.', path: '/agent-brain' },
+    { label: 'Agent Notebook', description: 'Store instructions and reusable notes.', path: '/agent-notes' },
+    { label: 'Integrations', description: 'Connect channels, CRMs, and external tools.', path: '/integrations' },
+    { label: 'Knowledge Base', description: 'Manage RAG sources and document sync.', path: '/rag' },
   ];
 
   const logMetrics = [
@@ -94,76 +94,90 @@ export default function Dashboard() {
         </div>
       )}
 
+      <section
+        style={{
+          marginTop: 20,
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))',
+          gap: 14,
+        }}
+      >
+        <div
+          style={{
+            border: '1px solid #e2e8f0',
+            borderRadius: 12,
+            padding: isMobile ? 16 : 20,
+            background: '#f8fafc'
+          }}
+        >
+          <h2 style={{ margin: '0 0 6px 0', fontSize: 20, color: '#0f172a' }}>Agent Config</h2>
+          <p style={{ margin: '0 0 12px 0', color: '#64748b', fontSize: 13 }}>
+            Quick dashboard menu for all agent administration pages.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+            {agentConfigLinks.map((item) => (
+              <Link
+                key={item.path}
+                to={item.path}
+                style={{
+                  display: 'block',
+                  textDecoration: 'none',
+                  color: '#0f172a',
+                  background: '#fff',
+                  border: '1px solid #dbeafe',
+                  borderRadius: 10,
+                  padding: '12px 14px',
+                  boxShadow: '0 1px 2px rgba(15,23,42,0.04)'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                  <span style={{ fontWeight: 700, color: '#1e3a8a', fontSize: 14 }}>{item.label}</span>
+                  <span style={{ color: '#2563eb', fontWeight: 700 }}>→</span>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#64748b', lineHeight: 1.4 }}>{item.description}</div>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: '1px solid #e2e8f0',
+            borderRadius: 12,
+            padding: isMobile ? 16 : 20,
+            background: '#fff'
+          }}
+        >
+          <h2 style={{ margin: '0 0 8px 0', fontSize: 20, color: '#0f172a' }}>Notifications</h2>
+          <p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>
+            Notification updates will appear in this section.
+          </p>
+        </div>
+
+        <div
+          style={{
+            border: '1px solid #e2e8f0',
+            borderRadius: 12,
+            padding: isMobile ? 16 : 20,
+            background: '#fff'
+          }}
+        >
+          <h2 style={{ margin: '0 0 12px 0', fontSize: 20, color: '#0f172a' }}>Logs</h2>
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', marginBottom: 10 }}>Recent Metered Events</div>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+            {logMetrics.map((metric) => (
+              <div key={metric.label} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', background: '#f8fafc' }}>
+                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>{metric.label}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{metric.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <AIBrainVisualization isMobile={isMobile} />
 
       <AnalyticsUI isMobile={isMobile} />
-
-      <section
-        style={{
-          marginTop: 28,
-          border: '1px solid #e2e8f0',
-          borderRadius: 12,
-          padding: isMobile ? 16 : 20,
-          background: '#f8fafc'
-        }}
-      >
-        <h2 style={{ margin: '0 0 12px 0', fontSize: 20, color: '#0f172a' }}>Agent Config</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-          {agentConfigLinks.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              style={{
-                textDecoration: 'none',
-                color: '#1d4ed8',
-                fontWeight: 600,
-                background: '#fff',
-                border: '1px solid #dbeafe',
-                borderRadius: 10,
-                padding: '12px 14px'
-              }}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      <section
-        style={{
-          marginTop: 18,
-          border: '1px solid #e2e8f0',
-          borderRadius: 12,
-          padding: isMobile ? 16 : 20,
-          background: '#fff'
-        }}
-      >
-        <h2 style={{ margin: '0 0 8px 0', fontSize: 20, color: '#0f172a' }}>Notifications</h2>
-        <p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>
-          Notification updates will appear in this section.
-        </p>
-      </section>
-
-      <section
-        style={{
-          marginTop: 18,
-          border: '1px solid #e2e8f0',
-          borderRadius: 12,
-          padding: isMobile ? 16 : 20,
-          background: '#fff'
-        }}
-      >
-        <h2 style={{ margin: '0 0 12px 0', fontSize: 20, color: '#0f172a' }}>Logs</h2>
-        <div style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', marginBottom: 10 }}>Recent Metered Events</div>
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
-          {logMetrics.map((metric) => (
-            <div key={metric.label} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', background: '#f8fafc' }}>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>{metric.label}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{metric.value}</div>
-            </div>
-          ))}
-        </div>
-      </section>
 
       {isPlatformAdmin && (
         <div style={{ 
