@@ -4,6 +4,7 @@ import { requireAuth, requirePlatformAdmin } from '../middleware/auth.js';
 import { z } from 'zod';
 import { getTenantBillingStatus } from '../services/billing.js';
 import { getMarzPayCredentialInfo } from '../services/marzpay.js';
+import { createTenantNotification } from '../services/tenant-notifications.js';
 
 export const platformRouter: Router = Router();
 
@@ -255,6 +256,7 @@ const billingPlanSchema = z.object({
   maxUsageAmountUgxPerPackage: z.number().positive().nullable().optional(),
   active: z.boolean().default(true),
   description: z.string().optional(),
+  subscriberCount: z.number().int().nonnegative().optional(),
 });
 
 const billingPlansSchema = z.object({ plans: z.array(billingPlanSchema).min(1) });
@@ -297,13 +299,24 @@ platformRouter.get('/billing/plans', async (_req, res) => {
       snap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
     }
 
-    const plans = snap.docs
+    const plansWithCounts = await Promise.all(snap.docs.map(async (doc) => {
+      const subscribersSnap = await db
+        .collection('tenants')
+        .where('billingPlanId', '==', doc.id)
+        .get();
+      return {
+        doc,
+        subscriberCount: subscribersSnap.size,
+      };
+    }));
+
+    const plans = plansWithCounts
       .map((d) => {
-        const data = d.data();
+        const data = d.doc.data();
         const priceUgx = typeof data.priceUgx === 'number'
           ? data.priceUgx
           : (typeof data.priceUsd === 'number' ? Math.round(data.priceUsd * Number(process.env.MARZPAY_USD_TO_UGX_RATE ?? 3800)) : 0);
-        return { id: d.id, ...data, priceUgx };
+        return { id: d.doc.id, ...data, priceUgx, subscriberCount: d.subscriberCount };
       })
       .sort((a, b) => (a.priceUgx ?? 0) - (b.priceUgx ?? 0));
     res.json({ plans });
@@ -372,13 +385,36 @@ platformRouter.put('/billing/plans', async (req, res) => {
     const batch = db.batch();
 
     for (const plan of parsed.data.plans) {
-      batch.set(db.collection('billing_plans').doc(plan.id), { ...plan, updatedAt: new Date() }, { merge: true });
+      const { subscriberCount: _subscriberCount, ...planPayload } = plan;
+      batch.set(db.collection('billing_plans').doc(plan.id), { ...planPayload, updatedAt: new Date() }, { merge: true });
     }
 
-    for (const doc of existingPlansSnap.docs) {
-      if (!incomingPlanIds.has(doc.id) && doc.id !== 'free') {
-        batch.delete(doc.ref);
+    const plansToDelete = existingPlansSnap.docs.filter((doc) => !incomingPlanIds.has(doc.id) && doc.id !== 'free');
+    const blockedPlans: Array<{ planId: string; subscriberCount: number }> = [];
+
+    for (const planDoc of plansToDelete) {
+      const subscribersSnap = await db
+        .collection('tenants')
+        .where('billingPlanId', '==', planDoc.id)
+        .get();
+
+      if (!subscribersSnap.empty) {
+        blockedPlans.push({
+          planId: planDoc.id,
+          subscriberCount: subscribersSnap.size,
+        });
+        continue;
       }
+
+      batch.delete(planDoc.ref);
+    }
+
+    if (blockedPlans.length > 0) {
+      res.status(400).json({
+        error: 'Some packages cannot be deleted because tenants are subscribed to them.',
+        blockedPlans,
+      });
+      return;
     }
 
     await batch.commit();
@@ -443,6 +479,15 @@ platformRouter.patch('/tenants/:tenantId/billing', async (req, res) => {
         subscriptionStatus: 'trialing',
         updatedAt: new Date(now),
       }, { merge: true });
+
+      await createTenantNotification({
+        tenantId: req.params.tenantId,
+        type: 'subscription_warning',
+        title: 'Package changed',
+        message: 'Your account has been moved to the Free Trial package.',
+        metadata: { billingPlanId: 'free', changedBy: 'platform_admin' },
+      });
+
       res.json({ success: true });
       return;
     }
@@ -455,6 +500,15 @@ platformRouter.patch('/tenants/:tenantId/billing', async (req, res) => {
       subscriptionStatus: 'active',
       updatedAt: new Date(now),
     }, { merge: true });
+
+    await createTenantNotification({
+      tenantId: req.params.tenantId,
+      type: 'payment_success',
+      title: 'Subscription activated',
+      message: `Your package has been updated to "${body.data.billingPlanId}".`,
+      metadata: { billingPlanId: body.data.billingPlanId, changedBy: 'platform_admin' },
+    });
+
     res.json({ success: true });
   } catch (e) {
     console.error('Failed to update tenant billing plan:', e);
