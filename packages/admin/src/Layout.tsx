@@ -16,7 +16,6 @@ export default function Layout() {
   const primaryNav: NavItem[] = [
     { path: '/', label: 'Dashboard' },
     { path: '/visual-diagram', label: 'Visual Diagram' },
-    { path: '/agent', label: 'Agent Settings' },
     { path: '/conversations', label: 'Conversations' },
     { path: '/handoffs', label: 'Handoff Queue' },
   ];
@@ -262,7 +261,7 @@ export default function Layout() {
 
       <main style={{
         flex: 1,
-        padding: isMobile ? '80px 20px 40px' : '40px 60px',
+        padding: isMobile ? '76px 12px 24px' : '40px 60px',
         minWidth: 0,
         marginLeft: isMobile ? 0 : sidebarWidth,
         background: 'transparent'
