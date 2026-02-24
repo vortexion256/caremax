@@ -75,6 +75,36 @@ tenantRouter.get('/:tenantId/account', requireTenantParam, async (_req, res) => 
   });
 });
 
+tenantRouter.put('/:tenantId/account', requireTenantParam, async (req, res) => {
+  const body = z.object({
+    name: z.string().trim().min(1).max(120),
+  }).safeParse(req.body);
+
+  if (!body.success) {
+    res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
+    return;
+  }
+
+  const tenantId = res.locals.tenantId as string;
+  const tenantRef = db.collection('tenants').doc(tenantId);
+  const tenantDoc = await tenantRef.get();
+
+  if (!tenantDoc.exists) {
+    res.status(404).json({ error: 'Tenant not found' });
+    return;
+  }
+
+  await tenantRef.set(
+    {
+      name: body.data.name,
+      updatedAt: new Date(),
+    },
+    { merge: true }
+  );
+
+  res.json({ success: true, name: body.data.name });
+});
+
 tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => {
   const tenantId = res.locals.tenantId as string;
 
