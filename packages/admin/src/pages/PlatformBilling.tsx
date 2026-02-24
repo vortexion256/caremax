@@ -12,6 +12,7 @@ type Plan = {
   maxUsageAmountUgxPerPackage?: number | null;
   active: boolean;
   description?: string;
+  subscriberCount?: number;
 };
 
 type BillingConfig = {
@@ -68,6 +69,7 @@ export default function PlatformBilling() {
       id: plan.id.trim().toLowerCase(),
       name: plan.name.trim(),
       description: plan.description?.trim() ?? '',
+      subscriberCount: typeof plan.subscriberCount === 'number' ? plan.subscriberCount : 0,
     }));
 
     if (normalizedPlans.some((plan) => !plan.id || !plan.name)) {
@@ -101,6 +103,15 @@ export default function PlatformBilling() {
   };
 
   const removePlan = (idx: number) => {
+    const selectedPlan = plans[idx];
+    if (selectedPlan?.subscriberCount && selectedPlan.subscriberCount > 0) {
+      setNotice({
+        tone: 'error',
+        message: `Cannot delete package "${selectedPlan.name || selectedPlan.id}" because ${selectedPlan.subscriberCount} tenant(s) are subscribed to it.`,
+      });
+      return;
+    }
+
     setPlans((prev) => prev.filter((_, i) => i !== idx));
   };
 
@@ -154,9 +165,13 @@ export default function PlatformBilling() {
             <button
               type="button"
               onClick={() => removePlan(idx)}
-              disabled={plan.id === 'free'}
+              disabled={plan.id === 'free' || (plan.subscriberCount ?? 0) > 0}
               style={{ padding: '4px 10px' }}
-              title={plan.id === 'free' ? 'Free plan cannot be deleted' : 'Delete package'}
+              title={plan.id === 'free'
+                ? 'Free plan cannot be deleted'
+                : (plan.subscriberCount ?? 0) > 0
+                  ? `Cannot delete: ${plan.subscriberCount} tenant(s) are subscribed to this package`
+                  : 'Delete package'}
             >
               Delete package
             </button>
@@ -233,6 +248,11 @@ export default function PlatformBilling() {
               <option value="inactive">Inactive</option>
             </select>
           </label>
+          {(plan.subscriberCount ?? 0) > 0 && (
+            <small style={{ gridColumn: '1 / -1', color: '#991b1b', fontWeight: 600 }}>
+              {plan.subscriberCount} tenant(s) are currently subscribed to this package.
+            </small>
+          )}
           {plan.id === 'free' && (
             <small style={{ gridColumn: '1 / -1', color: '#0f766e', fontWeight: 600 }}>Free plan value: Worth 5 USD tokens.</small>
           )}
