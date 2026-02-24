@@ -403,18 +403,18 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
                   }, 0);
                 }}
                 style={{
-                  padding: '6px 12px',
+                  padding: '8px 14px',
                   borderRadius: 16,
                   backgroundColor: isDark ? '#374151' : '#ffffff',
                   color: primaryColor,
                   border: `1px solid ${border}`,
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: 500,
                   cursor: loading ? 'default' : 'pointer',
                   textAlign: 'right',
                   transition: 'all 0.2s',
                   width: 'fit-content',
-                  maxWidth: '280px',
+                  maxWidth: '320px',
                   opacity: loading ? 0.6 : 1,
                   boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                   pointerEvents: 'auto',

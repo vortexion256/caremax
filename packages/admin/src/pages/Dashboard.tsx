@@ -6,6 +6,10 @@ import AnalyticsUI from '../components/AnalyticsUI';
 import { api } from '../api';
 
 type BillingNoticeData = {
+  billingPlanId?: string;
+  currentPlan?: {
+    name?: string;
+  } | null;
   billingStatus?: {
     isActive: boolean;
     isTrialPlan: boolean;
@@ -17,21 +21,26 @@ type BillingNoticeData = {
 export default function Dashboard() {
   const { isPlatformAdmin, tenantId } = useTenant();
   const { isMobile } = useIsMobile();
-  const [billing, setBilling] = useState<BillingNoticeData['billingStatus'] | null>(null);
+  const [billingData, setBillingData] = useState<BillingNoticeData | null>(null);
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') return;
     api<BillingNoticeData>(`/tenants/${tenantId}/billing`)
-      .then((res) => setBilling(res.billingStatus ?? null))
-      .catch(() => setBilling(null));
+      .then((res) => setBillingData(res))
+      .catch(() => setBillingData(null));
   }, [tenantId]);
 
   if (isPlatformAdmin && tenantId === 'platform') {
     return <Navigate to="/platform" replace />;
   }
 
+  const billing = billingData?.billingStatus ?? null;
   const isExpiredTrial = Boolean(billing?.isExpired && billing.isTrialPlan);
   const isExpiredPaidPackage = Boolean(billing?.isExpired && !billing.isTrialPlan);
+  const activePlanName =
+    billing?.isTrialPlan
+      ? 'FREE TRIAL'
+      : (billingData?.currentPlan?.name ?? billingData?.billingPlanId ?? 'ACTIVE SUBSCRIPTION').toUpperCase();
 
   const billingTitle = isExpiredTrial
     ? 'Your trial has ended.'
@@ -39,7 +48,7 @@ export default function Dashboard() {
       ? 'Package Expired'
       : billing?.isTrialPlan
         ? `Trial active: ${billing.daysRemaining ?? 0} day(s) remaining.`
-        : 'Subscription Active.';
+        : `SUBSCRIPTION ACTIVE. (${activePlanName})`;
 
   const billingDescription = isExpiredTrial
     ? 'Upgrade now to reactivate your widget and continue conversations.'
