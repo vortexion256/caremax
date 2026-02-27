@@ -29,6 +29,9 @@ import PlatformPayments from './pages/PlatformPayments';
 import TenantBilling from './pages/TenantBilling';
 import TenantAccount from './pages/TenantAccount';
 import VisualDiagram from './pages/VisualDiagram';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import TermsOfService from './pages/TermsOfService';
+import Contact from './pages/Contact';
 
 type MeResponse = { uid: string; email?: string; tenantId?: string; isAdmin?: boolean; isPlatformAdmin?: boolean };
 
@@ -110,6 +113,9 @@ export default function App() {
       <Routes>
         <Route path="/signup" element={<SignUp onSuccess={() => setAuthenticated(true)} />} />
         <Route path="/login" element={<Login onSuccess={() => setAuthenticated(true)} />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="/terms-of-service" element={<TermsOfService />} />
+        <Route path="/contact" element={<Contact />} />
         <Route path="*" element={<Landing onLogin={() => setAuthenticated(true)} />} />
       </Routes>
     );

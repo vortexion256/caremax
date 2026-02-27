@@ -54,6 +54,11 @@ registerRouter.post('/', requireAuth, async (req, res) => {
   await db.collection('tenants').doc(tenantId).set({
     name,
     allowedDomains: [],
+    privacyPolicy: 'This is a placeholder privacy policy. We collect and process service data to operate and improve CareMax. Replace this text in SaaS Admin with your organization policy.',
+    termsOfService: 'This is a placeholder Terms of Service. By using this service, users agree to lawful and acceptable use. Replace this text in SaaS Admin with your organization terms.',
+    contactEmail: 'edrine.eminence@gmail.com',
+    contactPhonePrimary: '0782830524',
+    contactPhoneSecondary: '0753190830',
     createdBy: uid,
     createdAt: FieldValue.serverTimestamp(),
     billingPlanId: 'free',
