@@ -19,11 +19,6 @@ export default function TenantAccount() {
   const { tenantId, email, uid } = useTenant();
   const [account, setAccount] = useState<Account | null>(null);
   const [organizationName, setOrganizationName] = useState('');
-  const [privacyPolicy, setPrivacyPolicy] = useState('');
-  const [termsOfService, setTermsOfService] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
-  const [contactPhonePrimary, setContactPhonePrimary] = useState('');
-  const [contactPhoneSecondary, setContactPhoneSecondary] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
@@ -39,11 +34,6 @@ export default function TenantAccount() {
       .then((res) => {
         setAccount(res);
         setOrganizationName(res.name ?? '');
-        setPrivacyPolicy(res.privacyPolicy ?? '');
-        setTermsOfService(res.termsOfService ?? '');
-        setContactEmail(res.contactEmail ?? '');
-        setContactPhonePrimary(res.contactPhonePrimary ?? '');
-        setContactPhoneSecondary(res.contactPhoneSecondary ?? '');
       })
       .catch((e) => {
         const message = e instanceof Error ? e.message : 'Failed to load account details';
@@ -57,13 +47,7 @@ export default function TenantAccount() {
     if (!tenantId || !account) return;
 
     const trimmedName = organizationName.trim();
-    const trimmedPrivacyPolicy = privacyPolicy.trim();
-    const trimmedTermsOfService = termsOfService.trim();
-    const trimmedContactEmail = contactEmail.trim();
-    const trimmedContactPhonePrimary = contactPhonePrimary.trim();
-    const trimmedContactPhoneSecondary = contactPhoneSecondary.trim();
-
-    if (!trimmedName || !trimmedPrivacyPolicy || !trimmedTermsOfService || !trimmedContactEmail || !trimmedContactPhonePrimary || !trimmedContactPhoneSecondary) {
+    if (!trimmedName) {
       setSaveState('error');
       return;
     }
@@ -74,21 +58,11 @@ export default function TenantAccount() {
         method: 'PUT',
         body: JSON.stringify({
           name: trimmedName,
-          privacyPolicy: trimmedPrivacyPolicy,
-          termsOfService: trimmedTermsOfService,
-          contactEmail: trimmedContactEmail,
-          contactPhonePrimary: trimmedContactPhonePrimary,
-          contactPhoneSecondary: trimmedContactPhoneSecondary,
         }),
       });
       setAccount((prev) => (prev ? {
         ...prev,
         name: trimmedName,
-        privacyPolicy: trimmedPrivacyPolicy,
-        termsOfService: trimmedTermsOfService,
-        contactEmail: trimmedContactEmail,
-        contactPhonePrimary: trimmedContactPhonePrimary,
-        contactPhoneSecondary: trimmedContactPhoneSecondary,
       } : prev));
       setOrganizationName(trimmedName);
       setSaveState('saved');
@@ -128,7 +102,7 @@ export default function TenantAccount() {
               />
               <button
                 type="submit"
-                disabled={saveState === 'saving' || organizationName.trim() === '' || privacyPolicy.trim() === '' || termsOfService.trim() === '' || contactEmail.trim() === '' || contactPhonePrimary.trim() === '' || contactPhoneSecondary.trim() === ''}
+                disabled={saveState === 'saving' || organizationName.trim() === ''}
                 style={{
                   border: 0,
                   borderRadius: 8,
@@ -147,26 +121,11 @@ export default function TenantAccount() {
             {saveState === 'error' && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 6 }}>Could not save name. Check input and try again.</div>}
           </form>
 
-
-
-          <div style={{ padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>Contact Information</div>
-            <div style={{ display: 'grid', gap: 8 }}>
-              <input value={contactEmail} onChange={(e) => { setContactEmail(e.target.value); if (saveState !== 'idle') setSaveState('idle'); }} placeholder="Contact email" style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px', fontSize: 14 }} />
-              <input value={contactPhonePrimary} onChange={(e) => { setContactPhonePrimary(e.target.value); if (saveState !== 'idle') setSaveState('idle'); }} placeholder="Primary phone" style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px', fontSize: 14 }} />
-              <input value={contactPhoneSecondary} onChange={(e) => { setContactPhoneSecondary(e.target.value); if (saveState !== 'idle') setSaveState('idle'); }} placeholder="Secondary phone" style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px', fontSize: 14 }} />
-            </div>
-          </div>
-
-          <div style={{ padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>Privacy Policy</div>
-            <textarea value={privacyPolicy} onChange={(e) => { setPrivacyPolicy(e.target.value); if (saveState !== 'idle') setSaveState('idle'); }} rows={5} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px', fontSize: 14, resize: 'vertical' }} />
-          </div>
-
-          <div style={{ padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>Terms of Service</div>
-            <textarea value={termsOfService} onChange={(e) => { setTermsOfService(e.target.value); if (saveState !== 'idle') setSaveState('idle'); }} rows={5} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px', fontSize: 14, resize: 'vertical' }} />
-          </div>
+          <Info label="Contact Email (managed by SaaS Admin)" value={account.contactEmail || '—'} />
+          <Info label="Primary Phone (managed by SaaS Admin)" value={account.contactPhonePrimary || '—'} />
+          <Info label="Secondary Phone (managed by SaaS Admin)" value={account.contactPhoneSecondary || '—'} />
+          <Info label="Privacy Policy (managed by SaaS Admin)" value={account.privacyPolicy || '—'} />
+          <Info label="Terms of Service (managed by SaaS Admin)" value={account.termsOfService || '—'} />
 
           <Info label="Admin Email" value={email || '—'} />
           <Info label="Admin UID" value={uid || '—'} mono />
