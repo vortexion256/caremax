@@ -263,3 +263,22 @@ main {
 .auth-button-primary:hover { background: #0284c7; transform: translateY(-1px); box-shadow: 0 6px 16px rgba(14, 165, 233, 0.4); }
 .auth-button-google { width: 100%; padding: 14px; font-size: 16px; font-weight: 600; background: white; color: #1e293b; border: 1px solid #e2e8f0; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 12px; transition: all 0.2s; }
 .auth-button-google:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+@media (min-width: 960px) {
+  .signup-auth-card {
+    display: grid;
+    grid-template-columns: minmax(250px, 0.95fr) minmax(380px, 1.05fr);
+    gap: 36px;
+    align-items: center;
+    padding: 34px;
+  }
+
+  .signup-layout-intro {
+    margin-bottom: 0 !important;
+    text-align: left !important;
+  }
+
+  .signup-layout-intro > div {
+    margin-left: 0 !important;
+  }
+}
