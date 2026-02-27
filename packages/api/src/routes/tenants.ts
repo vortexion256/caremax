@@ -46,6 +46,15 @@ type TenantNotification = {
   metadata?: Record<string, unknown> | null;
 };
 
+const tenantContentSettingsSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  privacyPolicy: z.string().trim().min(1).max(10000),
+  termsOfService: z.string().trim().min(1).max(10000),
+  contactEmail: z.string().trim().email().max(255),
+  contactPhonePrimary: z.string().trim().min(7).max(30),
+  contactPhoneSecondary: z.string().trim().min(7).max(30),
+});
+
 tenantRouter.get('/:tenantId', requireTenantParam, async (req, res) => {
   const tenantId = res.locals.tenantId as string;
   const doc = await db.collection('tenants').doc(tenantId).get();
@@ -68,6 +77,11 @@ tenantRouter.get('/:tenantId/account', requireTenantParam, async (_req, res) => 
   res.json({
     tenantId,
     name: data.name ?? '',
+    privacyPolicy: data.privacyPolicy ?? 'This is a placeholder privacy policy. We collect and process service data to operate and improve CareMax. Replace this text in SaaS Admin with your organization policy.',
+    termsOfService: data.termsOfService ?? 'This is a placeholder Terms of Service. By using this service, users agree to lawful and acceptable use. Replace this text in SaaS Admin with your organization terms.',
+    contactEmail: data.contactEmail ?? 'edrine.eminence@gmail.com',
+    contactPhonePrimary: data.contactPhonePrimary ?? '0782830524',
+    contactPhoneSecondary: data.contactPhoneSecondary ?? '0753190830',
     allowedDomains: data.allowedDomains ?? [],
     createdAt: data.createdAt?.toMillis?.() ?? null,
     createdBy: data.createdBy ?? null,
@@ -76,9 +90,7 @@ tenantRouter.get('/:tenantId/account', requireTenantParam, async (_req, res) => 
 });
 
 tenantRouter.put('/:tenantId/account', requireTenantParam, async (req, res) => {
-  const body = z.object({
-    name: z.string().trim().min(1).max(120),
-  }).safeParse(req.body);
+  const body = tenantContentSettingsSchema.safeParse(req.body);
 
   if (!body.success) {
     res.status(400).json({ error: 'Invalid body', details: body.error.flatten() });
@@ -97,12 +109,17 @@ tenantRouter.put('/:tenantId/account', requireTenantParam, async (req, res) => {
   await tenantRef.set(
     {
       name: body.data.name,
+      privacyPolicy: body.data.privacyPolicy,
+      termsOfService: body.data.termsOfService,
+      contactEmail: body.data.contactEmail,
+      contactPhonePrimary: body.data.contactPhonePrimary,
+      contactPhoneSecondary: body.data.contactPhoneSecondary,
       updatedAt: new Date(),
     },
     { merge: true }
   );
 
-  res.json({ success: true, name: body.data.name });
+  res.json({ success: true, ...body.data });
 });
 
 tenantRouter.get('/:tenantId/billing', requireTenantParam, async (_req, res) => {

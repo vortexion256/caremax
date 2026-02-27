@@ -136,6 +136,11 @@ platformRouter.get('/tenants/:tenantId', async (req, res) => {
       showUsageByApiFlow: data?.showUsageByApiFlow === true,
       maxTokensPerUser: typeof data?.maxTokensPerUser === 'number' ? data.maxTokensPerUser : null,
       maxSpendUgxPerUser: typeof data?.maxSpendUgxPerUser === 'number' ? data.maxSpendUgxPerUser : null,
+      privacyPolicy: data?.privacyPolicy ?? 'This is a placeholder privacy policy. We collect and process service data to operate and improve CareMax. Replace this text in SaaS Admin with your organization policy.',
+      termsOfService: data?.termsOfService ?? 'This is a placeholder Terms of Service. By using this service, users agree to lawful and acceptable use. Replace this text in SaaS Admin with your organization terms.',
+      contactEmail: data?.contactEmail ?? 'edrine.eminence@gmail.com',
+      contactPhonePrimary: data?.contactPhonePrimary ?? '0782830524',
+      contactPhoneSecondary: data?.contactPhoneSecondary ?? '0753190830',
       billingStatus,
       totals,
       byUsageType: Object.entries(summaryByType).map(([usageType, values]) => ({ usageType, ...values })),
@@ -271,6 +276,11 @@ const tenantAdminSettingsSchema = z.object({
   showUsageByApiFlow: z.boolean().optional(),
   maxTokensPerUser: z.number().int().positive().optional(),
   maxSpendUgxPerUser: z.number().positive().optional(),
+  privacyPolicy: z.string().trim().min(1).max(10000).optional(),
+  termsOfService: z.string().trim().min(1).max(10000).optional(),
+  contactEmail: z.string().trim().email().max(255).optional(),
+  contactPhonePrimary: z.string().trim().min(7).max(30).optional(),
+  contactPhoneSecondary: z.string().trim().min(7).max(30).optional(),
 });
 
 const defaultBillingConfig = {
@@ -545,6 +555,21 @@ platformRouter.patch('/tenants/:tenantId/settings', async (req, res) => {
     }
     if (typeof parsed.data.maxSpendUgxPerUser === 'number') {
       payload.maxSpendUgxPerUser = parsed.data.maxSpendUgxPerUser;
+    }
+    if (typeof parsed.data.privacyPolicy === 'string') {
+      payload.privacyPolicy = parsed.data.privacyPolicy;
+    }
+    if (typeof parsed.data.termsOfService === 'string') {
+      payload.termsOfService = parsed.data.termsOfService;
+    }
+    if (typeof parsed.data.contactEmail === 'string') {
+      payload.contactEmail = parsed.data.contactEmail;
+    }
+    if (typeof parsed.data.contactPhonePrimary === 'string') {
+      payload.contactPhonePrimary = parsed.data.contactPhonePrimary;
+    }
+    if (typeof parsed.data.contactPhoneSecondary === 'string') {
+      payload.contactPhoneSecondary = parsed.data.contactPhoneSecondary;
     }
 
     await tenantRef.set(payload, { merge: true });

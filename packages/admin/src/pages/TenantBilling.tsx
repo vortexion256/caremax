@@ -290,10 +290,6 @@ export default function TenantBilling() {
                   </div>
                   <div style={{ marginTop: 4, color: '#1e293b', fontSize: 14 }}>{formatUgx(plan.priceUgx)}/mo</div>
                   {plan.description && <div style={{ marginTop: 4, color: '#64748b', fontSize: 13 }}>({plan.description})</div>}
-                  <div style={{ marginTop: 6, color: '#475569', fontSize: 12 }}>
-                    <div>Max tokens: {plan.maxTokensPerPackage ? plan.maxTokensPerPackage.toLocaleString() : 'Not limited'}</div>
-                    <div>Max usage amount: {plan.maxUsageAmountUgxPerPackage ? formatUgx(plan.maxUsageAmountUgxPerPackage) : 'Not limited'}</div>
-                  </div>
                   {canPayPlan && (
                     <button
                       onClick={() => {
@@ -356,7 +352,6 @@ export default function TenantBilling() {
         <Metric label="API Calls" value={data.totals.calls.toLocaleString()} />
         <Metric label="Input Tokens" value={data.totals.inputTokens.toLocaleString()} />
         <Metric label="Output Tokens" value={data.totals.outputTokens.toLocaleString()} />
-        <Metric label="Total Cost" value={formatUsageCostUgx(data.totals.costUsd)} />
       </div>
 
       {(isPlatformAdmin || data.showUsageByApiFlow) && data.byUsageType.length > 0 ? (
@@ -397,30 +392,6 @@ export default function TenantBilling() {
         <p style={{ color: '#64748b' }}>No notifications yet.</p>
       )}
 
-      {data.recentEvents.length > 0 ? (
-        <>
-          <h3 style={{ marginTop: 18 }}>Recent Metered Events</h3>
-          <div style={{ width: '100%', overflowX: 'auto' }}>
-            <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead><tr><th align="left">Time</th><th align="left">Type</th><th align="left">Source</th><th align="right">Input</th><th align="right">Output</th><th align="right">Cost</th></tr></thead>
-              <tbody>
-                {data.recentEvents.slice(0, 25).map((e) => (
-                  <tr key={e.eventId} style={{ borderTop: '1px solid #e2e8f0' }}>
-                    <td>{e.createdAt ? new Date(e.createdAt).toLocaleString() : '—'}</td>
-                    <td style={{ fontFamily: 'monospace', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{e.usageType}</td>
-                    <td>{e.measurementSource}</td>
-                    <td align="right">{e.inputTokens}</td>
-                    <td align="right">{e.outputTokens}</td>
-                    <td align="right">{formatUsageCostUgx(e.costUsd)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      ) : (
-        <p style={{ color: '#64748b' }}>No metered events yet.</p>
-      )}
     </div>
   );
 }

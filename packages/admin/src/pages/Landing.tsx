@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import './Landing.css';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -278,9 +279,9 @@ export default function Landing({ onLogin }: Props) {
             © 2026 CareMax Health Technologies. All rights reserved.
           </p>
           <div style={{ display: 'flex', gap: 32, fontSize: 15 }}>
-            <span style={{ cursor: 'pointer' }}>Privacy Policy</span>
-            <span style={{ cursor: 'pointer' }}>Terms of Service</span>
-            <span style={{ cursor: 'pointer' }}>Contact</span>
+            <Link to="/privacy-policy" style={{ color: '#64748b', textDecoration: 'none' }}>Privacy Policy</Link>
+            <Link to="/terms-of-service" style={{ color: '#64748b', textDecoration: 'none' }}>Terms of Service</Link>
+            <Link to="/contact" style={{ color: '#64748b', textDecoration: 'none' }}>Contact</Link>
           </div>
         </div>
       </footer>
