@@ -1,31 +1,16 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useState } from 'react';
 import { api } from '../api';
 import { useTenant } from '../TenantContext';
 
-type TenantSummary = {
-  tenantId: string;
-  name: string;
-};
-
-type TenantDetails = {
-  tenantId: string;
-  name: string;
-  privacyPolicy?: string;
-  termsOfService?: string;
-  contactEmail?: string;
-  contactPhonePrimary?: string;
-  contactPhoneSecondary?: string;
-};
-
-type ContentForm = {
+type PublicContent = {
+  privacyPolicy: string;
+  termsOfService: string;
   contactEmail: string;
   contactPhonePrimary: string;
   contactPhoneSecondary: string;
-  privacyPolicy: string;
-  termsOfService: string;
 };
 
-const emptyForm: ContentForm = {
+const emptyForm: PublicContent = {
   contactEmail: '',
   contactPhonePrimary: '',
   contactPhoneSecondary: '',
@@ -35,11 +20,8 @@ const emptyForm: ContentForm = {
 
 export default function PlatformContentAdmin() {
   const { isPlatformAdmin } = useTenant();
-  const [tenants, setTenants] = useState<TenantSummary[]>([]);
-  const [selectedTenantId, setSelectedTenantId] = useState('');
-  const [form, setForm] = useState<ContentForm>(emptyForm);
+  const [form, setForm] = useState<PublicContent>(emptyForm);
   const [loading, setLoading] = useState(true);
-  const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
@@ -51,54 +33,20 @@ export default function PlatformContentAdmin() {
 
     setLoading(true);
     setError(null);
-    api<{ tenants: TenantSummary[] }>('/platform/tenants')
-      .then((res) => {
-        const sorted = [...res.tenants].sort((a, b) => (a.name || a.tenantId).localeCompare(b.name || b.tenantId));
-        setTenants(sorted);
-        if (sorted.length > 0) {
-          setSelectedTenantId((prev) => prev || sorted[0].tenantId);
-        }
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load tenants'))
+    api<PublicContent>('/platform/public-content')
+      .then((details) => setForm(details))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load public content settings'))
       .finally(() => setLoading(false));
   }, [isPlatformAdmin]);
 
-  useEffect(() => {
-    if (!selectedTenantId) {
-      setForm(emptyForm);
-      return;
-    }
-
-    setLoadingDetails(true);
-    setError(null);
-    api<TenantDetails>(`/platform/tenants/${selectedTenantId}`)
-      .then((details) => {
-        setForm({
-          contactEmail: details.contactEmail ?? '',
-          contactPhonePrimary: details.contactPhonePrimary ?? '',
-          contactPhoneSecondary: details.contactPhoneSecondary ?? '',
-          privacyPolicy: details.privacyPolicy ?? '',
-          termsOfService: details.termsOfService ?? '',
-        });
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load tenant details'))
-      .finally(() => setLoadingDetails(false));
-  }, [selectedTenantId]);
-
-  const selectedTenantName = useMemo(
-    () => tenants.find((tenant) => tenant.tenantId === selectedTenantId)?.name ?? selectedTenantId,
-    [selectedTenantId, tenants],
-  );
-
   async function handleSave(e: FormEvent) {
     e.preventDefault();
-    if (!selectedTenantId) return;
 
     try {
       setSaveState('saving');
       setError(null);
-      await api(`/platform/tenants/${selectedTenantId}/settings`, {
-        method: 'PATCH',
+      await api('/platform/public-content', {
+        method: 'PUT',
         body: JSON.stringify({
           contactEmail: form.contactEmail.trim(),
           contactPhonePrimary: form.contactPhonePrimary.trim(),
@@ -125,105 +73,72 @@ export default function PlatformContentAdmin() {
     <div>
       <h1 style={{ marginTop: 0 }}>Public Contact & Policy Controls</h1>
       <p style={{ color: '#64748b', marginBottom: 16 }}>
-        Manage landing page contact details, support emails, privacy policy text, and terms of service from the CareMax SaaS Admin Console.
+        Manage one global set of landing page contact details, privacy policy text, and terms of service for the public CareMax website.
       </p>
-
-      <div style={{ marginBottom: 16 }}>
-        <label htmlFor="tenant-select" style={{ display: 'block', fontSize: 13, color: '#334155', marginBottom: 6 }}>
-          Tenant
-        </label>
-        <select
-          id="tenant-select"
-          value={selectedTenantId}
-          onChange={(e) => {
-            setSelectedTenantId(e.target.value);
-            if (saveState !== 'idle') setSaveState('idle');
-          }}
-          style={{
-            width: '100%',
-            maxWidth: 420,
-            border: '1px solid #cbd5e1',
-            borderRadius: 8,
-            padding: '9px 10px',
-            background: '#fff',
-            fontSize: 14,
-          }}
-        >
-          {tenants.length === 0 && <option value="">No tenants available</option>}
-          {tenants.map((tenant) => (
-            <option key={tenant.tenantId} value={tenant.tenantId}>
-              {tenant.name || tenant.tenantId} ({tenant.tenantId})
-            </option>
-          ))}
-        </select>
-      </div>
 
       {error && <p style={{ color: '#dc2626' }}>{error}</p>}
 
-      {selectedTenantId && (
-        <form onSubmit={handleSave} style={{ display: 'grid', gap: 12 }}>
-          <SectionCard title={`Landing Page Contact Info · ${selectedTenantName}`}>
-            <LabeledInput
-              label="Contact Email"
-              value={form.contactEmail}
-              onChange={(value) => setForm((prev) => ({ ...prev, contactEmail: value }))}
-              placeholder="support@caremax.health"
-              type="email"
-            />
-            <LabeledInput
-              label="Primary Phone"
-              value={form.contactPhonePrimary}
-              onChange={(value) => setForm((prev) => ({ ...prev, contactPhonePrimary: value }))}
-              placeholder="+256782830524"
-            />
-            <LabeledInput
-              label="Secondary Phone"
-              value={form.contactPhoneSecondary}
-              onChange={(value) => setForm((prev) => ({ ...prev, contactPhoneSecondary: value }))}
-              placeholder="+256753190830"
-            />
-          </SectionCard>
+      <form onSubmit={handleSave} style={{ display: 'grid', gap: 12 }}>
+        <SectionCard title='Landing Page Contact Info (Global)'>
+          <LabeledInput
+            label='Contact Email'
+            value={form.contactEmail}
+            onChange={(value) => setForm((prev) => ({ ...prev, contactEmail: value }))}
+            placeholder='support@caremax.health'
+            type='email'
+          />
+          <LabeledInput
+            label='Primary Phone'
+            value={form.contactPhonePrimary}
+            onChange={(value) => setForm((prev) => ({ ...prev, contactPhonePrimary: value }))}
+            placeholder='+256782830524'
+          />
+          <LabeledInput
+            label='Secondary Phone'
+            value={form.contactPhoneSecondary}
+            onChange={(value) => setForm((prev) => ({ ...prev, contactPhoneSecondary: value }))}
+            placeholder='+256753190830'
+          />
+        </SectionCard>
 
-          <SectionCard title="Privacy Policy (Landing Page)">
-            <LabeledTextArea
-              label="Privacy Policy"
-              value={form.privacyPolicy}
-              onChange={(value) => setForm((prev) => ({ ...prev, privacyPolicy: value }))}
-              rows={5}
-            />
-          </SectionCard>
+        <SectionCard title='Privacy Policy (Landing Page)'>
+          <LabeledTextArea
+            label='Privacy Policy'
+            value={form.privacyPolicy}
+            onChange={(value) => setForm((prev) => ({ ...prev, privacyPolicy: value }))}
+            rows={5}
+          />
+        </SectionCard>
 
-          <SectionCard title="Terms of Service (Landing Page)">
-            <LabeledTextArea
-              label="Terms of Service"
-              value={form.termsOfService}
-              onChange={(value) => setForm((prev) => ({ ...prev, termsOfService: value }))}
-              rows={5}
-            />
-          </SectionCard>
+        <SectionCard title='Terms of Service (Landing Page)'>
+          <LabeledTextArea
+            label='Terms of Service'
+            value={form.termsOfService}
+            onChange={(value) => setForm((prev) => ({ ...prev, termsOfService: value }))}
+            rows={5}
+          />
+        </SectionCard>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              type="submit"
-              disabled={loadingDetails || saveState === 'saving'}
-              style={{
-                border: 0,
-                borderRadius: 8,
-                padding: '9px 14px',
-                background: '#2563eb',
-                color: '#fff',
-                fontWeight: 600,
-                cursor: loadingDetails || saveState === 'saving' ? 'wait' : 'pointer',
-              }}
-            >
-              {saveState === 'saving' ? 'Saving…' : 'Save SaaS-Managed Content'}
-            </button>
-            {loadingDetails && <span style={{ fontSize: 13, color: '#64748b' }}>Loading selected tenant content…</span>}
-            {saveState === 'saved' && <span style={{ fontSize: 13, color: '#15803d' }}>Saved successfully.</span>}
-            {saveState === 'error' && <span style={{ fontSize: 13, color: '#dc2626' }}>Save failed.</span>}
-          </div>
-        </form>
-      )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            type='submit'
+            disabled={saveState === 'saving'}
+            style={{
+              border: 0,
+              borderRadius: 8,
+              padding: '9px 14px',
+              background: '#2563eb',
+              color: '#fff',
+              fontWeight: 600,
+              cursor: saveState === 'saving' ? 'wait' : 'pointer',
+            }}
+          >
+            {saveState === 'saving' ? 'Saving…' : 'Save Global Landing Content'}
+          </button>
+          {saveState === 'saved' && <span style={{ fontSize: 13, color: '#15803d' }}>Saved successfully.</span>}
+          {saveState === 'error' && <span style={{ fontSize: 13, color: '#dc2626' }}>Save failed.</span>}
+        </div>
+      </form>
     </div>
   );
 }

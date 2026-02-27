@@ -69,14 +69,16 @@ tenantRouter.get('/:tenantId/account', requireTenantParam, async (_req, res) => 
   }
 
   const data = tenantDoc.data() ?? {};
+  const publicContentDoc = await db.collection('platform_settings').doc('public_content').get();
+  const publicContent = publicContentDoc.data() ?? {};
   res.json({
     tenantId,
     name: data.name ?? '',
-    privacyPolicy: data.privacyPolicy ?? 'CareMax processes triage and operational data to provide secure healthcare support services. Legal policy content is maintained by the SaaS administrator.',
-    termsOfService: data.termsOfService ?? 'Use of CareMax must comply with applicable law and clinical governance standards. Full service terms are maintained by the SaaS administrator.',
-    contactEmail: data.contactEmail ?? 'support@caremax.health',
-    contactPhonePrimary: data.contactPhonePrimary ?? '+256782830524',
-    contactPhoneSecondary: data.contactPhoneSecondary ?? '+256753190830',
+    privacyPolicy: typeof publicContent.privacyPolicy === 'string' ? publicContent.privacyPolicy : 'CareMax processes triage and operational data to provide secure healthcare support services. Legal policy content is maintained by the SaaS administrator.',
+    termsOfService: typeof publicContent.termsOfService === 'string' ? publicContent.termsOfService : 'Use of CareMax must comply with applicable law and clinical governance standards. Full service terms are maintained by the SaaS administrator.',
+    contactEmail: typeof publicContent.contactEmail === 'string' ? publicContent.contactEmail : 'support@caremax.health',
+    contactPhonePrimary: typeof publicContent.contactPhonePrimary === 'string' ? publicContent.contactPhonePrimary : '+256782830524',
+    contactPhoneSecondary: typeof publicContent.contactPhoneSecondary === 'string' ? publicContent.contactPhoneSecondary : '+256753190830',
     allowedDomains: data.allowedDomains ?? [],
     createdAt: data.createdAt?.toMillis?.() ?? null,
     createdBy: data.createdBy ?? null,
