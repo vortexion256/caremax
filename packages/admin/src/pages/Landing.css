@@ -147,7 +147,9 @@
 .pricing-btn { margin-top: auto; padding: 12px 14px; background: #0f172a; color: white; }
 
 .landing-footer { padding: 40px 0; background: #fff; border-top: 1px solid #e2e8f0; }
+.footer-brand-block { display: flex; flex-direction: column; gap: 6px; }
 .footer-brand { font-weight: 700; font-size: 18px; }
+.footer-details { margin: 0; color: #64748b; font-size: 14px; }
 .footer-links { display: flex; gap: 18px; flex-wrap: wrap; }
 .footer-links a { color: #64748b; text-decoration: none; }
 
