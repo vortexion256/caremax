@@ -38,7 +38,7 @@ publicRouter.get('/billing/plans', async (_req, res) => {
           active: data.active !== false,
         };
       })
-      .filter((plan) => plan.id !== 'free' && plan.active)
+      .filter((plan) => plan.active)
       .sort((a, b) => a.priceUgx - b.priceUgx);
 
     res.json({ plans });
