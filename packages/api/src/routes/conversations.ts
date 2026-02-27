@@ -13,6 +13,50 @@ const MESSAGES = 'messages';
 const CONVERSATIONS = 'conversations';
 const DIAGNOSTIC_LOGS = 'tenant_diagnostic_logs';
 
+function shouldIncludeDebugTrace(opts: {
+  isDebugRequested: boolean;
+  isDevWidgetHeader: boolean;
+  channel: string;
+}): boolean {
+  const isDevEnv = process.env.NODE_ENV !== 'production';
+  return opts.isDebugRequested && opts.isDevWidgetHeader && isDevEnv && opts.channel === 'widget';
+}
+
+async function loadDebugTrace(params: {
+  tenantId: string;
+  conversationId: string;
+  traceStartedAt: number;
+  limit?: number;
+}) {
+  const logsSnap = await db
+    .collection(DIAGNOSTIC_LOGS)
+    .where('tenantId', '==', params.tenantId)
+    .where('conversationId', '==', params.conversationId)
+    .orderBy('createdAt', 'desc')
+    .limit(params.limit ?? 40)
+    .get();
+
+  return logsSnap.docs
+    .map((d) => {
+      const data = d.data();
+      return {
+        logId: d.id,
+        source: typeof data.source === 'string' ? data.source : 'unknown',
+        step: typeof data.step === 'string' ? data.step : 'unknown',
+        status: typeof data.status === 'string' ? data.status : 'ok',
+        durationMs: typeof data.durationMs === 'number' ? data.durationMs : null,
+        error: typeof data.error === 'string' ? data.error : null,
+        metadata: (data.metadata && typeof data.metadata === 'object') ? (data.metadata as Record<string, unknown>) : null,
+        createdAt: data.createdAt?.toMillis?.() ?? null,
+      };
+    })
+    .filter((log) => {
+      if (typeof log.createdAt !== 'number') return true;
+      return log.createdAt >= params.traceStartedAt - 5000;
+    })
+    .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+}
+
 function toWhatsAppAddress(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return trimmed;
@@ -125,6 +169,38 @@ conversationRouter.get('/:conversationId/messages', async (req, res) => {
   res.json({ messages, status: convStatus });
 });
 
+conversationRouter.get('/:conversationId/debug-trace', async (req, res) => {
+  const { conversationId } = req.params;
+  const tenantId = res.locals.tenantId as string;
+  const conv = await db.collection(CONVERSATIONS).doc(conversationId).get();
+  if (!conv.exists || (conv.data()?.tenantId as string) !== tenantId) {
+    res.status(404).json({ error: 'Conversation not found' });
+    return;
+  }
+
+  const convData = conv.data() ?? {};
+  const channel = typeof convData.channel === 'string' ? convData.channel : 'widget';
+  const includeDebugTrace = shouldIncludeDebugTrace({
+    isDebugRequested: req.query.debug === '1',
+    isDevWidgetHeader: req.headers['x-caremax-dev-widget'] === '1',
+    channel,
+  });
+  if (!includeDebugTrace) {
+    res.json({ debugTrace: [] });
+    return;
+  }
+
+  const traceStartedAtRaw = Number(req.query.traceStartedAt);
+  const traceStartedAt = Number.isFinite(traceStartedAtRaw) ? traceStartedAtRaw : Date.now() - 30000;
+  try {
+    const debugTrace = await loadDebugTrace({ tenantId, conversationId, traceStartedAt, limit: 80 });
+    res.json({ debugTrace });
+  } catch (e) {
+    console.error('Failed to load debug trace for widget:', e);
+    res.status(500).json({ error: 'Failed to load debug trace' });
+  }
+});
+
 conversationRouter.post('/:conversationId/messages', async (req, res) => {
   const { conversationId } = req.params;
   const tenantId = res.locals.tenantId as string;
@@ -147,10 +223,11 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
   const { content, imageUrls } = parsed.data;
   const convData = conv.data() ?? {};
   const channel = typeof convData.channel === 'string' ? convData.channel : 'widget';
-  const isDebugRequested = req.query.debug === '1';
-  const isDevWidgetHeader = req.headers['x-caremax-dev-widget'] === '1';
-  const isDevEnv = process.env.NODE_ENV !== 'production';
-  const includeDebugTrace = isDebugRequested && isDevWidgetHeader && isDevEnv && channel === 'widget';
+  const includeDebugTrace = shouldIncludeDebugTrace({
+    isDebugRequested: req.query.debug === '1',
+    isDevWidgetHeader: req.headers['x-caremax-dev-widget'] === '1',
+    channel,
+  });
 
   const userMsgRef = await db.collection(MESSAGES).add({
     conversationId,
@@ -260,32 +337,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
   }> | undefined;
   if (includeDebugTrace) {
     try {
-      const logsSnap = await db
-        .collection(DIAGNOSTIC_LOGS)
-        .where('tenantId', '==', tenantId)
-        .where('conversationId', '==', conversationId)
-        .orderBy('createdAt', 'desc')
-        .limit(40)
-        .get();
-      debugTrace = logsSnap.docs
-        .map((d) => {
-          const data = d.data();
-          return {
-            logId: d.id,
-            source: typeof data.source === 'string' ? data.source : 'unknown',
-            step: typeof data.step === 'string' ? data.step : 'unknown',
-            status: typeof data.status === 'string' ? data.status : 'ok',
-            durationMs: typeof data.durationMs === 'number' ? data.durationMs : null,
-            error: typeof data.error === 'string' ? data.error : null,
-            metadata: (data.metadata && typeof data.metadata === 'object') ? (data.metadata as Record<string, unknown>) : null,
-            createdAt: data.createdAt?.toMillis?.() ?? null,
-          };
-        })
-        .filter((log) => {
-          if (typeof log.createdAt !== 'number') return true;
-          return log.createdAt >= traceStartedAt - 5000;
-        })
-        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+      debugTrace = await loadDebugTrace({ tenantId, conversationId, traceStartedAt });
     } catch (e) {
       console.error('Failed to load debug trace for widget:', e);
     }

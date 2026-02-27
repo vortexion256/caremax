@@ -38,6 +38,7 @@ export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAp
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig | null>(null);
   const [debugTrace, setDebugTrace] = useState<DebugTraceEvent[]>([]);
   const [showDebugTrace, setShowDebugTrace] = useState(true);
+  const debugPollAbortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
@@ -98,7 +99,11 @@ export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAp
     }
 
     setLoading(true);
-    if (debugMode) setDebugTrace([]);
+    if (debugMode) {
+      setDebugTrace([]);
+      debugPollAbortRef.current?.abort();
+      debugPollAbortRef.current = new AbortController();
+    }
 
     try {
       let cid = conversationId;
@@ -129,6 +134,29 @@ export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAp
         },
       ]);
       const querySuffix = debugMode ? '?debug=1' : '';
+      const traceStartedAt = Date.now();
+      const pollDebugTrace = async () => {
+        if (!debugMode || !cid || !debugPollAbortRef.current) return;
+        const controller = debugPollAbortRef.current;
+        const pollQuery = `?debug=1&traceStartedAt=${traceStartedAt}`;
+        while (!controller.signal.aborted) {
+          try {
+            const traceRes = await fetch(`${API_URL}/tenants/${tenantId}/conversations/${cid}/debug-trace${pollQuery}`, {
+              headers: { 'x-caremax-dev-widget': '1' },
+              signal: controller.signal,
+            });
+            const traceData = await traceRes.json().catch(() => ({}));
+            if (traceRes.ok && Array.isArray(traceData.debugTrace)) {
+              setDebugTrace(traceData.debugTrace as DebugTraceEvent[]);
+            }
+          } catch {
+            // no-op: polling is best-effort and may abort on send completion
+          }
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        }
+      };
+      void pollDebugTrace();
+
       const res = await fetch(`${API_URL}/tenants/${tenantId}/conversations/${cid}/messages${querySuffix}`, {
         method: 'POST',
         headers: {
@@ -170,9 +198,18 @@ export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAp
         },
       ]);
     } finally {
+      debugPollAbortRef.current?.abort();
+      debugPollAbortRef.current = null;
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      debugPollAbortRef.current?.abort();
+      debugPollAbortRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (!conversationId || !firestoreReady) return;
