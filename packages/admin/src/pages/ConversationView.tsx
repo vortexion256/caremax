@@ -246,7 +246,7 @@ export default function ConversationView() {
                 </div>
                 <div
                   style={{
-                    padding: '12px 16px',
+                    padding: '8px 12px',
                     borderRadius: 16,
                     borderTopLeftRadius: isUser ? 4 : 16,
                     borderTopRightRadius: isUser ? 16 : 4,
@@ -258,7 +258,13 @@ export default function ConversationView() {
                     border: isUser ? '1px solid #e2e8f0' : 'none'
                   }}
                 >
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <ReactMarkdown
+                    components={{
+                      p: ({ children }) => <p style={{ margin: 0 }}>{children}</p>,
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
                   {msg.imageUrls && msg.imageUrls.length > 0 && (
                     <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {msg.imageUrls.map((url, idx) => (
