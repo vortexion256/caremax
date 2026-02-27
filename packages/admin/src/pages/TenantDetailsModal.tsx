@@ -18,11 +18,6 @@ type TenantDetails = {
   showUsageByApiFlow?: boolean;
   maxTokensPerUser?: number | null;
   maxSpendUgxPerUser?: number | null;
-  privacyPolicy?: string;
-  termsOfService?: string;
-  contactEmail?: string;
-  contactPhonePrimary?: string;
-  contactPhoneSecondary?: string;
   billingStatus?: {
     isActive: boolean;
     isTrialPlan: boolean;
@@ -100,11 +95,6 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
     showUsageByApiFlow?: boolean;
     maxTokensPerUser?: number;
     maxSpendUgxPerUser?: number;
-    privacyPolicy?: string;
-    termsOfService?: string;
-    contactEmail?: string;
-    contactPhonePrimary?: string;
-    contactPhoneSecondary?: string;
   }) => {
     if (savingSettings) return;
     setSavingSettings(true);
@@ -324,63 +314,6 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
                 </div>
               </div>
 
-
-
-              <div style={{ marginBottom: 12, padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Tenant Content & Contact (SaaS Admin)</div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => {
-                      const next = prompt('Contact email', details.contactEmail ?? 'edrine.eminence@gmail.com');
-                      if (next && next.trim()) saveTenantSettings({ contactEmail: next.trim() });
-                    }}
-                    disabled={savingSettings}
-                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
-                  >
-                    Contact email ({details.contactEmail ?? 'not set'})
-                  </button>
-                  <button
-                    onClick={() => {
-                      const next = prompt('Primary phone', details.contactPhonePrimary ?? '0782830524');
-                      if (next && next.trim()) saveTenantSettings({ contactPhonePrimary: next.trim() });
-                    }}
-                    disabled={savingSettings}
-                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
-                  >
-                    Primary phone ({details.contactPhonePrimary ?? 'not set'})
-                  </button>
-                  <button
-                    onClick={() => {
-                      const next = prompt('Secondary phone', details.contactPhoneSecondary ?? '0753190830');
-                      if (next && next.trim()) saveTenantSettings({ contactPhoneSecondary: next.trim() });
-                    }}
-                    disabled={savingSettings}
-                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
-                  >
-                    Secondary phone ({details.contactPhoneSecondary ?? 'not set'})
-                  </button>
-                  <button
-                    onClick={() => {
-                      const next = prompt('Privacy Policy', details.privacyPolicy ?? '');
-                      if (next && next.trim()) saveTenantSettings({ privacyPolicy: next.trim() });
-                    }}
-                    disabled={savingSettings}
-                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
-                  >
-                    Edit privacy policy
-                  </button>
-                  <button
-                    onClick={() => {
-                      const next = prompt('Terms of Service', details.termsOfService ?? '');
-                      if (next && next.trim()) saveTenantSettings({ termsOfService: next.trim() });
-                    }}
-                    disabled={savingSettings}
-                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
-                  >
-                    Edit Terms of Service
-                  </button>
-                </div>
-              </div>
 
               {details.byUsageType.length > 0 ? (
                 <>

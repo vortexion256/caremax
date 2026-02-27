@@ -123,6 +123,8 @@ platformRouter.get('/tenants/:tenantId', async (req, res) => {
     });
 
     const billingStatus = await getTenantBillingStatus(tenantId);
+    const publicContentDoc = await db.collection('platform_settings').doc('public_content').get();
+    const publicContent = publicContentDoc.data() ?? {};
 
     res.json({
       tenantId: doc.id,
@@ -136,11 +138,11 @@ platformRouter.get('/tenants/:tenantId', async (req, res) => {
       showUsageByApiFlow: data?.showUsageByApiFlow === true,
       maxTokensPerUser: typeof data?.maxTokensPerUser === 'number' ? data.maxTokensPerUser : null,
       maxSpendUgxPerUser: typeof data?.maxSpendUgxPerUser === 'number' ? data.maxSpendUgxPerUser : null,
-      privacyPolicy: data?.privacyPolicy ?? 'CareMax processes triage and operational data to provide secure healthcare support services. Legal policy content is maintained by the SaaS administrator.',
-      termsOfService: data?.termsOfService ?? 'Use of CareMax must comply with applicable law and clinical governance standards. Full service terms are maintained by the SaaS administrator.',
-      contactEmail: data?.contactEmail ?? 'support@caremax.health',
-      contactPhonePrimary: data?.contactPhonePrimary ?? '+256782830524',
-      contactPhoneSecondary: data?.contactPhoneSecondary ?? '+256753190830',
+      privacyPolicy: typeof publicContent.privacyPolicy === 'string' ? publicContent.privacyPolicy : defaultPublicContent.privacyPolicy,
+      termsOfService: typeof publicContent.termsOfService === 'string' ? publicContent.termsOfService : defaultPublicContent.termsOfService,
+      contactEmail: typeof publicContent.contactEmail === 'string' ? publicContent.contactEmail : defaultPublicContent.contactEmail,
+      contactPhonePrimary: typeof publicContent.contactPhonePrimary === 'string' ? publicContent.contactPhonePrimary : defaultPublicContent.contactPhonePrimary,
+      contactPhoneSecondary: typeof publicContent.contactPhoneSecondary === 'string' ? publicContent.contactPhoneSecondary : defaultPublicContent.contactPhoneSecondary,
       billingStatus,
       totals,
       byUsageType: Object.entries(summaryByType).map(([usageType, values]) => ({ usageType, ...values })),
@@ -271,16 +273,27 @@ const billingConfigSchema = z.object({
   availableModels: z.array(z.string().min(1)).min(1),
 });
 
+const publicContentSchema = z.object({
+  privacyPolicy: z.string().trim().min(1).max(10000),
+  termsOfService: z.string().trim().min(1).max(10000),
+  contactEmail: z.string().trim().email().max(255),
+  contactPhonePrimary: z.string().trim().min(7).max(30),
+  contactPhoneSecondary: z.string().trim().min(7).max(30),
+});
+
+const defaultPublicContent = {
+  privacyPolicy: 'CareMax processes triage and operational data to provide secure healthcare support services. Legal policy content is maintained by the SaaS administrator.',
+  termsOfService: 'Use of CareMax must comply with applicable law and clinical governance standards. Full service terms are maintained by the SaaS administrator.',
+  contactEmail: 'support@caremax.health',
+  contactPhonePrimary: '+256782830524',
+  contactPhoneSecondary: '+256753190830',
+};
+
 
 const tenantAdminSettingsSchema = z.object({
   showUsageByApiFlow: z.boolean().optional(),
   maxTokensPerUser: z.number().int().positive().optional(),
   maxSpendUgxPerUser: z.number().positive().optional(),
-  privacyPolicy: z.string().trim().min(1).max(10000).optional(),
-  termsOfService: z.string().trim().min(1).max(10000).optional(),
-  contactEmail: z.string().trim().email().max(255).optional(),
-  contactPhonePrimary: z.string().trim().min(7).max(30).optional(),
-  contactPhoneSecondary: z.string().trim().min(7).max(30).optional(),
 });
 
 const defaultBillingConfig = {
@@ -374,6 +387,49 @@ platformRouter.put('/billing/config', async (req, res) => {
   } catch (e) {
     console.error('Failed to save billing config:', e);
     res.status(500).json({ error: 'Failed to save billing config' });
+  }
+});
+
+platformRouter.get('/public-content', async (_req, res) => {
+  try {
+    const ref = db.collection('platform_settings').doc('public_content');
+    const doc = await ref.get();
+    if (!doc.exists) {
+      await ref.set({ ...defaultPublicContent, updatedAt: new Date() }, { merge: true });
+      res.json(defaultPublicContent);
+      return;
+    }
+
+    const data = doc.data() ?? {};
+    res.json({
+      privacyPolicy: typeof data.privacyPolicy === 'string' && data.privacyPolicy.trim() ? data.privacyPolicy : defaultPublicContent.privacyPolicy,
+      termsOfService: typeof data.termsOfService === 'string' && data.termsOfService.trim() ? data.termsOfService : defaultPublicContent.termsOfService,
+      contactEmail: typeof data.contactEmail === 'string' && data.contactEmail.trim() ? data.contactEmail : defaultPublicContent.contactEmail,
+      contactPhonePrimary: typeof data.contactPhonePrimary === 'string' && data.contactPhonePrimary.trim() ? data.contactPhonePrimary : defaultPublicContent.contactPhonePrimary,
+      contactPhoneSecondary: typeof data.contactPhoneSecondary === 'string' && data.contactPhoneSecondary.trim() ? data.contactPhoneSecondary : defaultPublicContent.contactPhoneSecondary,
+    });
+  } catch (e) {
+    console.error('Failed to load public content settings:', e);
+    res.status(500).json({ error: 'Failed to load public content settings' });
+  }
+});
+
+platformRouter.put('/public-content', async (req, res) => {
+  const parsed = publicContentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    await db.collection('platform_settings').doc('public_content').set({
+      ...parsed.data,
+      updatedAt: new Date(),
+    }, { merge: true });
+    res.json({ success: true, ...parsed.data });
+  } catch (e) {
+    console.error('Failed to update public content settings:', e);
+    res.status(500).json({ error: 'Failed to update public content settings' });
   }
 });
 
@@ -556,22 +612,6 @@ platformRouter.patch('/tenants/:tenantId/settings', async (req, res) => {
     if (typeof parsed.data.maxSpendUgxPerUser === 'number') {
       payload.maxSpendUgxPerUser = parsed.data.maxSpendUgxPerUser;
     }
-    if (typeof parsed.data.privacyPolicy === 'string') {
-      payload.privacyPolicy = parsed.data.privacyPolicy;
-    }
-    if (typeof parsed.data.termsOfService === 'string') {
-      payload.termsOfService = parsed.data.termsOfService;
-    }
-    if (typeof parsed.data.contactEmail === 'string') {
-      payload.contactEmail = parsed.data.contactEmail;
-    }
-    if (typeof parsed.data.contactPhonePrimary === 'string') {
-      payload.contactPhonePrimary = parsed.data.contactPhonePrimary;
-    }
-    if (typeof parsed.data.contactPhoneSecondary === 'string') {
-      payload.contactPhoneSecondary = parsed.data.contactPhoneSecondary;
-    }
-
     await tenantRef.set(payload, { merge: true });
     res.json({ success: true, ...payload });
   } catch (e) {
