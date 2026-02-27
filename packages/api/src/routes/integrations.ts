@@ -201,6 +201,47 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       createdAt: FieldValue.serverTimestamp(),
     });
 
+    const conversationData = (await conversationRef.get()).data() ?? {};
+    const status = typeof conversationData.status === 'string' ? conversationData.status : 'open';
+    const humanActive = status === 'human_joined';
+    const alreadyRequestedHandoff = status === 'handoff_requested';
+
+    if (humanActive) {
+      await conversationRef.update({ updatedAt: FieldValue.serverTimestamp() });
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlResponse('A human care team member is currently assisting you.'));
+      return;
+    }
+
+    const wantsHumanAgain =
+      /\b(talk|speak|connect|transfer|hand me off|get me)\s+(to|with)\s+(a\s+)?(human|real\s+person|person|agent|someone|care\s+team|staff|representative)/i.test(body) ||
+      /\b(let me\s+)?(talk|speak)\s+to\s+(a\s+)?(human|person|someone)/i.test(body) ||
+      /\b(want|need)\s+to\s+(speak|talk)\s+to\s+(a\s+)?(human|person|someone)/i.test(body) ||
+      /\b(real\s+person|human\s+agent|live\s+agent)/i.test(body);
+
+    if (alreadyRequestedHandoff && wantsHumanAgain) {
+      await conversationRef.update({ updatedAt: FieldValue.serverTimestamp() });
+      const shortMessage = 'A care team member has already been notified and will join shortly.';
+      await db.collection('messages').add({
+        conversationId: conversationRef.id,
+        tenantId,
+        role: 'assistant',
+        content: shortMessage,
+        channel: 'whatsapp',
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlResponse(shortMessage));
+      return;
+    }
+
+    if (status === 'open' && wantsHumanAgain) {
+      await conversationRef.update({
+        status: 'handoff_requested',
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
     const historySnap = await db
       .collection('messages')
       .where('conversationId', '==', conversationRef.id)

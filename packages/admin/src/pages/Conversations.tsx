@@ -13,6 +13,7 @@ type ConversationItem = {
   tenantId: string;
   userId: string;
   status: 'open' | 'handoff_requested' | 'human_joined';
+  channel?: 'widget' | 'whatsapp';
   createdAt: number | null;
   updatedAt: number | null;
   lastMessage?: string;
@@ -75,6 +76,7 @@ export default function Conversations() {
             tenantId: data.tenantId ?? '',
             userId: data.userId ?? '',
             status: (data.status ?? 'open') as ConversationItem['status'],
+            channel: (data.channel ?? 'widget') as ConversationItem['channel'],
             createdAt: data.createdAt?.toMillis?.() ?? null,
             updatedAt: data.updatedAt?.toMillis?.() ?? null,
             lastMessage,
@@ -142,6 +144,7 @@ export default function Conversations() {
             tenantId: data.tenantId ?? '',
             userId: data.userId ?? '',
             status: (data.status ?? 'open') as ConversationItem['status'],
+            channel: (data.channel ?? 'widget') as ConversationItem['channel'],
             createdAt: data.createdAt?.toMillis?.() ?? null,
             updatedAt: data.updatedAt?.toMillis?.() ?? null,
             lastMessage,
@@ -178,6 +181,27 @@ export default function Conversations() {
         }}
       >
         {label}
+      </span>
+    );
+  };
+
+  const getChannelBadge = (conv: ConversationItem) => {
+    if (conv.channel !== 'whatsapp') return null;
+
+    return (
+      <span
+        style={{
+          padding: '4px 10px',
+          borderRadius: 6,
+          fontSize: 12,
+          fontWeight: 600,
+          background: '#dcfce7',
+          color: '#166534',
+          textTransform: 'uppercase',
+          letterSpacing: '0.02em'
+        }}
+      >
+        WhatsApp
       </span>
     );
   };
@@ -254,6 +278,7 @@ export default function Conversations() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
                   {getStatusBadge(conv)}
+                  {getChannelBadge(conv)}
                   <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>#{conv.conversationId.slice(0, 8)}</span>
                 </div>
                 <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 500, marginBottom: 4 }}>
