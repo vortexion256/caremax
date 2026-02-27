@@ -26,6 +26,7 @@ import Integrations from './pages/Integrations';
 import Embed from './pages/Embed';
 import PlatformBilling from './pages/PlatformBilling';
 import PlatformPayments from './pages/PlatformPayments';
+import PlatformContentAdmin from './pages/PlatformContentAdmin';
 import TenantBilling from './pages/TenantBilling';
 import TenantAccount from './pages/TenantAccount';
 import VisualDiagram from './pages/VisualDiagram';
@@ -142,6 +143,7 @@ export default function App() {
               <Route path="usage" element={<PlatformUsage />} />
               <Route path="billing" element={<PlatformBilling />} />
               <Route path="payments" element={<PlatformPayments />} />
+              <Route path="content" element={<PlatformContentAdmin />} />
             </Route>
             <Route path="*" element={<Navigate to="/platform" replace />} />
           </Routes>
@@ -171,6 +173,7 @@ export default function App() {
             <Route path="usage" element={<PlatformUsage />} />
             <Route path="billing" element={<PlatformBilling />} />
             <Route path="payments" element={<PlatformPayments />} />
+            <Route path="content" element={<PlatformContentAdmin />} />
           </Route>
           <Route path="*" element={<Navigate to="/platform" replace />} />
         </Routes>
@@ -209,6 +212,7 @@ export default function App() {
           <Route path="usage" element={<PlatformUsage />} />
           <Route path="billing" element={<PlatformBilling />} />
           <Route path="payments" element={<PlatformPayments />} />
+          <Route path="content" element={<PlatformContentAdmin />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

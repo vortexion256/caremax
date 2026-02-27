@@ -29,6 +29,7 @@ export default function PlatformLayout() {
     { path: '/platform/usage', label: 'Data & Analytics' },
     { path: '/platform/billing', label: 'Billing Plans' },
     { path: '/platform/payments', label: 'Payment Operations' },
+    { path: '/platform/content', label: 'Landing Contacts & Legal' },
     { path: '/platform/advanced-prompts', label: 'Global Prompt Controls' },
   ];
 
