@@ -56,10 +56,34 @@ export default function Layout() {
     setExpandedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
   };
 
-  const sidebarWidth = isMobile ? 280 : 240;
+  const sidebarWidth = isMobile ? 304 : 272;
+
+  const renderNavLink = ({ path, label }: NavItem, isSubItem = false) => {
+    const active = location.pathname === path;
+    return (
+      <Link
+        key={path}
+        to={path}
+        onClick={() => isMobile && setMenuOpen(false)}
+        style={{
+          padding: isSubItem ? '9px 12px 9px 14px' : '11px 12px',
+          borderRadius: 10,
+          textDecoration: 'none',
+          color: active ? '#1d4ed8' : '#334155',
+          fontWeight: active ? 700 : 500,
+          background: active ? '#dbeafe' : 'transparent',
+          fontSize: isSubItem ? 13 : 14,
+          border: active ? '1px solid #bfdbfe' : '1px solid transparent',
+          boxShadow: active ? '0 1px 2px rgba(37, 99, 235, 0.12)' : 'none'
+        }}
+      >
+        {label}
+      </Link>
+    );
+  };
 
   return (
-    <div className={menuOpen ? 'mobile-menu-open' : ''} style={{ display: 'flex', minHeight: '100vh', width: '100%', background: '#f8fafc' }}>
+    <div className={menuOpen ? 'mobile-menu-open' : ''} style={{ display: 'flex', minHeight: '100vh', width: '100%', background: '#f1f5f9' }}>
       {/* Mobile Header */}
       {isMobile && (
         <header style={{
@@ -76,7 +100,7 @@ export default function Layout() {
           zIndex: 1001,
           justifyContent: 'space-between'
         }}>
-          <span style={{ fontWeight: 600, color: '#0f172a' }}>CareMax</span>
+          <span style={{ fontWeight: 700, color: '#0f172a', letterSpacing: '-0.01em' }}>CareMax</span>
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             style={{
@@ -107,40 +131,52 @@ export default function Layout() {
           transition: 'left 0.2s ease-in-out',
           display: 'flex',
           flexDirection: 'column',
-          padding: '24px 16px',
+          padding: isMobile ? '16px 14px 18px' : '24px 16px',
           overflowY: 'auto'
         }}
       >
         {!isMobile && (
-          <div style={{ padding: '0 12px 24px', fontWeight: 700, fontSize: 20, color: '#2563eb' }}>
-            CareMax
+          <div style={{ padding: '0 8px 20px' }}>
+            <div style={{
+              borderRadius: 14,
+              padding: '12px 14px',
+              background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 45%, #3b82f6 100%)',
+              color: '#fff',
+              boxShadow: '0 8px 20px rgba(37, 99, 235, 0.25)'
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 20 }}>CareMax</div>
+              <div style={{ marginTop: 2, fontSize: 12, opacity: 0.95 }}>Operations Console</div>
+            </div>
+          </div>
+        )}
+
+        {isMobile && (
+          <div style={{
+            marginBottom: 14,
+            borderRadius: 12,
+            padding: '10px 12px',
+            background: '#fff',
+            border: '1px solid #e2e8f0'
+          }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tenant</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginTop: 2 }}>{tenantId}</div>
           </div>
         )}
 
         <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {primaryNav.map(({ path, label }) => {
-              const active = location.pathname === path;
-              return (
-                <Link
-                  key={path}
-                  to={path}
-                  onClick={() => isMobile && setMenuOpen(false)}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: 8,
-                    textDecoration: 'none',
-                    color: active ? '#2563eb' : '#475569',
-                    fontWeight: active ? 600 : 500,
-                    background: active ? '#eff6ff' : 'transparent',
-                    fontSize: 14,
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  {label}
-                </Link>
-              );
-            })}
+          <div style={{
+            border: '1px solid #e2e8f0',
+            borderRadius: 12,
+            background: '#fff',
+            padding: '6px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4
+          }}>
+            <div style={{ padding: '2px 8px 4px', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: '#94a3b8', textTransform: 'uppercase' }}>
+              Workspace
+            </div>
+            {primaryNav.map((item) => renderNavLink(item))}
           </div>
 
           {navGroups.map((group) => {
@@ -148,7 +184,7 @@ export default function Layout() {
             const isExpanded = expandedGroups[group.key] || hasActiveItem;
 
             return (
-              <div key={group.key} style={{ border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff' }}>
+              <div key={group.key} style={{ border: '1px solid #e2e8f0', borderRadius: 12, background: '#fff', overflow: 'hidden' }}>
                 <button
                   onClick={() => toggleGroup(group.key)}
                   style={{
@@ -156,11 +192,11 @@ export default function Layout() {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '10px 12px',
+                    padding: '11px 12px',
                     background: 'transparent',
                     border: 'none',
                     cursor: 'pointer',
-                    color: '#0f172a',
+                    color: '#334155',
                     fontSize: 13,
                     fontWeight: 700,
                     textTransform: 'uppercase',
@@ -172,29 +208,8 @@ export default function Layout() {
                 </button>
 
                 {isExpanded && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 6px 8px' }}>
-                    {group.items.map(({ path, label }) => {
-                      const active = location.pathname === path;
-                      return (
-                        <Link
-                          key={path}
-                          to={path}
-                          onClick={() => isMobile && setMenuOpen(false)}
-                          style={{
-                            padding: '8px 10px',
-                            borderRadius: 8,
-                            textDecoration: 'none',
-                            color: active ? '#2563eb' : '#475569',
-                            fontWeight: active ? 600 : 500,
-                            background: active ? '#eff6ff' : 'transparent',
-                            fontSize: 13,
-                            transition: 'all 0.2s'
-                          }}
-                        >
-                          {label}
-                        </Link>
-                      );
-                    })}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '0 6px 8px' }}>
+                    {group.items.map((item) => renderNavLink(item, true))}
                   </div>
                 )}
               </div>
@@ -202,10 +217,23 @@ export default function Layout() {
           })}
         </nav>
 
-        <div className="logout-container" style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid #e2e8f0' }}>
-          <div style={{ padding: '0 12px', marginBottom: 12 }}>
+        <div className="logout-container" style={{
+          marginTop: 'auto',
+          paddingTop: 14,
+          borderTop: '1px solid #e2e8f0',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6
+        }}>
+          <div style={{
+            padding: '10px 12px',
+            marginBottom: 2,
+            background: '#fff',
+            borderRadius: 10,
+            border: '1px solid #e2e8f0'
+          }}>
             <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tenant</div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: '#475569', marginTop: 2 }}>{tenantId}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginTop: 2, wordBreak: 'break-all' }}>{tenantId}</div>
           </div>
 
           {isPlatformAdmin && (
@@ -217,7 +245,10 @@ export default function Layout() {
                 fontSize: 13,
                 color: '#2563eb',
                 textDecoration: 'none',
-                fontWeight: 500
+                fontWeight: 600,
+                background: '#eff6ff',
+                borderRadius: 8,
+                border: '1px solid #bfdbfe'
               }}
               onClick={() => isMobile && setMenuOpen(false)}
             >
@@ -238,7 +269,7 @@ export default function Layout() {
               cursor: 'pointer',
               width: '100%',
               textAlign: 'left',
-              fontWeight: 500
+              fontWeight: 600
             }}
           >
             Sign Out
@@ -262,13 +293,13 @@ export default function Layout() {
 
       <main style={{
         flex: 1,
-        padding: isMobile ? '76px 12px 24px' : '40px 60px',
+        padding: isMobile ? '76px 10px 20px' : '28px 44px',
         minWidth: 0,
         marginLeft: isMobile ? 0 : sidebarWidth,
         background: 'transparent'
       }}>
         <div className="main-content-container" style={{
-          maxWidth: 1000,
+          maxWidth: 1060,
           margin: '0 auto',
           background: '#fff',
           padding: isMobile ? '20px' : '40px',
