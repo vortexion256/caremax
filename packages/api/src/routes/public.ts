@@ -3,6 +3,34 @@ import { db } from '../config/firebase.js';
 
 export const publicRouter: Router = Router();
 
+const defaultPublicContent = {
+  privacyPolicy: 'CareMax processes triage and operational data to provide secure healthcare support services. Legal policy content is maintained by the SaaS administrator.',
+  termsOfService: 'Use of CareMax must comply with applicable law and clinical governance standards. Full service terms are maintained by the SaaS administrator.',
+  contactEmail: 'support@caremax.health',
+  contactPhonePrimary: '+256782830524',
+  contactPhoneSecondary: '+256753190830',
+  enableLandingVanta: false,
+};
+
+publicRouter.get('/content', async (_req, res) => {
+  try {
+    const doc = await db.collection('platform_settings').doc('public_content').get();
+    const data = doc.data() ?? {};
+
+    res.json({
+      privacyPolicy: typeof data.privacyPolicy === 'string' && data.privacyPolicy.trim() ? data.privacyPolicy : defaultPublicContent.privacyPolicy,
+      termsOfService: typeof data.termsOfService === 'string' && data.termsOfService.trim() ? data.termsOfService : defaultPublicContent.termsOfService,
+      contactEmail: typeof data.contactEmail === 'string' && data.contactEmail.trim() ? data.contactEmail : defaultPublicContent.contactEmail,
+      contactPhonePrimary: typeof data.contactPhonePrimary === 'string' && data.contactPhonePrimary.trim() ? data.contactPhonePrimary : defaultPublicContent.contactPhonePrimary,
+      contactPhoneSecondary: typeof data.contactPhoneSecondary === 'string' && data.contactPhoneSecondary.trim() ? data.contactPhoneSecondary : defaultPublicContent.contactPhoneSecondary,
+      enableLandingVanta: data.enableLandingVanta === true,
+    });
+  } catch (error) {
+    console.error('Failed to load public content:', error);
+    res.status(500).json({ error: 'Failed to load public content' });
+  }
+});
+
 publicRouter.get('/billing/plans', async (_req, res) => {
   try {
     let snap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();

@@ -72,7 +72,33 @@ main {
 .nav-ghost-btn { padding: 10px 16px; background: transparent; color: #475569; }
 .nav-primary-btn { padding: 12px 20px; background: #0f172a; color: white; }
 
+
 .hero-section { padding: 86px 0 56px; }
+.hero-section.vanta-enabled {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.hero-vanta-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.hero-section.vanta-enabled .hero-content {
+  position: relative;
+  z-index: 1;
+}
+.hero-section.vanta-enabled .hero-badge {
+  background: rgba(239, 246, 255, 0.86);
+}
+.hero-section.vanta-enabled .hero-content p,
+.hero-section.vanta-enabled .hero-content h2 {
+  color: #ffffff;
+  text-shadow: 0 8px 26px rgba(0, 0, 0, 0.35);
+}
+.hero-section.vanta-enabled .hero-content h2 span {
+  color: #bae6fd;
+}
 .hero-content { text-align: center; }
 .hero-content h2 {
   margin: 0 0 20px;

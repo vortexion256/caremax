@@ -279,6 +279,7 @@ const publicContentSchema = z.object({
   contactEmail: z.string().trim().email().max(255),
   contactPhonePrimary: z.string().trim().min(7).max(30),
   contactPhoneSecondary: z.string().trim().min(7).max(30),
+  enableLandingVanta: z.boolean(),
 });
 
 const defaultPublicContent = {
@@ -287,6 +288,7 @@ const defaultPublicContent = {
   contactEmail: 'support@caremax.health',
   contactPhonePrimary: '+256782830524',
   contactPhoneSecondary: '+256753190830',
+  enableLandingVanta: false,
 };
 
 
@@ -407,6 +409,7 @@ platformRouter.get('/public-content', async (_req, res) => {
       contactEmail: typeof data.contactEmail === 'string' && data.contactEmail.trim() ? data.contactEmail : defaultPublicContent.contactEmail,
       contactPhonePrimary: typeof data.contactPhonePrimary === 'string' && data.contactPhonePrimary.trim() ? data.contactPhonePrimary : defaultPublicContent.contactPhonePrimary,
       contactPhoneSecondary: typeof data.contactPhoneSecondary === 'string' && data.contactPhoneSecondary.trim() ? data.contactPhoneSecondary : defaultPublicContent.contactPhoneSecondary,
+      enableLandingVanta: data.enableLandingVanta === true,
     });
   } catch (e) {
     console.error('Failed to load public content settings:', e);
