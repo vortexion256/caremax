@@ -149,6 +149,7 @@ main {
 }
 
 .surface-section { padding: 72px 0; background: #fff; border-top: 1px solid #e2e8f0; }
+.platform-highlights-section { background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%); }
 .section-title { margin: 0 0 10px; font-size: clamp(28px, 5vw, 42px); letter-spacing: -0.03em; }
 .section-subtitle { margin: 0 auto; max-width: 760px; color: #64748b; font-size: 19px; }
 
