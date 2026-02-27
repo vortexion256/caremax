@@ -37,6 +37,7 @@ export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAp
   const [firestoreReady, setFirestoreReady] = useState(false);
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig | null>(null);
   const [debugTrace, setDebugTrace] = useState<DebugTraceEvent[]>([]);
+  const [debugTraceByMessageId, setDebugTraceByMessageId] = useState<Record<string, DebugTraceEvent[]>>({});
   const [showDebugTrace, setShowDebugTrace] = useState(true);
   const debugPollAbortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -84,6 +85,8 @@ export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAp
     }
     setConversationId(data.conversationId);
     setMessages([]);
+    setDebugTrace([]);
+    setDebugTraceByMessageId({});
     return data.conversationId;
   };
 
@@ -171,6 +174,7 @@ export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAp
         throw new Error(msg);
       }
       if (data.assistantMessageId != null || (data.assistantContent && data.assistantContent.trim())) {
+        const trace = Array.isArray(data.debugTrace) ? (data.debugTrace as DebugTraceEvent[]) : [];
         const newMsg = {
           messageId: data.assistantMessageId ?? `temp-${Date.now()}`,
           role: 'assistant' as const,
@@ -180,6 +184,9 @@ export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAp
         setMessages((prev) =>
           prev.some((m) => m.messageId === newMsg.messageId) ? prev : [...prev, newMsg]
         );
+        if (debugMode && trace.length > 0) {
+          setDebugTraceByMessageId((prev) => ({ ...prev, [newMsg.messageId]: trace }));
+        }
       }
       if (data.requestHandoff) setHumanJoined(true);
       if (debugMode) {
@@ -410,6 +417,28 @@ export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAp
                   </div>
                 ) : null}
               </div>
+              {debugMode && m.role === 'assistant' && (debugTraceByMessageId[m.messageId]?.length ?? 0) > 0 && (
+                <div style={{ marginTop: 6, border: `1px solid ${border}`, borderRadius: 8, padding: '6px 8px', fontSize: 11, backgroundColor: isDark ? '#0b1220' : '#f8fafc', width: '100%' }}>
+                  <div style={{ fontWeight: 700, color: secondaryText, marginBottom: 4 }}>Dev logs</div>
+                  {debugTraceByMessageId[m.messageId].map((log) => {
+                    const metadata = log.metadata ?? {};
+                    const toolName = typeof metadata.toolName === 'string' ? metadata.toolName : null;
+                    const reason = typeof metadata.reason === 'string' ? metadata.reason : null;
+                    const llmTextUsed = typeof metadata.llmTextUsed === 'string' ? metadata.llmTextUsed : (typeof metadata.lastUserText === 'string' ? metadata.lastUserText : null);
+                    const promptPreview = typeof metadata.promptPreview === 'string' ? metadata.promptPreview : null;
+                    return (
+                      <div key={log.logId} style={{ borderTop: `1px solid ${border}`, paddingTop: 4, marginTop: 4, color: text, fontFamily: 'monospace' }}>
+                        <div>[{log.status}] {log.source}.{log.step}{typeof log.durationMs === 'number' ? ` (${log.durationMs}ms)` : ''}</div>
+                        {toolName ? <div>tool: {toolName}</div> : null}
+                        {reason ? <div>reason: {reason}</div> : null}
+                        {llmTextUsed ? <div>llm text: {llmTextUsed}</div> : null}
+                        {promptPreview ? <div>prompt: {promptPreview}</div> : null}
+                        {log.error ? <div style={{ color: '#b91c1c' }}>error: {log.error}</div> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
@@ -448,6 +477,10 @@ export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAp
                       [{log.status}] {log.source}.{log.step}
                       {typeof log.durationMs === 'number' ? ` (${log.durationMs}ms)` : ''}
                     </div>
+                    {typeof log.metadata?.toolName === 'string' ? <div>tool: {log.metadata.toolName}</div> : null}
+                    {typeof log.metadata?.reason === 'string' ? <div>reason: {log.metadata.reason}</div> : null}
+                    {typeof log.metadata?.llmTextUsed === 'string' ? <div>llm text: {log.metadata.llmTextUsed}</div> : (typeof log.metadata?.lastUserText === 'string' ? <div>llm text: {log.metadata.lastUserText}</div> : null)}
+                    {typeof log.metadata?.promptPreview === 'string' ? <div>prompt: {log.metadata.promptPreview}</div> : null}
                     {log.error ? <div style={{ color: '#b91c1c' }}>{log.error}</div> : null}
                   </div>
                 ))}
