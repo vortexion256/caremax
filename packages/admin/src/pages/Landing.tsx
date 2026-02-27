@@ -3,10 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import './Landing.css';
 import { useIsMobile } from '../hooks/useIsMobile';
 
-type Props = {
-  onLogin: () => void;
-};
-
 const packages = [
   {
     name: 'Starter Triage',
@@ -29,7 +25,7 @@ const packages = [
   },
 ];
 
-export default function Landing({ onLogin }: Props) {
+export default function Landing() {
   const navigate = useNavigate();
   const [loading] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
@@ -47,7 +43,7 @@ export default function Landing({ onLogin }: Props) {
           </div>
           <nav className="landing-nav-links">
             <button onClick={() => navigate('/login')} disabled={loading} className="nav-ghost-btn">Sign In</button>
-            <button onClick={() => { onLogin(); navigate('/login'); }} disabled={loading} className="nav-primary-btn">Get Started</button>
+            <button onClick={() => navigate('/signup')} disabled={loading} className="nav-primary-btn">Sign Up</button>
           </nav>
         </div>
       </header>
@@ -105,7 +101,7 @@ export default function Landing({ onLogin }: Props) {
         <section className="pricing-section">
           <div className="landing-container">
             <div style={{ textAlign: 'center', marginBottom: 48 }}>
-              <h3 className="section-title">Subscription Packages</h3>
+              <h3 className="section-title">Billing Plans</h3>
               <p className="section-subtitle">Flexible plans for clinics, care teams, and enterprise health operations.</p>
             </div>
             <div className="pricing-grid">
@@ -124,9 +120,13 @@ export default function Landing({ onLogin }: Props) {
 
       <footer className="landing-footer">
         <div className="landing-container footer-content" style={{ flexDirection: isMobile ? 'column' : 'row' }}>
-          <div className="brand-wrap">
-            <div className="brand-icon small">C</div>
-            <span className="footer-brand">CareMax</span>
+          <div className="footer-brand-block">
+            <div className="brand-wrap">
+              <div className="brand-icon small">C</div>
+              <span className="footer-brand">CareMax</span>
+            </div>
+            <p className="footer-details">support@caremax.health • +256 700 000 000</p>
+            <p className="footer-details">Kampala, Uganda</p>
           </div>
           <p>© 2026 CareMax Health Technologies. All rights reserved.</p>
           <div className="footer-links">
