@@ -15,6 +15,44 @@ export type AgentResult = { text: string; requestHandoff?: boolean };
 
 const AGENT_FALLBACK_MODELS = ['gemini-3-flash-preview', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
 
+function getMessageText(message: BaseMessage): string {
+  const content = message.content;
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (!part || typeof part !== 'object') return '';
+        const partText = (part as { text?: unknown }).text;
+        return typeof partText === 'string' ? partText : '';
+      })
+      .filter(Boolean)
+      .join(' ');
+  }
+  return '';
+}
+
+function getLlmInputSummary(messages: BaseMessage[]): { lastUserText: string | null; promptPreview: string | null } {
+  const recent = messages.slice(-6);
+  const preview = recent
+    .map((msg) => {
+      const role = typeof msg._getType === 'function' ? msg._getType() : 'unknown';
+      const text = getMessageText(msg).replace(/\s+/g, ' ').trim();
+      if (!text) return null;
+      return `${role}: ${text.slice(0, 220)}`;
+    })
+    .filter((line): line is string => !!line)
+    .join('\n');
+
+  const lastUser = [...messages]
+    .reverse()
+    .find((msg) => (typeof msg._getType === 'function' ? msg._getType() === 'human' : false));
+
+  return {
+    lastUserText: lastUser ? getMessageText(lastUser).slice(0, 400) : null,
+    promptPreview: preview ? preview.slice(0, 1200) : null,
+  };
+}
+
 /** Format existing Auto Agent Brain records for the system prompt so the agent can decide add vs edit vs delete. */
 const CONTENT_SNIPPET_LENGTH = 120;
 
@@ -539,6 +577,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   // Add timeout wrapper for LLM calls (60 seconds per call)
   const invokeWithTimeout = async (messages: BaseMessage[], timeoutMs = 60000): Promise<BaseMessage> => {
     const invokeStart = Date.now();
+    const llmInput = getLlmInputSummary(messages);
     return Promise.race([
       modelWithTools.invoke(messages).finally(() => {
         const durationMs = Date.now() - invokeStart;
@@ -554,7 +593,12 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
           status: durationMs > 45000 ? 'warning' : 'ok',
           durationMs,
           conversationId: options?.conversationId,
-          metadata: { messageCount: messages.length, timeoutMs },
+          metadata: {
+            messageCount: messages.length,
+            timeoutMs,
+            lastUserText: llmInput.lastUserText,
+            promptPreview: llmInput.promptPreview,
+          },
         });
       }),
       new Promise<BaseMessage>((_, reject) => {
@@ -701,7 +745,19 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
         status: toolDurationMs > 10000 ? 'warning' : 'ok',
         durationMs: toolDurationMs,
         conversationId: options?.conversationId,
-        metadata: { round: round + 1, toolName: tc.name },
+        metadata: {
+          round: round + 1,
+          toolName: tc.name,
+          toolArgs: tc.args ?? null,
+          reason:
+            typeof tc.args?.reason === 'string'
+              ? tc.args.reason
+              : typeof tc.args?.content === 'string'
+                ? tc.args.content.slice(0, 220)
+                : null,
+          llmTextUsed: getLlmInputSummary(currentMessages).lastUserText,
+          toolResult: content.slice(0, 280),
+        },
       });
       toolMessages.push(new ToolMessage({ content, tool_call_id: tc.id }));
     }
