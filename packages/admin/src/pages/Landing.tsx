@@ -1,12 +1,33 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import './Landing.css';
 import { useIsMobile } from '../hooks/useIsMobile';
 
-type Props = { 
+type Props = {
   onLogin: () => void;
 };
+
+const packages = [
+  {
+    name: 'Starter Triage',
+    price: 'UGX 0',
+    period: '/14 day trial',
+    description: 'Best for new clinics validating AI triage workflows with secure chat, core escalation, and usage insights.',
+  },
+  {
+    name: 'Growth Care',
+    price: 'UGX 149,000',
+    period: '/month',
+    description: 'For active outpatient teams that need richer automations, protocol-backed responses, and SLA support.',
+    highlighted: true,
+  },
+  {
+    name: 'Enterprise HealthOps',
+    price: 'Custom',
+    period: '/contract',
+    description: 'For large providers requiring advanced governance, dedicated onboarding, and tailored compliance controls.',
+  },
+];
 
 export default function Landing({ onLogin }: Props) {
   const navigate = useNavigate();
@@ -15,339 +36,112 @@ export default function Landing({ onLogin }: Props) {
   const { isMobile, isVerySmall } = useIsMobile();
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        width: '100%',
-        maxWidth: '100vw',
-        overflowX: 'hidden',
-        fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
-        color: '#0f172a',
-        backgroundColor: '#f8fafc',
-      }}
-    >
+    <div className="landing-shell">
       <div className="dynamic-bg" />
 
-      {/* Header */}
-      <header style={{ 
-        padding: isVerySmall ? '12px 16px' : isMobile ? '16px 24px' : '20px 48px',
-        background: 'rgba(255, 255, 255, 0.8)', 
-        backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(0, 0, 0, 0.05)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100,
-      }}>
-        <div style={{ 
-          maxWidth: 1200, 
-          margin: '0 auto', 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center',
-          gap: isVerySmall ? 8 : 12
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ 
-              width: 36, height: 36, background: 'white', borderRadius: 10, 
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 800, color: '#0ea5e9', fontSize: 22,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
-            }}>C</div>
-            <h1 style={{ 
-              margin: 0, 
-              color: '#0f172a', 
-              fontSize: isVerySmall ? 20 : 26,
-              fontWeight: 800,
-              letterSpacing: '-0.03em'
-            }}>CareMax</h1>
+      <header className="landing-header" style={{ padding: isVerySmall ? '12px 16px' : isMobile ? '16px 24px' : '20px 48px' }}>
+        <div className="landing-container landing-header-content">
+          <div className="brand-wrap">
+            <div className="brand-icon">C</div>
+            <h1>CareMax</h1>
           </div>
-          <div style={{ 
-            display: 'flex', 
-            gap: isVerySmall ? 8 : 16,
-            alignItems: 'center'
-          }}>
-            <button
-              onClick={() => navigate('/login')}
-              disabled={loading}
-              style={{
-                padding: '10px 20px',
-                fontSize: 15,
-                backgroundColor: 'transparent',
-                color: '#475569',
-                border: 'none',
-                borderRadius: 10,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                transition: 'all 0.2s'
-              }}
-            >
-              Sign In
-            </button>
-            <button
-              onClick={() => navigate('/signup')}
-              disabled={loading}
-              style={{
-                padding: '12px 24px',
-                fontSize: 15,
-                backgroundColor: 'white',
-                color: '#0c4a6e',
-                border: 'none',
-                borderRadius: 10,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                fontWeight: 700,
-                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.2)',
-              }}
-            >
-              Get Started
-            </button>
-          </div>
+          <nav className="landing-nav-links">
+            <button onClick={() => navigate('/login')} disabled={loading} className="nav-ghost-btn">Sign In</button>
+            <button onClick={() => { onLogin(); navigate('/login'); }} disabled={loading} className="nav-primary-btn">Get Started</button>
+          </nav>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main style={{ 
-        flex: 1, 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        padding: isVerySmall ? '60px 20px' : isMobile ? '80px 24px' : '120px 24px'
-      }}>
-        <div style={{ 
-          maxWidth: 1000, 
-          textAlign: 'center', 
-          width: '100%'
-        }} className="animate-fade-in">
-          <div className="hero-badge">
-            <span style={{ fontSize: 18 }}>✨</span> Powered by Google Gemini AI
+      <main>
+        <section className="hero-section">
+          <div className="landing-container hero-content animate-fade-in">
+            <div className="hero-badge">Healthcare AI • Secure • Scalable</div>
+            <h2>
+              Professional AI Triage <br />
+              <span>for Modern Care Teams</span>
+            </h2>
+            <p>
+              CareMax helps healthcare organizations run patient-first triage conversations, route urgent cases faster,
+              and keep every team aligned with secure, clinically aware AI workflows.
+            </p>
+            <div className="hero-actions">
+              <button onClick={() => navigate('/signup')} disabled={loading} className="cta-primary">Start Free Trial</button>
+              <button onClick={() => setShowVideo(true)} disabled={loading} className="cta-secondary">View Product Tour</button>
+            </div>
           </div>
-          <h2 style={{ 
-            fontSize: isVerySmall ? 36 : isMobile ? 48 : 72,
-            fontWeight: 800, 
-            marginBottom: 28, 
-            lineHeight: 1.05,
-            letterSpacing: '-0.04em',
-            color: '#0f172a'
-          }}>
-            Intelligent Clinical <br />
-            <span style={{ color: '#38bdf8' }}>Triage for Healthcare</span>
-          </h2>
-          <p style={{ 
-            fontSize: isVerySmall ? 17 : 22,
-            marginBottom: 56, 
-            color: '#475569', 
-            lineHeight: 1.6, 
-            maxWidth: 750, 
-            margin: '0 auto 56px',
-          }}>
-            Empower your clinical teams with AI-driven symptom assessment. 
-            Streamline patient intake and ensure every case gets the right level of care.
-          </p>
+        </section>
 
-          <div style={{ 
-            display: 'flex', 
-            gap: 20,
-            justifyContent: 'center', 
-            flexWrap: 'wrap',
-          }}>
-            <button
-              onClick={() => navigate('/signup')}
-              disabled={loading}
-              style={{
-                padding: '20px 44px',
-                fontSize: 18,
-                backgroundColor: '#0ea5e9',
-                color: 'white',
-                border: 'none',
-                borderRadius: 14,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                fontWeight: 700,
-                boxShadow: '0 20px 25px -5px rgba(14, 165, 233, 0.4)',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                width: isMobile ? '100%' : 'auto',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-4px)';
-                e.currentTarget.style.backgroundColor = '#0284c7';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.backgroundColor = '#0ea5e9';
-              }}
-            >
-              Start Free Trial
-            </button>
-            <button
-              onClick={() => setShowVideo(true)}
-              disabled={loading}
-              style={{
-                padding: '20px 44px',
-                fontSize: 18,
-                backgroundColor: 'white',
-                color: '#0f172a',
-                border: '1px solid #e2e8f0',
-                borderRadius: 14,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                fontWeight: 700,
-                width: isMobile ? '100%' : 'auto',
-                transition: 'all 0.3s',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-            >
-              Watch Demo
-            </button>
+        <section className="surface-section">
+          <div className="landing-container">
+            <div style={{ textAlign: 'center', marginBottom: 60 }} className="animate-fade-in delay-1">
+              <h3 className="section-title">Platform Highlights</h3>
+              <p className="section-subtitle">Built for healthcare operations, clinical quality, and trusted patient communications.</p>
+            </div>
+            <div className="landing-features-grid animate-fade-in delay-2">
+              <div className="feature-card">
+                <div className="feature-icon">🩺</div>
+                <h4 className="feature-title">AI Triage Intelligence</h4>
+                <p className="feature-description">Assess symptoms, collect structured context, and route patients with configurable risk pathways.</p>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon">🔐</div>
+                <h4 className="feature-title">Secure by Design</h4>
+                <p className="feature-description">Role-based access, audit visibility, and controlled integrations for high-trust healthcare delivery.</p>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon">🤝</div>
+                <h4 className="feature-title">Human Handoff</h4>
+                <p className="feature-description">Escalate conversations to live care teams with context handover and continuity built in.</p>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon">📊</div>
+                <h4 className="feature-title">Operational Visibility</h4>
+                <p className="feature-description">Track usage, response quality, and service demand to improve staffing and patient outcomes.</p>
+              </div>
+            </div>
           </div>
-        </div>
+        </section>
+
+        <section className="pricing-section">
+          <div className="landing-container">
+            <div style={{ textAlign: 'center', marginBottom: 48 }}>
+              <h3 className="section-title">Subscription Packages</h3>
+              <p className="section-subtitle">Flexible plans for clinics, care teams, and enterprise health operations.</p>
+            </div>
+            <div className="pricing-grid">
+              {packages.map((pkg) => (
+                <div key={pkg.name} className={`pricing-card${pkg.highlighted ? ' highlighted' : ''}`}>
+                  <h4>{pkg.name}</h4>
+                  <p className="price">{pkg.price}<span>{pkg.period}</span></p>
+                  <p className="price-description">{pkg.description}</p>
+                  <button onClick={() => navigate('/signup')} className="pricing-btn">Choose Package</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
       </main>
 
-      {/* Features Section */}
-      <section style={{ 
-        padding: isMobile ? '80px 24px' : '120px 24px',
-        background: '#ffffff',
-        borderTop: '1px solid #f1f5f9'
-      }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', width: '100%' }}>
-          <div style={{ textAlign: 'center', marginBottom: 80 }} className="animate-fade-in delay-1">
-            <h3 style={{ 
-              fontSize: isMobile ? 32 : 44,
-              fontWeight: 800, 
-              color: '#0f172a', 
-              marginBottom: 20,
-              letterSpacing: '-0.03em'
-            }}>
-              Built for Modern Healthcare
-            </h3>
-            <p style={{ color: '#64748b', fontSize: 20, maxWidth: 700, margin: '0 auto' }}>
-              Advanced AI capabilities designed to integrate seamlessly into clinical workflows.
-            </p>
+      <footer className="landing-footer">
+        <div className="landing-container footer-content" style={{ flexDirection: isMobile ? 'column' : 'row' }}>
+          <div className="brand-wrap">
+            <div className="brand-icon small">C</div>
+            <span className="footer-brand">CareMax</span>
           </div>
-          
-          <div className="landing-features-grid animate-fade-in delay-2">
-            <div className="feature-card">
-              <div className="feature-icon">🏥</div>
-              <h4 className="feature-title">Clinical Triage</h4>
-              <p className="feature-description">
-                Sophisticated symptom assessment using Google Gemini AI to guide patients to appropriate care levels.
-              </p>
-            </div>
-            <div className="feature-card">
-              <div className="feature-icon">⚡</div>
-              <h4 className="feature-title">Instant Integration</h4>
-              <p className="feature-description">
-                Deploy our secure chat widget on any hospital portal or patient app with a single line of code.
-              </p>
-            </div>
-            <div className="feature-card">
-              <div className="feature-icon">🛡️</div>
-              <h4 className="feature-title">Secure Knowledge</h4>
-              <p className="feature-description">
-                Upload your medical protocols to create a private, RAG-powered knowledge base for accurate responses.
-              </p>
-            </div>
-            <div className="feature-card">
-              <div className="feature-icon">👨‍⚕️</div>
-              <h4 className="feature-title">Expert Handoff</h4>
-              <p className="feature-description">
-                Intelligent escalation to clinical staff when cases require human intervention or complex decision-making.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer style={{ 
-        padding: '64px 24px',
-        textAlign: 'center', 
-        color: '#64748b', 
-        borderTop: '1px solid #f1f5f9',
-        background: '#f8fafc',
-      }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: 'center', gap: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ 
-              width: 28, height: 28, background: '#0ea5e9', borderRadius: 8, 
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 800, color: 'white', fontSize: 16
-            }}>C</div>
-            <span style={{ fontWeight: 700, color: '#0f172a', fontSize: 20, letterSpacing: '-0.02em' }}>CareMax</span>
-          </div>
-          <p style={{ margin: 0, fontSize: 15 }}>
-            © 2026 CareMax Health Technologies. All rights reserved.
-          </p>
-          <div style={{ display: 'flex', gap: 32, fontSize: 15 }}>
-            <Link to="/privacy-policy" style={{ color: '#64748b', textDecoration: 'none' }}>Privacy Policy</Link>
-            <Link to="/terms-of-service" style={{ color: '#64748b', textDecoration: 'none' }}>Terms of Service</Link>
-            <Link to="/contact" style={{ color: '#64748b', textDecoration: 'none' }}>Contact</Link>
+          <p>© 2026 CareMax Health Technologies. All rights reserved.</p>
+          <div className="footer-links">
+            <Link to="/privacy-policy">Privacy Policy</Link>
+            <Link to="/terms-of-service">Terms of Service</Link>
+            <Link to="/contact">Contact</Link>
           </div>
         </div>
       </footer>
 
-      {/* Video Modal */}
       {showVideo && (
-        <div 
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.6)',
-            backdropFilter: 'blur(8px)',
-            WebkitBackdropFilter: 'blur(8px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: isMobile ? 10 : 40
-          }}
-          onClick={() => setShowVideo(false)}
-        >
-          <div 
-            style={{
-              position: 'relative',
-              width: '100%',
-              maxWidth: 1000,
-              aspectRatio: '16/9',
-              backgroundColor: '#000',
-              borderRadius: 12,
-              overflow: 'hidden',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setShowVideo(false)}
-              style={{
-                position: 'absolute',
-                top: 20,
-                right: 20,
-                background: 'rgba(255, 255, 255, 0.2)',
-                border: 'none',
-                color: 'white',
-                width: 40,
-                height: 40,
-                borderRadius: '50%',
-                cursor: 'pointer',
-                fontSize: 24,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10,
-                backdropFilter: 'blur(4px)'
-              }}
-            >
-              ×
-            </button>
-            <video 
-              autoPlay 
-              controls 
-              muted 
-              style={{ width: '100%', height: '100%' }}
-            >
+        <div className="modal-overlay" onClick={() => setShowVideo(false)}>
+          <div className="video-modal" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setShowVideo(false)} className="modal-close">×</button>
+            <video autoPlay controls muted style={{ width: '100%', height: '100%' }}>
               <source src="https://firebasestorage.googleapis.com/v0/b/caremax-15f69.firebasestorage.app/o/CareMAX%20-%20vid.mp4?alt=media&token=fddfcc94-74ee-4298-b983-6666e531f136" type="video/mp4" />
               Your browser does not support the video tag.
             </video>
