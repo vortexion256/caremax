@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import './Landing.css';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -13,6 +13,13 @@ type PublicBillingPlan = {
 };
 
 const fallbackPackages: PublicBillingPlan[] = [
+  {
+    id: 'free-trial',
+    name: 'Free Trial',
+    priceUgx: 0,
+    trialDays: 14,
+    description: 'Explore CareMax with a guided setup, core triage workflows, and no upfront commitment.',
+  },
   {
     id: 'starter',
     name: 'Starter Triage',
@@ -47,6 +54,19 @@ export default function Landing() {
   const [showVideo, setShowVideo] = useState(false);
   const [plans, setPlans] = useState<PublicBillingPlan[]>(fallbackPackages);
   const { isMobile, isVerySmall } = useIsMobile();
+
+  const displayPlans = useMemo(() => {
+    const freeTrialPlan: PublicBillingPlan = {
+      id: 'free-trial',
+      name: 'Free Trial',
+      priceUgx: 0,
+      trialDays: 14,
+      description: 'Explore CareMax with a guided setup, core triage workflows, and no upfront commitment.',
+    };
+
+    const hasFreeTrial = plans.some((plan) => plan.id === freeTrialPlan.id);
+    return hasFreeTrial ? plans : [freeTrialPlan, ...plans];
+  }, [plans]);
 
   useEffect(() => {
     let active = true;
@@ -137,13 +157,16 @@ export default function Landing() {
               <p className="section-subtitle">Flexible plans for clinics, care teams, and enterprise health operations.</p>
             </div>
             <div className="pricing-grid">
-              {plans.map((pkg, idx) => (
+              {displayPlans.map((pkg, idx) => (
                 <div key={pkg.id} className={`pricing-card${idx === 1 ? ' highlighted' : ''}`}>
                   <h4>{pkg.name}</h4>
-                  <p className="price">{formatUgx(pkg.priceUgx)}<span>{pkg.priceUgx > 0 ? '/month' : '/contract'}</span></p>
+                  <p className="price">
+                    {pkg.id === 'free-trial' ? 'Free' : formatUgx(pkg.priceUgx)}
+                    <span>{pkg.id === 'free-trial' ? '/limited time' : pkg.priceUgx > 0 ? '/month' : '/contract'}</span>
+                  </p>
                   {pkg.trialDays > 0 && <p className="price-trial">{pkg.trialDays} day trial included</p>}
                   <p className="price-description">{pkg.description}</p>
-                  <button onClick={() => navigate('/signup')} className="pricing-btn">Choose Package</button>
+                  <button onClick={() => navigate('/signup')} className="pricing-btn">{pkg.id === 'free-trial' ? 'Start Free Trial' : 'Choose Package'}</button>
                 </div>
               ))}
             </div>
