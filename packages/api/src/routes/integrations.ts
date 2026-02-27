@@ -137,6 +137,10 @@ function xmlResponse(message: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(message)}</Message></Response>`;
 }
 
+function xmlEmptyResponse(): string {
+  return '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
+}
+
 integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req: Request, res: Response) => {
   const tenantId = req.params.tenantId;
   const from = typeof req.body?.From === 'string' ? req.body.From.trim() : '';
@@ -209,7 +213,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     if (humanActive) {
       await conversationRef.update({ updatedAt: FieldValue.serverTimestamp() });
       res.set('Content-Type', 'text/xml');
-      res.status(200).send(xmlResponse('A human care team member is currently assisting you.'));
+      res.status(200).send(xmlEmptyResponse());
       return;
     }
 
