@@ -35,7 +35,14 @@ import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
 import Contact from './pages/Contact';
 
-type MeResponse = { uid: string; email?: string; tenantId?: string; isAdmin?: boolean; isPlatformAdmin?: boolean };
+type MeResponse = {
+  uid: string;
+  email?: string;
+  tenantId?: string;
+  tenantName?: string;
+  isAdmin?: boolean;
+  isPlatformAdmin?: boolean;
+};
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -66,6 +73,7 @@ export default function App() {
         if (me.tenantId && me.isAdmin) {
           const profile = {
             tenantId: me.tenantId,
+            name: me.tenantName,
             isAdmin: true,
             isPlatformAdmin: me.isPlatformAdmin === true,
             uid: me.uid,
