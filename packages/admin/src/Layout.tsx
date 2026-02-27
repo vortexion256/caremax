@@ -30,6 +30,7 @@ export default function Layout() {
         { path: '/rag', label: 'Knowledge Base' },
         { path: '/agent-brain', label: 'Auto Brain' },
         { path: '/integrations', label: 'Integrations' },
+        { path: '/whatsapp', label: 'WhatsApp Agent' },
         { path: '/embed', label: 'Embed Widget' },
         ...(isPlatformAdmin ? [{ path: '/advanced-prompts', label: 'Advanced Prompts' }] : []),
       ],
