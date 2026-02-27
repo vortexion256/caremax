@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
@@ -126,6 +127,19 @@ export const tenantIntegrationsRouter: Router = Router({ mergeParams: true });
 
 tenantIntegrationsRouter.use(requireTenantParam);
 
+const updateWhatsAppBody = z.object({
+  accountSid: z.string().min(1),
+  authToken: z.string().min(1),
+  whatsappNumber: z.string().min(1),
+  messagingServiceSid: z.string().optional(),
+  webhookSecret: z.string().optional(),
+});
+
+function maskSecret(secret: string): string {
+  if (secret.length <= 4) return '*'.repeat(secret.length);
+  return `${'*'.repeat(Math.max(secret.length - 4, 0))}${secret.slice(-4)}`;
+}
+
 /** Returns the Google OAuth URL so the admin can redirect the user (with auth token in request). */
 tenantIntegrationsRouter.get('/google/auth-url', requireAuth, requireAdmin, (req, res) => {
   const tenantId = res.locals.tenantId as string;
@@ -157,5 +171,72 @@ tenantIntegrationsRouter.post('/google/disconnect', requireAuth, requireAdmin, a
   } catch (e) {
     console.error('Google disconnect error:', e);
     res.status(500).json({ error: 'Failed to disconnect' });
+  }
+});
+
+tenantIntegrationsRouter.get('/whatsapp', requireAuth, requireAdmin, async (_req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  try {
+    const doc = await db.collection('tenant_integrations').doc(tenantId).get();
+    const whatsapp = doc.data()?.whatsapp;
+    if (!whatsapp) {
+      res.json({ connected: false });
+      return;
+    }
+
+    res.json({
+      connected: true,
+      whatsappNumber: whatsapp.whatsappNumber,
+      accountSid: whatsapp.accountSid,
+      accountSidMasked: maskSecret(whatsapp.accountSid),
+      authTokenMasked: maskSecret(whatsapp.authToken),
+      messagingServiceSid: whatsapp.messagingServiceSid ?? '',
+      webhookSecretMasked: whatsapp.webhookSecret ? maskSecret(whatsapp.webhookSecret) : '',
+      updatedAt: whatsapp.updatedAt ?? null,
+    });
+  } catch (error) {
+    console.error('WhatsApp integration fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch WhatsApp integration' });
+  }
+});
+
+tenantIntegrationsRouter.put('/whatsapp', requireAuth, requireAdmin, async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const parsed = updateWhatsAppBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    await db.collection('tenant_integrations').doc(tenantId).set({
+      tenantId,
+      whatsapp: {
+        ...parsed.data,
+        connected: true,
+        updatedAt: new Date().toISOString(),
+      },
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+
+    res.json({ ok: true, connected: true });
+  } catch (error) {
+    console.error('WhatsApp integration update error:', error);
+    res.status(500).json({ error: 'Failed to save WhatsApp integration' });
+  }
+});
+
+tenantIntegrationsRouter.delete('/whatsapp', requireAuth, requireAdmin, async (_req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  try {
+    await db.collection('tenant_integrations').doc(tenantId).set({
+      tenantId,
+      whatsapp: null,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('WhatsApp integration disconnect error:', error);
+    res.status(500).json({ error: 'Failed to disconnect WhatsApp integration' });
   }
 });
