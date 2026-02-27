@@ -220,7 +220,7 @@ export default function Landing() {
           </div>
         </section>
 
-        <section className="surface-section">
+        <section className="surface-section platform-highlights-section">
           <div className="landing-container">
             <div style={{ textAlign: 'center', marginBottom: 60 }} className="animate-fade-in delay-1">
               <h3 className="section-title">Platform Highlights</h3>
