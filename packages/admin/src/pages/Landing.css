@@ -10,6 +10,17 @@
   position: relative;
 }
 
+.landing-shell > header,
+.landing-shell > main,
+.landing-shell > footer {
+  position: relative;
+  z-index: 1;
+}
+
+main {
+  flex: 1;
+}
+
 .landing-container {
   max-width: 1160px;
   width: 100%;
@@ -144,6 +155,7 @@
 .price { margin: 0; font-size: 34px; font-weight: 800; letter-spacing: -0.03em; }
 .price span { font-size: 14px; color: #64748b; font-weight: 600; margin-left: 6px; }
 .price-description { margin: 0; color: #64748b; min-height: 72px; }
+.price-trial { margin: -8px 0 0; color: #0f766e; font-size: 13px; font-weight: 600; }
 .pricing-btn { margin-top: auto; padding: 12px 14px; background: #0f172a; color: white; }
 
 .landing-footer { padding: 40px 0; background: #fff; border-top: 1px solid #e2e8f0; }

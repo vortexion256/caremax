@@ -1,35 +1,67 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import './Landing.css';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { api } from '../api';
 
-const packages = [
+type PublicBillingPlan = {
+  id: string;
+  name: string;
+  description: string;
+  priceUgx: number;
+  trialDays: number;
+};
+
+const fallbackPackages: PublicBillingPlan[] = [
   {
+    id: 'starter',
     name: 'Starter Triage',
-    price: 'UGX 0',
-    period: '/14 day trial',
+    priceUgx: 0,
+    trialDays: 14,
     description: 'Best for new clinics validating AI triage workflows with secure chat, core escalation, and usage insights.',
   },
   {
+    id: 'growth',
     name: 'Growth Care',
-    price: 'UGX 149,000',
-    period: '/month',
+    priceUgx: 149000,
+    trialDays: 0,
     description: 'For active outpatient teams that need richer automations, protocol-backed responses, and SLA support.',
-    highlighted: true,
   },
   {
+    id: 'enterprise',
     name: 'Enterprise HealthOps',
-    price: 'Custom',
-    period: '/contract',
+    priceUgx: 0,
+    trialDays: 0,
     description: 'For large providers requiring advanced governance, dedicated onboarding, and tailored compliance controls.',
   },
 ];
+
+function formatUgx(priceUgx: number): string {
+  if (priceUgx <= 0) return 'Custom';
+  return `UGX ${new Intl.NumberFormat('en-UG').format(priceUgx)}`;
+}
 
 export default function Landing() {
   const navigate = useNavigate();
   const [loading] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
+  const [plans, setPlans] = useState<PublicBillingPlan[]>(fallbackPackages);
   const { isMobile, isVerySmall } = useIsMobile();
+
+  useEffect(() => {
+    let active = true;
+    api<{ plans: PublicBillingPlan[] }>('/public/billing/plans')
+      .then((data) => {
+        if (!active || !Array.isArray(data.plans) || data.plans.length === 0) return;
+        setPlans(data.plans);
+      })
+      .catch(() => {
+        // Keep fallback packages if public plans cannot be loaded.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <div className="landing-shell">
@@ -105,10 +137,11 @@ export default function Landing() {
               <p className="section-subtitle">Flexible plans for clinics, care teams, and enterprise health operations.</p>
             </div>
             <div className="pricing-grid">
-              {packages.map((pkg) => (
-                <div key={pkg.name} className={`pricing-card${pkg.highlighted ? ' highlighted' : ''}`}>
+              {plans.map((pkg, idx) => (
+                <div key={pkg.id} className={`pricing-card${idx === 1 ? ' highlighted' : ''}`}>
                   <h4>{pkg.name}</h4>
-                  <p className="price">{pkg.price}<span>{pkg.period}</span></p>
+                  <p className="price">{formatUgx(pkg.priceUgx)}<span>{pkg.priceUgx > 0 ? '/month' : '/contract'}</span></p>
+                  {pkg.trialDays > 0 && <p className="price-trial">{pkg.trialDays} day trial included</p>}
                   <p className="price-description">{pkg.description}</p>
                   <button onClick={() => navigate('/signup')} className="pricing-btn">Choose Package</button>
                 </div>
