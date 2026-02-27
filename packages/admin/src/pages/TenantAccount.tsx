@@ -121,11 +121,9 @@ export default function TenantAccount() {
             {saveState === 'error' && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 6 }}>Could not save name. Check input and try again.</div>}
           </form>
 
-          <Info label="Contact Email (managed by SaaS Admin)" value={account.contactEmail || '—'} />
-          <Info label="Primary Phone (managed by SaaS Admin)" value={account.contactPhonePrimary || '—'} />
-          <Info label="Secondary Phone (managed by SaaS Admin)" value={account.contactPhoneSecondary || '—'} />
-          <Info label="Privacy Policy (managed by SaaS Admin)" value={account.privacyPolicy || '—'} />
-          <Info label="Terms of Service (managed by SaaS Admin)" value={account.termsOfService || '—'} />
+          <div style={{ padding: '12px 14px', border: '1px solid #facc15', borderRadius: 8, background: '#fffbeb', color: '#713f12' }}>
+            Contact details, landing page support details, Privacy Policy, and Terms of Service are managed only in the CareMax SaaS Admin Console.
+          </div>
 
           <Info label="Admin Email" value={email || '—'} />
           <Info label="Admin UID" value={uid || '—'} mono />
