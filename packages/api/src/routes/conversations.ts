@@ -12,6 +12,62 @@ export const conversationRouter: Router = Router({ mergeParams: true });
 const MESSAGES = 'messages';
 const CONVERSATIONS = 'conversations';
 
+function toWhatsAppAddress(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  return trimmed.startsWith('whatsapp:') ? trimmed : `whatsapp:${trimmed}`;
+}
+
+async function sendWhatsAppHumanMessage(params: {
+  tenantId: string;
+  to: string;
+  body: string;
+}): Promise<void> {
+  const integrationDoc = await db.collection('tenant_integrations').doc(params.tenantId).get();
+  const whatsapp = integrationDoc.data()?.whatsapp;
+  if (!whatsapp?.connected) {
+    throw new Error('WhatsApp integration is not connected for this tenant.');
+  }
+
+  const accountSid = typeof whatsapp.accountSid === 'string' ? whatsapp.accountSid.trim() : '';
+  const authToken = typeof whatsapp.authToken === 'string' ? whatsapp.authToken.trim() : '';
+  const messagingServiceSid = typeof whatsapp.messagingServiceSid === 'string' ? whatsapp.messagingServiceSid.trim() : '';
+  const whatsappNumber = typeof whatsapp.whatsappNumber === 'string' ? whatsapp.whatsappNumber.trim() : '';
+
+  if (!accountSid || !authToken) {
+    throw new Error('WhatsApp integration credentials are incomplete.');
+  }
+
+  if (!messagingServiceSid && !whatsappNumber) {
+    throw new Error('WhatsApp integration requires either Messaging Service SID or WhatsApp number.');
+  }
+
+  const payload = new URLSearchParams({
+    To: toWhatsAppAddress(params.to),
+    Body: params.body,
+  });
+  if (messagingServiceSid) {
+    payload.set('MessagingServiceSid', messagingServiceSid);
+  } else {
+    payload.set('From', toWhatsAppAddress(whatsappNumber));
+  }
+
+  const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: payload,
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Twilio send failed (${response.status}): ${details}`);
+  }
+}
+
 conversationRouter.use(requireTenantParam);
 
 const createBody = z.object({ userId: z.string().optional() });
@@ -259,6 +315,29 @@ conversationRouter.post('/:conversationId/agent-message', requireAuth, requireAd
     res.status(404).json({ error: 'Conversation not found' });
     return;
   }
+  const convData = conv.data() ?? {};
+  const channel = typeof convData.channel === 'string' ? convData.channel : 'widget';
+  const externalUserId = typeof convData.externalUserId === 'string' ? convData.externalUserId : '';
+
+  try {
+    if (channel === 'whatsapp') {
+      if (!externalUserId) {
+        res.status(400).json({ error: 'WhatsApp conversation is missing externalUserId' });
+        return;
+      }
+      await sendWhatsAppHumanMessage({
+        tenantId,
+        to: externalUserId,
+        body: body.data.content,
+      });
+    }
+  } catch (error) {
+    console.error('Failed to send human handoff message to WhatsApp:', error);
+    const details = error instanceof Error ? error.message : 'Unknown send error';
+    res.status(502).json({ error: 'Failed to send WhatsApp message', details });
+    return;
+  }
+
   await db.collection(MESSAGES).add({
     conversationId,
     tenantId,
