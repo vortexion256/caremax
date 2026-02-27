@@ -8,6 +8,7 @@ type PublicContent = {
   contactEmail: string;
   contactPhonePrimary: string;
   contactPhoneSecondary: string;
+  enableLandingVanta: boolean;
 };
 
 const emptyForm: PublicContent = {
@@ -16,6 +17,7 @@ const emptyForm: PublicContent = {
   contactPhoneSecondary: '',
   privacyPolicy: '',
   termsOfService: '',
+  enableLandingVanta: false,
 };
 
 export default function PlatformContentAdmin() {
@@ -53,6 +55,7 @@ export default function PlatformContentAdmin() {
           contactPhoneSecondary: form.contactPhoneSecondary.trim(),
           privacyPolicy: form.privacyPolicy.trim(),
           termsOfService: form.termsOfService.trim(),
+          enableLandingVanta: form.enableLandingVanta,
         }),
       });
       setSaveState('saved');
@@ -80,6 +83,14 @@ export default function PlatformContentAdmin() {
 
       <form onSubmit={handleSave} style={{ display: 'grid', gap: 12 }}>
         <SectionCard title='Landing Page Contact Info (Global)'>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+            <input
+              type='checkbox'
+              checked={form.enableLandingVanta}
+              onChange={(e) => setForm((prev) => ({ ...prev, enableLandingVanta: e.target.checked }))}
+            />
+            <span style={{ fontSize: 13, color: '#334155' }}>Enable Vanta animated background on the first landing section</span>
+          </label>
           <LabeledInput
             label='Contact Email'
             value={form.contactEmail}

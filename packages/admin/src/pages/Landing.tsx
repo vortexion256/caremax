@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import './Landing.css';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -12,6 +12,25 @@ type PublicBillingPlan = {
   trialDays: number;
 };
 
+type PublicContent = {
+  contactEmail: string;
+  contactPhonePrimary: string;
+  contactPhoneSecondary: string;
+  enableLandingVanta: boolean;
+};
+
+type VantaNetEffect = {
+  destroy: () => void;
+};
+
+interface VantaWindow extends Window {
+  VANTA?: {
+    NET?: (options: Record<string, unknown>) => VantaNetEffect;
+  };
+  THREE?: unknown;
+}
+
+
 function formatUgx(priceUgx: number): string {
   if (priceUgx <= 0) return 'Custom';
   return `UGX ${new Intl.NumberFormat('en-UG').format(priceUgx)}`;
@@ -22,8 +41,16 @@ export default function Landing() {
   const [loading] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
   const [plans, setPlans] = useState<PublicBillingPlan[]>([]);
+  const [publicContent, setPublicContent] = useState<PublicContent>({
+    contactEmail: 'support@caremax.health',
+    contactPhonePrimary: '+256 700 000 000',
+    contactPhoneSecondary: '+256 753 190 830',
+    enableLandingVanta: false,
+  });
   const { isMobile, isVerySmall } = useIsMobile();
   const displayPlans = useMemo(() => plans, [plans]);
+  const heroVantaRef = useRef<HTMLDivElement | null>(null);
+  const vantaEffectRef = useRef<VantaNetEffect | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -35,10 +62,79 @@ export default function Landing() {
       .catch(() => {
         setPlans([]);
       });
+
+    api<PublicContent>('/public/content')
+      .then((data) => {
+        if (!active) return;
+        setPublicContent(data);
+      })
+      .catch(() => {
+        if (!active) return;
+      });
+
     return () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    async function ensureVantaScripts() {
+      const ensureScript = (id: string, src: string) => new Promise<void>((resolve, reject) => {
+        if (document.getElementById(id)) {
+          resolve();
+          return;
+        }
+        const script = document.createElement('script');
+        script.id = id;
+        script.src = src;
+        script.async = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`Failed to load ${src}`));
+        document.body.appendChild(script);
+      });
+
+      await ensureScript('vanta-three-script', 'https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js');
+      await ensureScript('vanta-net-script', 'https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.net.min.js');
+    }
+
+    async function createVanta() {
+      if (!publicContent.enableLandingVanta || !heroVantaRef.current || vantaEffectRef.current) return;
+      await ensureVantaScripts();
+      const vantaWindow = window as VantaWindow;
+      if (!vantaWindow.VANTA?.NET || !vantaWindow.THREE) return;
+      vantaEffectRef.current = vantaWindow.VANTA.NET({
+        el: heroVantaRef.current,
+        THREE: vantaWindow.THREE,
+        mouseControls: true,
+        touchControls: true,
+        gyroControls: false,
+        minHeight: 200,
+        minWidth: 200,
+        scale: 1,
+        scaleMobile: 1,
+        color: 0xffffff,
+        backgroundColor: 0x5b23c3,
+      });
+    }
+
+    if (publicContent.enableLandingVanta) {
+      createVanta().catch(() => {
+        vantaEffectRef.current = null;
+      });
+    }
+
+    if (!publicContent.enableLandingVanta && vantaEffectRef.current) {
+      vantaEffectRef.current.destroy();
+      vantaEffectRef.current = null;
+    }
+
+    return () => {
+      if (vantaEffectRef.current) {
+        vantaEffectRef.current.destroy();
+        vantaEffectRef.current = null;
+      }
+    };
+  }, [publicContent.enableLandingVanta]);
 
   return (
     <div className="landing-shell">
@@ -58,7 +154,8 @@ export default function Landing() {
       </header>
 
       <main>
-        <section className="hero-section">
+        <section className={`hero-section${publicContent.enableLandingVanta ? ' vanta-enabled' : ''}`}>
+          {publicContent.enableLandingVanta && <div ref={heroVantaRef} className="hero-vanta-bg" />}
           <div className="landing-container hero-content animate-fade-in">
             <div className="hero-badge">Healthcare AI • Secure • Scalable</div>
             <h2>
@@ -145,8 +242,8 @@ export default function Landing() {
               <div className="brand-icon small">C</div>
               <span className="footer-brand">CareMax</span>
             </div>
-            <p className="footer-details">support@caremax.health • +256 700 000 000</p>
-            <p className="footer-details">Kampala, Uganda</p>
+            <p className="footer-details">{publicContent.contactEmail} • {publicContent.contactPhonePrimary}</p>
+            <p className="footer-details">{publicContent.contactPhoneSecondary}</p>
           </div>
           <p>© 2026 CareMax Health Technologies. All rights reserved.</p>
           <div className="footer-links">
