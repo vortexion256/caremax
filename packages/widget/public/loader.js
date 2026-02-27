@@ -81,14 +81,36 @@
   }
 
   var open = false;
-  function toggle() {
-    open = !open;
+  function setOpen(nextOpen) {
+    open = nextOpen;
     iframe.style.display = open ? 'block' : 'none';
     applyIframeStyles();
     button.setAttribute('aria-label', open ? 'Close chat' : 'Open chat');
     button.title = open ? 'Close chat' : 'Chat';
   }
+
+  function toggle() {
+    setOpen(!open);
+  }
   button.addEventListener('click', toggle);
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('message', function (event) {
+      var data;
+      if (typeof event.data === 'string') {
+        try {
+          data = JSON.parse(event.data);
+        } catch (_err) {
+          data = { type: event.data };
+        }
+      } else {
+        data = event.data;
+      }
+
+      if (!data || data.type !== 'caremax:close-widget') return;
+      setOpen(false);
+    });
+  }
 
   container.appendChild(button);
   container.appendChild(iframe);
