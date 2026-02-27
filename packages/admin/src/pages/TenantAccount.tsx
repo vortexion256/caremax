@@ -120,11 +120,6 @@ export default function TenantAccount() {
             {saveState === 'saved' && <div style={{ color: '#15803d', fontSize: 12, marginTop: 6 }}>Organization name updated.</div>}
             {saveState === 'error' && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 6 }}>Could not save name. Check input and try again.</div>}
           </form>
-
-          <div style={{ padding: '12px 14px', border: '1px solid #facc15', borderRadius: 8, background: '#fffbeb', color: '#713f12' }}>
-            Contact details, landing page support details, Privacy Policy, and Terms of Service are managed only in the CareMax SaaS Admin Console.
-          </div>
-
           <Info label="Admin Email" value={email || '—'} />
           <Info label="Admin UID" value={uid || '—'} mono />
           <Info label="Billing Plan" value={account.billingPlanId} />
