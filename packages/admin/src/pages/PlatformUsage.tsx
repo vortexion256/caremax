@@ -276,8 +276,8 @@ export default function PlatformUsage() {
         <p style={{ color: '#666' }}>No usage data found for the selected date range.</p>
       )}
 
-      {!loading && summary.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+      {!loading && summary.length > 0 && !selectedTenant && (
+        <div>
           {/* Summary Table */}
           <div>
             <h2 style={{ fontSize: 18, marginBottom: 16 }}>Usage by Tenant</h2>
@@ -341,61 +341,77 @@ export default function PlatformUsage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
 
-          {/* Detailed Events */}
-          <div>
-            <h2 style={{ fontSize: 18, marginBottom: 16 }}>
-              {selectedTenant ? `Recent Events: ${selectedTenant}` : 'Select a tenant to view details'}
-            </h2>
-            {selectedTenant && eventsLoading && <p>Loading events...</p>}
-            {selectedTenant && !eventsLoading && tenantEvents.length === 0 && (
-              <p style={{ color: '#666' }}>No events found for this tenant.</p>
-            )}
-            {selectedTenant && !eventsLoading && tenantEvents.length > 0 && (
-              <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', borderRadius: 8, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-                  <thead style={{ position: 'sticky', top: 0, backgroundColor: '#f5f5f5' }}>
-                    <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
-                      <th style={{ textAlign: 'left', padding: 10, fontSize: 12, fontWeight: 600 }}>Time</th>
-                      <th style={{ textAlign: 'right', padding: 10, fontSize: 12, fontWeight: 600 }}>Input</th>
-                      <th style={{ textAlign: 'right', padding: 10, fontSize: 12, fontWeight: 600 }}>Output</th>
-                      <th style={{ textAlign: 'right', padding: 10, fontSize: 12, fontWeight: 600 }}>Total</th>
-                      <th style={{ textAlign: 'right', padding: 10, fontSize: 12, fontWeight: 600 }}>Cost</th>
-                      <th style={{ textAlign: 'left', padding: 10, fontSize: 12, fontWeight: 600 }}>Type</th>
-                      <th style={{ textAlign: 'left', padding: 10, fontSize: 12, fontWeight: 600 }}>Measure</th>
-                      <th style={{ textAlign: 'left', padding: 10, fontSize: 12, fontWeight: 600 }}>Model</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tenantEvents.map((e) => (
-                      <tr key={e.eventId} style={{ borderBottom: '1px solid #eee' }}>
-                        <td style={{ padding: 10, fontSize: 12, color: '#666' }}>
-                          {e.createdAt ? new Date(e.createdAt).toLocaleString() : '—'}
-                        </td>
-                        <td style={{ padding: 10, fontSize: 12, textAlign: 'right', fontFamily: 'monospace' }}>
-                          {e.inputTokens.toLocaleString()}
-                        </td>
-                        <td style={{ padding: 10, fontSize: 12, textAlign: 'right', fontFamily: 'monospace' }}>
-                          {e.outputTokens.toLocaleString()}
-                        </td>
-                        <td style={{ padding: 10, fontSize: 12, textAlign: 'right', fontFamily: 'monospace' }}>
-                          {e.totalTokens.toLocaleString()}
-                        </td>
-                        <td style={{ padding: 10, fontSize: 12, textAlign: 'right', color: '#d32f2f' }}>
-                          {formatUgx(toUgx(e.costUsd))}
-                        </td>
-                        <td style={{ padding: 10, fontSize: 11, color: '#666', fontFamily: 'monospace' }}>{e.usageType ?? 'unknown'}</td>
-                        <td style={{ padding: 10, fontSize: 11, color: '#666' }}>{e.measurementSource ?? 'provider'}</td>
-                        <td style={{ padding: 10, fontSize: 11, color: '#666', fontFamily: 'monospace' }}>
-                          {e.model ?? '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+      {selectedTenant && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12 }}>
+            <h2 style={{ fontSize: 18, margin: 0 }}>Recent Events: {selectedTenant}</h2>
+            <button
+              onClick={() => setSelectedTenant(null)}
+              style={{
+                padding: '8px 14px',
+                fontSize: 13,
+                backgroundColor: '#f5f5f5',
+                color: '#333',
+                border: '1px solid #ddd',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontWeight: 500,
+              }}
+            >
+              Close
+            </button>
           </div>
+          {eventsLoading && <p>Loading events...</p>}
+          {!eventsLoading && tenantEvents.length === 0 && (
+            <p style={{ color: '#666' }}>No events found for this tenant.</p>
+          )}
+          {!eventsLoading && tenantEvents.length > 0 && (
+            <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', borderRadius: 8, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+                <thead style={{ position: 'sticky', top: 0, backgroundColor: '#f5f5f5' }}>
+                  <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
+                    <th style={{ textAlign: 'left', padding: 10, fontSize: 12, fontWeight: 600 }}>Time</th>
+                    <th style={{ textAlign: 'right', padding: 10, fontSize: 12, fontWeight: 600 }}>Input</th>
+                    <th style={{ textAlign: 'right', padding: 10, fontSize: 12, fontWeight: 600 }}>Output</th>
+                    <th style={{ textAlign: 'right', padding: 10, fontSize: 12, fontWeight: 600 }}>Total</th>
+                    <th style={{ textAlign: 'right', padding: 10, fontSize: 12, fontWeight: 600 }}>Cost</th>
+                    <th style={{ textAlign: 'left', padding: 10, fontSize: 12, fontWeight: 600 }}>Type</th>
+                    <th style={{ textAlign: 'left', padding: 10, fontSize: 12, fontWeight: 600 }}>Measure</th>
+                    <th style={{ textAlign: 'left', padding: 10, fontSize: 12, fontWeight: 600 }}>Model</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tenantEvents.map((e) => (
+                    <tr key={e.eventId} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: 10, fontSize: 12, color: '#666' }}>
+                        {e.createdAt ? new Date(e.createdAt).toLocaleString() : '—'}
+                      </td>
+                      <td style={{ padding: 10, fontSize: 12, textAlign: 'right', fontFamily: 'monospace' }}>
+                        {e.inputTokens.toLocaleString()}
+                      </td>
+                      <td style={{ padding: 10, fontSize: 12, textAlign: 'right', fontFamily: 'monospace' }}>
+                        {e.outputTokens.toLocaleString()}
+                      </td>
+                      <td style={{ padding: 10, fontSize: 12, textAlign: 'right', fontFamily: 'monospace' }}>
+                        {e.totalTokens.toLocaleString()}
+                      </td>
+                      <td style={{ padding: 10, fontSize: 12, textAlign: 'right', color: '#d32f2f' }}>
+                        {formatUgx(toUgx(e.costUsd))}
+                      </td>
+                      <td style={{ padding: 10, fontSize: 11, color: '#666', fontFamily: 'monospace' }}>{e.usageType ?? 'unknown'}</td>
+                      <td style={{ padding: 10, fontSize: 11, color: '#666' }}>{e.measurementSource ?? 'provider'}</td>
+                      <td style={{ padding: 10, fontSize: 11, color: '#666', fontFamily: 'monospace' }}>
+                        {e.model ?? '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
