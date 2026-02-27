@@ -10,6 +10,7 @@ const defaultPublicContent = {
   contactPhonePrimary: '+256782830524',
   contactPhoneSecondary: '+256753190830',
   enableLandingVanta: false,
+  landingVantaEmbedCode: '',
 };
 
 publicRouter.get('/content', async (_req, res) => {
@@ -24,6 +25,7 @@ publicRouter.get('/content', async (_req, res) => {
       contactPhonePrimary: typeof data.contactPhonePrimary === 'string' && data.contactPhonePrimary.trim() ? data.contactPhonePrimary : defaultPublicContent.contactPhonePrimary,
       contactPhoneSecondary: typeof data.contactPhoneSecondary === 'string' && data.contactPhoneSecondary.trim() ? data.contactPhoneSecondary : defaultPublicContent.contactPhoneSecondary,
       enableLandingVanta: data.enableLandingVanta === true,
+      landingVantaEmbedCode: typeof data.landingVantaEmbedCode === 'string' ? data.landingVantaEmbedCode : defaultPublicContent.landingVantaEmbedCode,
     });
   } catch (error) {
     console.error('Failed to load public content:', error);

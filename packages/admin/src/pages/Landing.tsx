@@ -17,6 +17,7 @@ type PublicContent = {
   contactPhonePrimary: string;
   contactPhoneSecondary: string;
   enableLandingVanta: boolean;
+  landingVantaEmbedCode: string;
 };
 
 type VantaNetEffect = {
@@ -24,12 +25,64 @@ type VantaNetEffect = {
 };
 
 interface VantaWindow extends Window {
-  VANTA?: {
-    NET?: (options: Record<string, unknown>) => VantaNetEffect;
-  };
+  VANTA?: Record<string, (options: Record<string, unknown>) => VantaNetEffect>;
   THREE?: unknown;
 }
 
+
+const defaultVantaConfig = {
+  threeScriptSrc: 'https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js',
+  effectScriptSrc: 'https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.halo.min.js',
+  effectName: 'HALO',
+  options: {
+    mouseControls: true,
+    touchControls: true,
+    gyroControls: false,
+    minHeight: 200,
+    minWidth: 200,
+  } as Record<string, unknown>,
+};
+
+function resolveScriptSrc(src: string): string {
+  const trimmed = src.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.endsWith('three.r134.min.js') || trimmed.endsWith('three.min.js')) {
+    return defaultVantaConfig.threeScriptSrc;
+  }
+  if (trimmed.endsWith('vanta.halo.min.js')) {
+    return defaultVantaConfig.effectScriptSrc;
+  }
+  if (trimmed.endsWith('.js')) {
+    return `https://cdn.jsdelivr.net/npm/vanta@latest/dist/${trimmed.split('/').pop()}`;
+  }
+  return trimmed;
+}
+
+function parseVantaEmbedCode(embedCode: string) {
+  if (!embedCode.trim()) return defaultVantaConfig;
+
+  const scriptSources = [...embedCode.matchAll(/<script[^>]*src=["']([^"']+)["'][^>]*><\/script>/gi)].map((m) => m[1]);
+  const vantaCall = embedCode.match(/VANTA\.([A-Z0-9_]+)\s*\(\s*({[\s\S]*?})\s*\)/m);
+  if (!vantaCall) return defaultVantaConfig;
+
+  const effectName = vantaCall[1].toUpperCase();
+  let parsedOptions: Record<string, unknown> = {};
+
+  try {
+    parsedOptions = Function(`"use strict"; return (${vantaCall[2]});`)() as Record<string, unknown>;
+  } catch {
+    parsedOptions = {};
+  }
+
+  const { el: _el, ...rest } = parsedOptions;
+
+  return {
+    threeScriptSrc: resolveScriptSrc(scriptSources[0] ?? defaultVantaConfig.threeScriptSrc),
+    effectScriptSrc: resolveScriptSrc(scriptSources[1] ?? `https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.${effectName.toLowerCase()}.min.js`),
+    effectName,
+    options: Object.keys(rest).length > 0 ? rest : defaultVantaConfig.options,
+  };
+}
 
 function formatUgx(priceUgx: number): string {
   if (priceUgx <= 0) return 'Custom';
@@ -46,6 +99,7 @@ export default function Landing() {
     contactPhonePrimary: '+256 700 000 000',
     contactPhoneSecondary: '+256 753 190 830',
     enableLandingVanta: false,
+    landingVantaEmbedCode: '',
   });
   const { isMobile, isVerySmall } = useIsMobile();
   const displayPlans = useMemo(() => plans, [plans]);
@@ -78,12 +132,9 @@ export default function Landing() {
   }, []);
 
   useEffect(() => {
-    async function ensureVantaScripts() {
-      const ensureScript = (id: string, src: string) => new Promise<void>((resolve, reject) => {
-        if (document.getElementById(id)) {
-          resolve();
-          return;
-        }
+    async function ensureScript(id: string, src: string) {
+      if (document.getElementById(id)) return;
+      await new Promise<void>((resolve, reject) => {
         const script = document.createElement('script');
         script.id = id;
         script.src = src;
@@ -92,28 +143,24 @@ export default function Landing() {
         script.onerror = () => reject(new Error(`Failed to load ${src}`));
         document.body.appendChild(script);
       });
-
-      await ensureScript('vanta-three-script', 'https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js');
-      await ensureScript('vanta-net-script', 'https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.net.min.js');
     }
 
     async function createVanta() {
       if (!publicContent.enableLandingVanta || !heroVantaRef.current || vantaEffectRef.current) return;
-      await ensureVantaScripts();
+
+      const parsedConfig = parseVantaEmbedCode(publicContent.landingVantaEmbedCode ?? '');
+      await ensureScript('vanta-three-script', parsedConfig.threeScriptSrc);
+      await ensureScript(`vanta-effect-script-${parsedConfig.effectName.toLowerCase()}`, parsedConfig.effectScriptSrc);
+
       const vantaWindow = window as VantaWindow;
-      if (!vantaWindow.VANTA?.NET || !vantaWindow.THREE) return;
-      vantaEffectRef.current = vantaWindow.VANTA.NET({
+      const effectFactory = vantaWindow.VANTA?.[parsedConfig.effectName];
+      if (!effectFactory || !vantaWindow.THREE) return;
+
+      vantaEffectRef.current = effectFactory({
         el: heroVantaRef.current,
         THREE: vantaWindow.THREE,
-        mouseControls: true,
-        touchControls: true,
-        gyroControls: false,
-        minHeight: 200,
-        minWidth: 200,
-        scale: 1,
-        scaleMobile: 1,
-        color: 0xffffff,
-        backgroundColor: 0x5b23c3,
+        ...defaultVantaConfig.options,
+        ...parsedConfig.options,
       });
     }
 
@@ -134,7 +181,7 @@ export default function Landing() {
         vantaEffectRef.current = null;
       }
     };
-  }, [publicContent.enableLandingVanta]);
+  }, [publicContent.enableLandingVanta, publicContent.landingVantaEmbedCode]);
 
   return (
     <div className="landing-shell">
