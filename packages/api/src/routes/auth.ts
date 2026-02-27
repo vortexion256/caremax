@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { auth } from '../config/firebase.js';
+import { db } from '../config/firebase.js';
 import { requireAuth, type AuthLocals } from '../middleware/auth.js';
 
 export const authRouter: Router = Router();
@@ -27,7 +28,14 @@ authRouter.post('/google', async (req, res) => {
   }
 });
 
-authRouter.get('/me', requireAuth, (_req, res) => {
+authRouter.get('/me', requireAuth, async (_req, res) => {
   const { uid, email, tenantId, isAdmin, isPlatformAdmin } = res.locals as AuthLocals;
-  res.json({ uid, email, tenantId, isAdmin, isPlatformAdmin });
+  let tenantName: string | undefined;
+
+  if (tenantId && tenantId !== 'platform') {
+    const tenantSnap = await db.collection('tenants').doc(tenantId).get();
+    tenantName = tenantSnap.data()?.name;
+  }
+
+  res.json({ uid, email, tenantId, tenantName, isAdmin, isPlatformAdmin });
 });

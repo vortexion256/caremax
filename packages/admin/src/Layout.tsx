@@ -9,7 +9,7 @@ type NavGroup = { key: string; label: string; items: NavItem[] };
 
 export default function Layout() {
   const location = useLocation();
-  const { tenantId, isPlatformAdmin } = useTenant();
+  const { tenantId, name, email, isPlatformAdmin } = useTenant();
   const { isMobile } = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -158,8 +158,9 @@ export default function Layout() {
             background: '#fff',
             border: '1px solid #e2e8f0'
           }}>
-            <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tenant</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginTop: 2 }}>{tenantId}</div>
+            <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Organization</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginTop: 2, wordBreak: 'break-word' }}>{name || tenantId}</div>
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, wordBreak: 'break-all' }}>{email || '—'}</div>
           </div>
         )}
 
@@ -232,8 +233,9 @@ export default function Layout() {
             borderRadius: 10,
             border: '1px solid #e2e8f0'
           }}>
-            <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tenant</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginTop: 2, wordBreak: 'break-all' }}>{tenantId}</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Organization</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginTop: 2, wordBreak: 'break-word' }}>{name || tenantId}</div>
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, wordBreak: 'break-all' }}>{email || '—'}</div>
           </div>
 
           {isPlatformAdmin && (
