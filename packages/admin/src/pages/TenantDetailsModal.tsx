@@ -54,6 +54,19 @@ function getExpiryMessage(reason?: string | null): string {
   }
 }
 
+type DiagnosticLog = {
+  logId: string;
+  tenantId: string;
+  source: string;
+  step: string;
+  status: 'ok' | 'warning' | 'error' | 'timeout' | string;
+  durationMs: number | null;
+  conversationId: string | null;
+  metadata: Record<string, unknown> | null;
+  error: string | null;
+  createdAt: number | null;
+};
+
 type Props = {
   tenantId: string;
   onClose: () => void;
@@ -65,6 +78,10 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [endingTrial, setEndingTrial] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [logs, setLogs] = useState<DiagnosticLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logSourceFilter, setLogSourceFilter] = useState('');
+  const [logStatusFilter, setLogStatusFilter] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -74,6 +91,19 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
       .catch((e) => setError(e.message || 'Failed to load tenant details'))
       .finally(() => setLoading(false));
   }, [tenantId]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set('limit', '150');
+    if (logSourceFilter) params.set('source', logSourceFilter);
+    if (logStatusFilter) params.set('status', logStatusFilter);
+
+    setLogsLoading(true);
+    api<{ logs: DiagnosticLog[] }>(`/platform/tenants/${tenantId}/logs?${params.toString()}`)
+      .then((response) => setLogs(response.logs))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load diagnostics logs'))
+      .finally(() => setLogsLoading(false));
+  }, [tenantId, logSourceFilter, logStatusFilter]);
 
   const handleEndTrialNow = async () => {
     if (!details || endingTrial) return;
@@ -341,6 +371,72 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
               ) : (
                 <p style={{ margin: '0 0 12px 0', color: '#64748b', fontSize: 13 }}>No data exists to use.</p>
               )}
+
+
+
+              <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>Diagnostics Logs (per-tenant)</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <select value={logSourceFilter} onChange={(e) => setLogSourceFilter(e.target.value)} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}>
+                      <option value="">All sources</option>
+                      <option value="agent">agent</option>
+                      <option value="google_sheets">google_sheets</option>
+                    </select>
+                    <select value={logStatusFilter} onChange={(e) => setLogStatusFilter(e.target.value)} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}>
+                      <option value="">All status</option>
+                      <option value="ok">ok</option>
+                      <option value="warning">warning</option>
+                      <option value="timeout">timeout</option>
+                      <option value="error">error</option>
+                    </select>
+                  </div>
+                </div>
+
+                {logsLoading ? (
+                  <p style={{ fontSize: 12, color: '#64748b' }}>Loading diagnostics logs...</p>
+                ) : logs.length === 0 ? (
+                  <p style={{ fontSize: 12, color: '#64748b' }}>No diagnostic logs found for this tenant.</p>
+                ) : (
+                  <div style={{ width: '100%', overflowX: 'auto', maxHeight: 280, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 6 }}>
+                    <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead style={{ position: 'sticky', top: 0, background: '#f8fafc' }}>
+                        <tr>
+                          <th align="left" style={{ padding: 8 }}>Time</th>
+                          <th align="left" style={{ padding: 8 }}>Source</th>
+                          <th align="left" style={{ padding: 8 }}>Step</th>
+                          <th align="left" style={{ padding: 8 }}>Status</th>
+                          <th align="right" style={{ padding: 8 }}>Duration</th>
+                          <th align="left" style={{ padding: 8 }}>Conversation</th>
+                          <th align="left" style={{ padding: 8 }}>Error</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {logs.map((log) => (
+                          <tr key={log.logId} style={{ borderTop: '1px solid #eee' }}>
+                            <td style={{ padding: 8 }}>{log.createdAt ? new Date(log.createdAt).toLocaleString() : '—'}</td>
+                            <td style={{ padding: 8, fontFamily: 'monospace' }}>{log.source}</td>
+                            <td style={{ padding: 8, fontFamily: 'monospace' }}>{log.step}</td>
+                            <td style={{ padding: 8 }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                fontSize: 11,
+                                background: log.status === 'error' || log.status === 'timeout' ? '#fee2e2' : log.status === 'warning' ? '#fef3c7' : '#dcfce7',
+                                color: log.status === 'error' || log.status === 'timeout' ? '#991b1b' : log.status === 'warning' ? '#92400e' : '#166534',
+                              }}>{log.status}</span>
+                            </td>
+                            <td align="right" style={{ padding: 8 }}>{typeof log.durationMs === 'number' ? `${log.durationMs}ms` : '—'}</td>
+                            <td style={{ padding: 8, fontFamily: 'monospace' }}>{log.conversationId ?? '—'}</td>
+                            <td style={{ padding: 8, color: '#991b1b', maxWidth: 280, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }} title={log.error ?? ''}>{log.error ?? '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
 
               {details.recentEvents.length > 0 ? (
                 <>

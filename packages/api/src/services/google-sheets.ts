@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { db } from '../config/firebase.js';
 import { FieldValue } from 'firebase-admin/firestore';
+import { recordDiagnosticLog } from './diagnostic-logs.js';
 
 const TOKENS_COLLECTION = 'tenant_google_tokens';
 const SCOPES = [
@@ -103,6 +104,7 @@ export async function fetchSheetData(
   spreadsheetId: string,
   range?: string
 ): Promise<string> {
+  const startedAt = Date.now();
   const { accessToken } = await getValidTokens(tenantId);
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
@@ -127,14 +129,45 @@ export async function fetchSheetData(
     setTimeout(() => reject(new Error('Google Sheets API timeout after 10 seconds')), 10000);
   });
   
-  const res = await Promise.race([
-    sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: rangeToUse,
-    }),
-    timeoutPromise,
-  ]);
-  const rows = (res.data.values ?? []) as string[][];
+  let rows: string[][] = [];
+  try {
+    const res = await Promise.race([
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: rangeToUse,
+      }),
+      timeoutPromise,
+    ]);
+    rows = (res.data.values ?? []) as string[][];
+  } catch (e) {
+    const durationMs = Date.now() - startedAt;
+    void recordDiagnosticLog({
+      tenantId,
+      source: 'google_sheets',
+      step: 'fetch_sheet_data',
+      status: e instanceof Error && e.message.includes('timeout') ? 'timeout' : 'error',
+      durationMs,
+      metadata: { spreadsheetId, range: rangeToUse },
+      error: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
+  }
+  const durationMs = Date.now() - startedAt;
+  console.log('[GoogleSheets] fetchSheetData completed', {
+    tenantId,
+    spreadsheetId,
+    range: rangeToUse,
+    durationMs,
+    rowCount: rows.length,
+  });
+  void recordDiagnosticLog({
+    tenantId,
+    source: 'google_sheets',
+    step: 'fetch_sheet_data',
+    status: durationMs > 8000 ? 'warning' : 'ok',
+    durationMs,
+    metadata: { spreadsheetId, range: rangeToUse, rowCount: rows.length },
+  });
   if (rows.length === 0) return 'No data in the specified range.';
   // Build markdown table: first row as header, rest as body
   const header = rows[0];
@@ -166,13 +199,46 @@ export async function getSheetRows(
   spreadsheetId: string,
   range?: string
 ): Promise<string[][]> {
+  const startedAt = Date.now();
   const { accessToken } = await getValidTokens(tenantId);
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
   const sheets = google.sheets({ version: 'v4', auth });
   const rangeToUse = resolveRange(range ?? 'Sheet1');
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: rangeToUse });
-  return (res.data.values ?? []) as string[][];
+  let rows: string[][] = [];
+  try {
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: rangeToUse });
+    rows = (res.data.values ?? []) as string[][];
+  } catch (e) {
+    const durationMs = Date.now() - startedAt;
+    void recordDiagnosticLog({
+      tenantId,
+      source: 'google_sheets',
+      step: 'get_sheet_rows',
+      status: 'error',
+      durationMs,
+      metadata: { spreadsheetId, range: rangeToUse },
+      error: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
+  }
+  const durationMs = Date.now() - startedAt;
+  console.log('[GoogleSheets] getSheetRows completed', {
+    tenantId,
+    spreadsheetId,
+    range: rangeToUse,
+    durationMs,
+    rowCount: rows.length,
+  });
+  void recordDiagnosticLog({
+    tenantId,
+    source: 'google_sheets',
+    step: 'get_sheet_rows',
+    status: durationMs > 8000 ? 'warning' : 'ok',
+    durationMs,
+    metadata: { spreadsheetId, range: rangeToUse, rowCount: rows.length },
+  });
+  return rows;
 }
 
 /** Append a row to a sheet. */
@@ -182,6 +248,7 @@ export async function appendSheetRow(
   range: string,
   row: string[]
 ): Promise<{ success: boolean; error?: string }> {
+  const startedAt = Date.now();
   try {
     const { accessToken } = await getValidTokens(tenantId);
     const auth = new google.auth.OAuth2();
@@ -195,8 +262,41 @@ export async function appendSheetRow(
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] },
     });
+    const durationMs = Date.now() - startedAt;
+    console.log('[GoogleSheets] appendSheetRow completed', {
+      tenantId,
+      spreadsheetId,
+      range: rangeToUse,
+      durationMs,
+      cellsWritten: row.length,
+    });
+    void recordDiagnosticLog({
+      tenantId,
+      source: 'google_sheets',
+      step: 'append_sheet_row',
+      status: durationMs > 8000 ? 'warning' : 'ok',
+      durationMs,
+      metadata: { spreadsheetId, range: rangeToUse, cellsWritten: row.length },
+    });
     return { success: true };
   } catch (e) {
+    const durationMs = Date.now() - startedAt;
+    console.error('[GoogleSheets] appendSheetRow failed', {
+      tenantId,
+      spreadsheetId,
+      range,
+      durationMs,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    void recordDiagnosticLog({
+      tenantId,
+      source: 'google_sheets',
+      step: 'append_sheet_row',
+      status: 'error',
+      durationMs,
+      metadata: { spreadsheetId, range, cellsWritten: row.length },
+      error: e instanceof Error ? e.message : String(e),
+    });
     return {
       success: false,
       error: e instanceof Error ? e.message : 'Failed to append row',
@@ -212,6 +312,7 @@ export async function updateSheetRow(
   rowIndex1Based: number,
   row: string[]
 ): Promise<{ success: boolean; error?: string }> {
+  const startedAt = Date.now();
   try {
     const { accessToken } = await getValidTokens(tenantId);
     const auth = new google.auth.OAuth2();
@@ -226,8 +327,42 @@ export async function updateSheetRow(
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [row] },
     });
+    const durationMs = Date.now() - startedAt;
+    console.log('[GoogleSheets] updateSheetRow completed', {
+      tenantId,
+      spreadsheetId,
+      range: rowRange,
+      durationMs,
+      cellsWritten: row.length,
+    });
+    void recordDiagnosticLog({
+      tenantId,
+      source: 'google_sheets',
+      step: 'update_sheet_row',
+      status: durationMs > 8000 ? 'warning' : 'ok',
+      durationMs,
+      metadata: { spreadsheetId, range: rowRange, rowIndex1Based, cellsWritten: row.length },
+    });
     return { success: true };
   } catch (e) {
+    const durationMs = Date.now() - startedAt;
+    console.error('[GoogleSheets] updateSheetRow failed', {
+      tenantId,
+      spreadsheetId,
+      range,
+      rowIndex1Based,
+      durationMs,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    void recordDiagnosticLog({
+      tenantId,
+      source: 'google_sheets',
+      step: 'update_sheet_row',
+      status: 'error',
+      durationMs,
+      metadata: { spreadsheetId, range, rowIndex1Based, cellsWritten: row.length },
+      error: e instanceof Error ? e.message : String(e),
+    });
     return {
       success: false,
       error: e instanceof Error ? e.message : 'Failed to update row',

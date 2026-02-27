@@ -8,6 +8,7 @@ import { computeCostUsd, extractTokenUsage, recordUsage, type UsageMetadata } fr
 import { getRagContext } from './rag.js';
 import { createRecord, createModificationRequest, getRecord, listRecords } from './auto-agent-brain.js';
 import { isGoogleConnected, fetchSheetData } from './google-sheets.js';
+import { recordDiagnosticLog } from './diagnostic-logs.js';
 import { createNote, listNotes as listAgentNotes, updateNoteContent, getNote } from './agent-notes.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
@@ -259,6 +260,7 @@ export async function runAgent(
   history: { role: string; content: string; imageUrls?: string[] }[],
   options?: { userId?: string; conversationId?: string }
 ): Promise<AgentResult> {
+  const runStartedAt = Date.now();
   const config = await getAgentConfig(tenantId);
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY or GOOGLE_API_KEY not set');
@@ -362,6 +364,26 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     new SystemMessage(systemContent),
     ...langChainHistory,
   ];
+
+  const messageContextChars = messages.reduce((sum, m) => {
+    const content = (m as { content?: unknown }).content;
+    if (typeof content === 'string') return sum + content.length;
+    if (Array.isArray(content)) return sum + JSON.stringify(content).length;
+    return sum;
+  }, 0);
+  console.log('[Agent] Starting run with context:', {
+    tenantId,
+    messageCount: messages.length,
+    contextChars: messageContextChars,
+  });
+  void recordDiagnosticLog({
+    tenantId,
+    source: 'agent',
+    step: 'run_start',
+    status: 'ok',
+    conversationId: options?.conversationId,
+    metadata: { messageCount: messages.length, contextChars: messageContextChars },
+  });
 
   const lastUserContent = history.filter((m) => m.role === 'user').pop()?.content ?? '';
   const userWantsHuman =
@@ -516,8 +538,25 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   
   // Add timeout wrapper for LLM calls (60 seconds per call)
   const invokeWithTimeout = async (messages: BaseMessage[], timeoutMs = 60000): Promise<BaseMessage> => {
+    const invokeStart = Date.now();
     return Promise.race([
-      modelWithTools.invoke(messages),
+      modelWithTools.invoke(messages).finally(() => {
+        const durationMs = Date.now() - invokeStart;
+        console.log('[Agent] LLM invoke completed', {
+          durationMs,
+          messageCount: messages.length,
+          timeoutMs,
+        });
+        void recordDiagnosticLog({
+          tenantId,
+          source: 'agent',
+          step: 'llm_invoke',
+          status: durationMs > 45000 ? 'warning' : 'ok',
+          durationMs,
+          conversationId: options?.conversationId,
+          metadata: { messageCount: messages.length, timeoutMs },
+        });
+      }),
       new Promise<BaseMessage>((_, reject) => {
         setTimeout(() => reject(new Error(`LLM API timeout after ${timeoutMs}ms`)), timeoutMs);
       }),
@@ -532,6 +571,14 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     response = await invokeWithTimeout(currentMessages);
   } catch (e) {
     console.error('[Agent] Initial LLM call timeout or error:', e);
+    void recordDiagnosticLog({
+      tenantId,
+      source: 'agent',
+      step: 'initial_llm_timeout_or_error',
+      status: 'timeout',
+      conversationId: options?.conversationId,
+      error: e instanceof Error ? e.message : String(e),
+    });
     return { text: 'I apologize, but I\'m experiencing delays. Please try again in a moment.' };
   }
   
@@ -543,8 +590,22 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   for (let round = 0; round < maxToolRounds; round++) {
     const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
     if (!toolCalls?.length) break;
+    console.log('[Agent] Tool round', {
+      round: round + 1,
+      toolCallCount: toolCalls.length,
+      toolNames: toolCalls.map((tc) => tc.name),
+    });
+    void recordDiagnosticLog({
+      tenantId,
+      source: 'agent',
+      step: 'tool_round_start',
+      status: 'ok',
+      conversationId: options?.conversationId,
+      metadata: { round: round + 1, toolCallCount: toolCalls.length, toolNames: toolCalls.map((tc) => tc.name) },
+    });
     const toolMessages: ToolMessage[] = [];
     for (const tc of toolCalls) {
+      const toolStartedAt = Date.now();
       let content: string;
       if (tc.name === 'record_learned_knowledge' && tc.args && typeof tc.args.title === 'string' && typeof tc.args.content === 'string') {
         try {
@@ -627,6 +688,21 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       } else {
         content = 'Invalid arguments.';
       }
+      const toolDurationMs = Date.now() - toolStartedAt;
+      console.log('[Agent] Tool execution completed', {
+        round: round + 1,
+        toolName: tc.name,
+        durationMs: toolDurationMs,
+      });
+      void recordDiagnosticLog({
+        tenantId,
+        source: 'agent',
+        step: 'tool_execution',
+        status: toolDurationMs > 10000 ? 'warning' : 'ok',
+        durationMs: toolDurationMs,
+        conversationId: options?.conversationId,
+        metadata: { round: round + 1, toolName: tc.name },
+      });
       toolMessages.push(new ToolMessage({ content, tool_call_id: tc.id }));
     }
     currentMessages = [...currentMessages, response, ...toolMessages];
@@ -634,6 +710,15 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       response = await invokeWithTimeout(currentMessages);
     } catch (e) {
       console.error(`[Agent] LLM call timeout in tool round ${round + 1}:`, e);
+      void recordDiagnosticLog({
+        tenantId,
+        source: 'agent',
+        step: 'tool_round_llm_timeout',
+        status: 'timeout',
+        conversationId: options?.conversationId,
+        metadata: { round: round + 1 },
+        error: e instanceof Error ? e.message : String(e),
+      });
       // If timeout during tool execution, return a helpful message
       return { text: 'I encountered a delay while processing your request. Please try rephrasing or try again in a moment.' };
     }
@@ -928,6 +1013,23 @@ Provide a clear, user-friendly response based on these results.`,
     // Usage tracking should never break the main flow
     console.error('Failed to extract or record usage metadata:', e);
   }
+
+  const runDurationMs = Date.now() - runStartedAt;
+  console.log('[Agent] Run completed', {
+    tenantId,
+    durationMs: runDurationMs,
+    requestHandoff,
+    finalTextLength: finalText.length,
+  });
+  void recordDiagnosticLog({
+    tenantId,
+    source: 'agent',
+    step: 'run_complete',
+    status: runDurationMs > 60000 ? 'warning' : 'ok',
+    durationMs: runDurationMs,
+    conversationId: options?.conversationId,
+    metadata: { requestHandoff, finalTextLength: finalText.length },
+  });
 
   return { text: finalText, requestHandoff };
 }

@@ -153,6 +153,55 @@ platformRouter.get('/tenants/:tenantId', async (req, res) => {
   }
 });
 
+
+platformRouter.get('/tenants/:tenantId/logs', async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const { limit = '100', source, status, stepContains } = req.query as {
+      limit?: string;
+      source?: string;
+      status?: string;
+      stepContains?: string;
+    };
+
+    const cap = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
+    let query: FirebaseFirestore.Query = db
+      .collection('tenant_diagnostic_logs')
+      .where('tenantId', '==', tenantId)
+      .orderBy('createdAt', 'desc');
+
+    if (source) query = query.where('source', '==', source);
+    if (status) query = query.where('status', '==', status);
+
+    const snap = await query.limit(cap).get();
+    let logs = snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        logId: d.id,
+        tenantId: data.tenantId ?? tenantId,
+        source: data.source ?? 'unknown',
+        step: data.step ?? 'unknown',
+        status: data.status ?? 'ok',
+        durationMs: typeof data.durationMs === 'number' ? data.durationMs : null,
+        conversationId: data.conversationId ?? null,
+        metadata: data.metadata ?? null,
+        error: data.error ?? null,
+        createdAt: data.createdAt?.toMillis?.() ?? null,
+      };
+    });
+
+    if (stepContains && stepContains.trim()) {
+      const needle = stepContains.trim().toLowerCase();
+      logs = logs.filter((log) => String(log.step).toLowerCase().includes(needle));
+    }
+
+    res.json({ logs });
+  } catch (e) {
+    console.error('Failed to load tenant diagnostic logs:', e);
+    res.status(500).json({ error: 'Failed to load tenant diagnostic logs' });
+  }
+});
+
 platformRouter.patch('/tenants/:tenantId/trial/end', async (req, res) => {
   try {
     const { tenantId } = req.params;
