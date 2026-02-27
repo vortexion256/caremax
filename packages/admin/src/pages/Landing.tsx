@@ -12,37 +12,6 @@ type PublicBillingPlan = {
   trialDays: number;
 };
 
-const fallbackPackages: PublicBillingPlan[] = [
-  {
-    id: 'free-trial',
-    name: 'Free Trial',
-    priceUgx: 0,
-    trialDays: 14,
-    description: 'Explore CareMax with a guided setup, core triage workflows, and no upfront commitment.',
-  },
-  {
-    id: 'starter',
-    name: 'Starter Triage',
-    priceUgx: 0,
-    trialDays: 14,
-    description: 'Best for new clinics validating AI triage workflows with secure chat, core escalation, and usage insights.',
-  },
-  {
-    id: 'growth',
-    name: 'Growth Care',
-    priceUgx: 149000,
-    trialDays: 0,
-    description: 'For active outpatient teams that need richer automations, protocol-backed responses, and SLA support.',
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise HealthOps',
-    priceUgx: 0,
-    trialDays: 0,
-    description: 'For large providers requiring advanced governance, dedicated onboarding, and tailored compliance controls.',
-  },
-];
-
 function formatUgx(priceUgx: number): string {
   if (priceUgx <= 0) return 'Custom';
   return `UGX ${new Intl.NumberFormat('en-UG').format(priceUgx)}`;
@@ -52,21 +21,9 @@ export default function Landing() {
   const navigate = useNavigate();
   const [loading] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
-  const [plans, setPlans] = useState<PublicBillingPlan[]>(fallbackPackages);
+  const [plans, setPlans] = useState<PublicBillingPlan[]>([]);
   const { isMobile, isVerySmall } = useIsMobile();
-
-  const displayPlans = useMemo(() => {
-    const freeTrialPlan: PublicBillingPlan = {
-      id: 'free-trial',
-      name: 'Free Trial',
-      priceUgx: 0,
-      trialDays: 14,
-      description: 'Explore CareMax with a guided setup, core triage workflows, and no upfront commitment.',
-    };
-
-    const hasFreeTrial = plans.some((plan) => plan.id === freeTrialPlan.id);
-    return hasFreeTrial ? plans : [freeTrialPlan, ...plans];
-  }, [plans]);
+  const displayPlans = useMemo(() => plans, [plans]);
 
   useEffect(() => {
     let active = true;
@@ -76,7 +33,7 @@ export default function Landing() {
         setPlans(data.plans);
       })
       .catch(() => {
-        // Keep fallback packages if public plans cannot be loaded.
+        setPlans([]);
       });
     return () => {
       active = false;
@@ -161,14 +118,21 @@ export default function Landing() {
                 <div key={pkg.id} className={`pricing-card${idx === 1 ? ' highlighted' : ''}`}>
                   <h4>{pkg.name}</h4>
                   <p className="price">
-                    {pkg.id === 'free-trial' ? 'Free' : formatUgx(pkg.priceUgx)}
-                    <span>{pkg.id === 'free-trial' ? '/limited time' : pkg.priceUgx > 0 ? '/month' : '/contract'}</span>
+                    {pkg.priceUgx <= 0 ? 'Free' : formatUgx(pkg.priceUgx)}
+                    <span>{pkg.priceUgx > 0 ? '/month' : '/limited time'}</span>
                   </p>
                   {pkg.trialDays > 0 && <p className="price-trial">{pkg.trialDays} day trial included</p>}
                   <p className="price-description">{pkg.description}</p>
-                  <button onClick={() => navigate('/signup')} className="pricing-btn">{pkg.id === 'free-trial' ? 'Start Free Trial' : 'Choose Package'}</button>
+                  <button onClick={() => navigate('/signup')} className="pricing-btn">{pkg.priceUgx <= 0 ? 'Start Free Trial' : 'Choose Package'}</button>
                 </div>
               ))}
+              {displayPlans.length === 0 && (
+                <div className="pricing-card" style={{ gridColumn: '1 / -1' }}>
+                  <h4>Plans unavailable</h4>
+                  <p className="price-description">Pricing plans are managed by SaaS admin settings and are temporarily unavailable.</p>
+                  <button onClick={() => navigate('/signup')} className="pricing-btn">Continue to Sign Up</button>
+                </div>
+              )}
             </div>
           </div>
         </section>
