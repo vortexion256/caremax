@@ -9,6 +9,7 @@ type PublicContent = {
   contactPhonePrimary: string;
   contactPhoneSecondary: string;
   enableLandingVanta: boolean;
+  landingVantaEmbedCode: string;
 };
 
 const emptyForm: PublicContent = {
@@ -18,6 +19,7 @@ const emptyForm: PublicContent = {
   privacyPolicy: '',
   termsOfService: '',
   enableLandingVanta: false,
+  landingVantaEmbedCode: '',
 };
 
 export default function PlatformContentAdmin() {
@@ -56,6 +58,7 @@ export default function PlatformContentAdmin() {
           privacyPolicy: form.privacyPolicy.trim(),
           termsOfService: form.termsOfService.trim(),
           enableLandingVanta: form.enableLandingVanta,
+          landingVantaEmbedCode: form.landingVantaEmbedCode,
         }),
       });
       setSaveState('saved');
@@ -110,6 +113,16 @@ export default function PlatformContentAdmin() {
             onChange={(value) => setForm((prev) => ({ ...prev, contactPhoneSecondary: value }))}
             placeholder='+256753190830'
           />
+          <LabeledTextArea
+            label='Custom Vanta Embed Code (optional)'
+            value={form.landingVantaEmbedCode}
+            onChange={(value) => setForm((prev) => ({ ...prev, landingVantaEmbedCode: value }))}
+            rows={8}
+            placeholder={'<script src="three.r134.min.js"></script>\n<script src="vanta.halo.min.js"></script>\n<script>\nVANTA.HALO({ el: "#your-element-selector", ... })\n</script>'}
+          />
+          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
+            Paste full Vanta embed snippets here to swap effects without code changes. The landing page will auto-read script URLs and VANTA effect options.
+          </p>
         </SectionCard>
 
         <SectionCard title='Privacy Policy (Landing Page)'>
@@ -195,11 +208,13 @@ function LabeledTextArea({
   value,
   onChange,
   rows,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (next: string) => void;
   rows: number;
+  placeholder?: string;
 }) {
   return (
     <label style={{ display: 'grid', gap: 4 }}>
@@ -208,6 +223,7 @@ function LabeledTextArea({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         rows={rows}
+        placeholder={placeholder}
         style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px', fontSize: 14, resize: 'vertical' }}
       />
     </label>

@@ -280,6 +280,7 @@ const publicContentSchema = z.object({
   contactPhonePrimary: z.string().trim().min(7).max(30),
   contactPhoneSecondary: z.string().trim().min(7).max(30),
   enableLandingVanta: z.boolean(),
+  landingVantaEmbedCode: z.string().max(20000).optional().default(''),
 });
 
 const defaultPublicContent = {
@@ -289,6 +290,7 @@ const defaultPublicContent = {
   contactPhonePrimary: '+256782830524',
   contactPhoneSecondary: '+256753190830',
   enableLandingVanta: false,
+  landingVantaEmbedCode: '',
 };
 
 
@@ -410,6 +412,7 @@ platformRouter.get('/public-content', async (_req, res) => {
       contactPhonePrimary: typeof data.contactPhonePrimary === 'string' && data.contactPhonePrimary.trim() ? data.contactPhonePrimary : defaultPublicContent.contactPhonePrimary,
       contactPhoneSecondary: typeof data.contactPhoneSecondary === 'string' && data.contactPhoneSecondary.trim() ? data.contactPhoneSecondary : defaultPublicContent.contactPhoneSecondary,
       enableLandingVanta: data.enableLandingVanta === true,
+      landingVantaEmbedCode: typeof data.landingVantaEmbedCode === 'string' ? data.landingVantaEmbedCode : defaultPublicContent.landingVantaEmbedCode,
     });
   } catch (e) {
     console.error('Failed to load public content settings:', e);
