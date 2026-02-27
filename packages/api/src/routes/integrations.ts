@@ -11,6 +11,8 @@ import { db } from '../config/firebase.js';
 import { activateTenantSubscription } from '../services/billing.js';
 import { verifyMarzPayTransaction } from '../services/marzpay.js';
 import { createTenantNotification } from '../services/tenant-notifications.js';
+import { runAgent } from '../services/agent.js';
+import { FieldValue } from 'firebase-admin/firestore';
 
 /** Callback from Google OAuth - no auth; state = tenantId. Redirects to admin. */
 export const integrationsCallbackRouter: Router = Router();
@@ -119,6 +121,127 @@ integrationsCallbackRouter.post('/marzpay/callback', async (req: Request, res: R
   } catch (error) {
     console.error('Marz Pay callback processing error:', error);
     res.status(500).json({ error: 'Failed to process callback' });
+  }
+});
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function xmlResponse(message: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(message)}</Message></Response>`;
+}
+
+integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req: Request, res: Response) => {
+  const tenantId = req.params.tenantId;
+  const from = typeof req.body?.From === 'string' ? req.body.From.trim() : '';
+  const body = typeof req.body?.Body === 'string' ? req.body.Body.trim() : '';
+
+  if (!tenantId || !from || !body) {
+    res.set('Content-Type', 'text/xml');
+    res.status(200).send(xmlResponse('Message not received correctly. Please try again.'));
+    return;
+  }
+
+  try {
+    const integrationDoc = await db.collection('tenant_integrations').doc(tenantId).get();
+    const whatsapp = integrationDoc.data()?.whatsapp;
+
+    if (!whatsapp?.connected) {
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlResponse('WhatsApp integration is not connected for this tenant.'));
+      return;
+    }
+
+    const configuredSecret = typeof whatsapp.webhookSecret === 'string' ? whatsapp.webhookSecret.trim() : '';
+    if (configuredSecret) {
+      const suppliedSecret =
+        (typeof req.query.secret === 'string' ? req.query.secret : '') ||
+        (typeof req.headers['x-webhook-secret'] === 'string' ? req.headers['x-webhook-secret'] : '');
+      if (suppliedSecret !== configuredSecret) {
+        res.set('Content-Type', 'text/xml');
+        res.status(200).send(xmlResponse('Webhook secret mismatch.'));
+        return;
+      }
+    }
+
+    const conversationsRef = db.collection('conversations');
+    const existingConversationSnap = await conversationsRef
+      .where('tenantId', '==', tenantId)
+      .where('channel', '==', 'whatsapp')
+      .where('externalUserId', '==', from)
+      .where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
+      .orderBy('updatedAt', 'desc')
+      .limit(1)
+      .get();
+
+    const conversationRef = existingConversationSnap.empty
+      ? await conversationsRef.add({
+        tenantId,
+        userId: from,
+        externalUserId: from,
+        channel: 'whatsapp',
+        status: 'open',
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      : existingConversationSnap.docs[0].ref;
+
+    await db.collection('messages').add({
+      conversationId: conversationRef.id,
+      tenantId,
+      role: 'user',
+      content: body,
+      channel: 'whatsapp',
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    const historySnap = await db
+      .collection('messages')
+      .where('conversationId', '==', conversationRef.id)
+      .orderBy('createdAt', 'asc')
+      .get();
+
+    const history = historySnap.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        role: data.role,
+        content: data.content,
+        imageUrls: data.imageUrls ?? [],
+      };
+    });
+
+    const agentResponse = await runAgent(tenantId, history, {
+      userId: from,
+      conversationId: conversationRef.id,
+    });
+
+    await db.collection('messages').add({
+      conversationId: conversationRef.id,
+      tenantId,
+      role: 'assistant',
+      content: agentResponse.text,
+      channel: 'whatsapp',
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+    if (agentResponse.requestHandoff) {
+      updates.status = 'handoff_requested';
+    }
+    await conversationRef.update(updates);
+
+    res.set('Content-Type', 'text/xml');
+    res.status(200).send(xmlResponse(agentResponse.text));
+  } catch (error) {
+    console.error('Twilio WhatsApp webhook error:', error);
+    res.set('Content-Type', 'text/xml');
+    res.status(200).send(xmlResponse('Sorry, something went wrong while processing your message.'));
   }
 });
 

@@ -36,6 +36,7 @@ const corsOrigin = allowedFromEnv?.length
   ? [...new Set([...allowedFromEnv, ...devOrigins])]
   : true;
 app.use(cors({ origin: corsOrigin, credentials: true }));
+app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
 app.use('/health', healthRouter);
