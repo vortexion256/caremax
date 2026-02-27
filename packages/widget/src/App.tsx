@@ -15,7 +15,7 @@ export default function App() {
         Using tenant: <strong>{tenantId}</strong>. Agent name and handoff queue use this tenant. To see handoffs in Admin, open the widget with your tenant ID, e.g.{' '}
         <a href="/?tenant=YOUR_TENANT_ID">/?tenant=YOUR_TENANT_ID</a> (get it from Admin → Embed).
       </p>
-      <EmbedApp tenantId={tenantId} theme="light" />
+      <EmbedApp tenantId={tenantId} theme="light" debugMode />
     </div>
   );
 }

@@ -11,6 +11,7 @@ export const conversationRouter: Router = Router({ mergeParams: true });
 
 const MESSAGES = 'messages';
 const CONVERSATIONS = 'conversations';
+const DIAGNOSTIC_LOGS = 'tenant_diagnostic_logs';
 
 function toWhatsAppAddress(value: string): string {
   const trimmed = value.trim();
@@ -144,6 +145,12 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
     return;
   }
   const { content, imageUrls } = parsed.data;
+  const convData = conv.data() ?? {};
+  const channel = typeof convData.channel === 'string' ? convData.channel : 'widget';
+  const isDebugRequested = req.query.debug === '1';
+  const isDevWidgetHeader = req.headers['x-caremax-dev-widget'] === '1';
+  const isDevEnv = process.env.NODE_ENV !== 'production';
+  const includeDebugTrace = isDebugRequested && isDevWidgetHeader && isDevEnv && channel === 'widget';
 
   const userMsgRef = await db.collection(MESSAGES).add({
     conversationId,
@@ -210,8 +217,8 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
   });
 
   let agentResponse: { text: string; requestHandoff?: boolean };
+  const traceStartedAt = Date.now();
   try {
-    const convData = conv.data();
     const userId = (convData?.userId as string | undefined) ?? undefined;
     agentResponse = await runAgent(tenantId, history, {
       userId,
@@ -241,11 +248,55 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
 
   await convRef.update({ updatedAt: FieldValue.serverTimestamp() });
 
+  let debugTrace: Array<{
+    logId: string;
+    source: string;
+    step: string;
+    status: string;
+    durationMs: number | null;
+    error: string | null;
+    metadata: Record<string, unknown> | null;
+    createdAt: number | null;
+  }> | undefined;
+  if (includeDebugTrace) {
+    try {
+      const logsSnap = await db
+        .collection(DIAGNOSTIC_LOGS)
+        .where('tenantId', '==', tenantId)
+        .where('conversationId', '==', conversationId)
+        .orderBy('createdAt', 'desc')
+        .limit(40)
+        .get();
+      debugTrace = logsSnap.docs
+        .map((d) => {
+          const data = d.data();
+          return {
+            logId: d.id,
+            source: typeof data.source === 'string' ? data.source : 'unknown',
+            step: typeof data.step === 'string' ? data.step : 'unknown',
+            status: typeof data.status === 'string' ? data.status : 'ok',
+            durationMs: typeof data.durationMs === 'number' ? data.durationMs : null,
+            error: typeof data.error === 'string' ? data.error : null,
+            metadata: (data.metadata && typeof data.metadata === 'object') ? (data.metadata as Record<string, unknown>) : null,
+            createdAt: data.createdAt?.toMillis?.() ?? null,
+          };
+        })
+        .filter((log) => {
+          if (typeof log.createdAt !== 'number') return true;
+          return log.createdAt >= traceStartedAt - 5000;
+        })
+        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+    } catch (e) {
+      console.error('Failed to load debug trace for widget:', e);
+    }
+  }
+
   res.status(201).json({
     userMessageId: userMsgRef.id,
     assistantMessageId: assistantMsgRef.id,
     assistantContent: agentResponse.text,
     requestHandoff: handoffRequested,
+    ...(includeDebugTrace ? { debugTrace: debugTrace ?? [] } : {}),
   });
 });
 

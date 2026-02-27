@@ -12,11 +12,22 @@ type Message = {
   createdAt: number | null;
 };
 
-type EmbedAppProps = { tenantId: string; theme: string };
+type DebugTraceEvent = {
+  logId: string;
+  source: string;
+  step: string;
+  status: string;
+  durationMs: number | null;
+  error: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: number | null;
+};
+
+type EmbedAppProps = { tenantId: string; theme: string; debugMode?: boolean };
 
 type WidgetConfig = { chatTitle: string; agentName: string; welcomeText: string; suggestedQuestions: string[]; widgetColor: string };
 
-export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
+export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAppProps) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -25,6 +36,8 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
   const [images, setImages] = useState<File[]>([]);
   const [firestoreReady, setFirestoreReady] = useState(false);
   const [widgetConfig, setWidgetConfig] = useState<WidgetConfig | null>(null);
+  const [debugTrace, setDebugTrace] = useState<DebugTraceEvent[]>([]);
+  const [showDebugTrace, setShowDebugTrace] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
@@ -85,6 +98,7 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
     }
 
     setLoading(true);
+    if (debugMode) setDebugTrace([]);
 
     try {
       let cid = conversationId;
@@ -114,9 +128,13 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
           createdAt: Date.now(),
         },
       ]);
-      const res = await fetch(`${API_URL}/tenants/${tenantId}/conversations/${cid}/messages`, {
+      const querySuffix = debugMode ? '?debug=1' : '';
+      const res = await fetch(`${API_URL}/tenants/${tenantId}/conversations/${cid}/messages${querySuffix}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(debugMode ? { 'x-caremax-dev-widget': '1' } : {}),
+        },
         body: JSON.stringify({ content: text, imageUrls: imageUrls.length ? imageUrls : undefined }),
       });
       const data = await res.json().catch(() => ({}));
@@ -136,6 +154,10 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
         );
       }
       if (data.requestHandoff) setHumanJoined(true);
+      if (debugMode) {
+        const trace = Array.isArray(data.debugTrace) ? (data.debugTrace as DebugTraceEvent[]) : [];
+        setDebugTrace(trace);
+      }
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : 'Sorry, something went wrong. Please try again.';
       setMessages((prev) => [
@@ -359,6 +381,41 @@ export default function EmbedApp({ tenantId, theme }: EmbedAppProps) {
             <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite' }}></span>
             <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite', animationDelay: '0.2s' }}></span>
             <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: secondaryText, animation: 'pulse 1.5s infinite', animationDelay: '0.4s' }}></span>
+          </div>
+        )}
+
+        {debugMode && debugTrace.length > 0 && (
+          <div style={{ marginTop: 4, border: `1px solid ${border}`, borderRadius: 10, backgroundColor: isDark ? '#0f172a' : '#ffffff' }}>
+            <button
+              type="button"
+              onClick={() => setShowDebugTrace((prev) => !prev)}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: '8px 10px',
+                border: 'none',
+                background: 'transparent',
+                color: secondaryText,
+                fontSize: 12,
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {showDebugTrace ? '▼' : '▶'} Dev logs ({debugTrace.length})
+            </button>
+            {showDebugTrace && (
+              <div style={{ padding: '0 10px 10px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {debugTrace.map((log) => (
+                  <div key={log.logId} style={{ fontSize: 11, fontFamily: 'monospace', color: text, borderTop: `1px solid ${border}`, paddingTop: 6 }}>
+                    <div>
+                      [{log.status}] {log.source}.{log.step}
+                      {typeof log.durationMs === 'number' ? ` (${log.durationMs}ms)` : ''}
+                    </div>
+                    {log.error ? <div style={{ color: '#b91c1c' }}>{log.error}</div> : null}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
