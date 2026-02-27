@@ -732,6 +732,25 @@ platformRouter.get('/billing/payments', async (req, res) => {
   }
 });
 
+platformRouter.delete('/billing/payments/:paymentId', async (req, res) => {
+  try {
+    const { paymentId } = req.params;
+    const paymentRef = db.collection('payments').doc(paymentId);
+    const paymentDoc = await paymentRef.get();
+
+    if (!paymentDoc.exists) {
+      res.status(404).json({ error: 'Payment not found' });
+      return;
+    }
+
+    await paymentRef.delete();
+    res.status(204).send();
+  } catch (e) {
+    console.error('Failed to delete payment:', e);
+    res.status(500).json({ error: 'Failed to delete payment' });
+  }
+});
+
 // Usage summary per tenant (for billing / monitoring)
 platformRouter.get('/usage', async (req, res) => {
   try {
