@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { CSSProperties, useEffect, useState } from 'react';
 import { api } from '../api';
 
 type Plan = {
@@ -46,7 +46,33 @@ export default function PlatformBilling() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [billingConfig, setBillingConfig] = useState<BillingConfig>(defaultBillingConfig);
   const [saving, setSaving] = useState(false);
+  const [activePlanIndex, setActivePlanIndex] = useState<number | null>(null);
+  const [activePlanMode, setActivePlanMode] = useState<'view' | 'edit'>('view');
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+
+  const buttonBaseStyle: CSSProperties = {
+    padding: '8px 12px',
+    borderRadius: 8,
+    border: '1px solid #cbd5e1',
+    background: '#f8fafc',
+    color: '#0f172a',
+    fontWeight: 600,
+    cursor: 'pointer',
+  };
+
+  const primaryButtonStyle: CSSProperties = {
+    ...buttonBaseStyle,
+    background: '#0f172a',
+    borderColor: '#0f172a',
+    color: '#f8fafc',
+  };
+
+  const dangerButtonStyle: CSSProperties = {
+    ...buttonBaseStyle,
+    borderColor: '#fecaca',
+    color: '#991b1b',
+    background: '#fef2f2',
+  };
 
   const load = async () => {
     const [plansData, configData] = await Promise.all([
@@ -100,6 +126,8 @@ export default function PlatformBilling() {
 
   const addPlan = () => {
     setPlans((prev) => [...prev, createEmptyPlan()]);
+    setActivePlanMode('edit');
+    setActivePlanIndex(plans.length);
   };
 
   const removePlan = (idx: number) => {
@@ -113,7 +141,20 @@ export default function PlatformBilling() {
     }
 
     setPlans((prev) => prev.filter((_, i) => i !== idx));
+    setActivePlanIndex((prev) => {
+      if (prev === null) return prev;
+      if (prev === idx) return null;
+      return prev > idx ? prev - 1 : prev;
+    });
   };
+
+  const openPlan = (idx: number, mode: 'view' | 'edit') => {
+    setActivePlanIndex(idx);
+    setActivePlanMode(mode);
+  };
+
+  const activePlan = activePlanIndex === null ? null : plans[activePlanIndex] ?? null;
+  const isReadOnly = activePlanMode === 'view';
 
   const addModel = () => {
     setBillingConfig((prev) => ({ ...prev, availableModels: [...prev.availableModels, ''] }));
@@ -147,9 +188,52 @@ export default function PlatformBilling() {
       )}
 
       <h3 style={{ marginBottom: 8 }}>SaaS Billing Types</h3>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, marginBottom: 16 }}>
       {plans.map((plan, idx) => (
         <div
           key={`${plan.id || 'new'}-${idx}`}
+          style={{
+            border: '1px solid #cbd5e1',
+            borderRadius: 8,
+            padding: 14,
+            display: 'grid',
+            gap: 8,
+            background: '#ffffff',
+            boxShadow: activePlanIndex === idx ? '0 0 0 2px #bfdbfe' : 'none',
+          }}
+        >
+          <strong>{plan.name || 'New Package'}</strong>
+          <small style={{ color: '#64748b' }}>{plan.id ? plan.id.toUpperCase() : 'No ID yet'}</small>
+          <small style={{ color: '#334155' }}>{formatUgx(plan.priceUgx)} / month</small>
+          <small style={{ color: plan.active ? '#166534' : '#991b1b', fontWeight: 600 }}>
+            {plan.active ? 'Active' : 'Inactive'}
+          </small>
+          {(plan.subscriberCount ?? 0) > 0 && (
+            <small style={{ color: '#7c2d12', fontWeight: 600 }}>{plan.subscriberCount} subscriber(s)</small>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+            <button type="button" onClick={() => openPlan(idx, 'view')} style={buttonBaseStyle}>View</button>
+            <button type="button" onClick={() => openPlan(idx, 'edit')} style={primaryButtonStyle}>Edit</button>
+            <button
+              type="button"
+              onClick={() => removePlan(idx)}
+              disabled={plan.id === 'free' || (plan.subscriberCount ?? 0) > 0}
+              style={{ ...dangerButtonStyle, opacity: plan.id === 'free' || (plan.subscriberCount ?? 0) > 0 ? 0.55 : 1, cursor: plan.id === 'free' || (plan.subscriberCount ?? 0) > 0 ? 'not-allowed' : 'pointer' }}
+              title={plan.id === 'free'
+                ? 'Free plan cannot be deleted'
+                : (plan.subscriberCount ?? 0) > 0
+                  ? `Cannot delete: ${plan.subscriberCount} tenant(s) are subscribed to this package`
+                  : 'Delete package'}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ))}
+      </div>
+
+      {activePlan && activePlanIndex !== null && (
+        <div
           style={{
             border: '1px solid #cbd5e1',
             borderRadius: 8,
@@ -158,108 +242,115 @@ export default function PlatformBilling() {
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
             gap: 10,
+            background: '#f8fafc',
           }}
         >
           <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <strong>{plan.id ? `${plan.id.toUpperCase()} Plan` : 'New Package'}</strong>
-            <button
-              type="button"
-              onClick={() => removePlan(idx)}
-              disabled={plan.id === 'free' || (plan.subscriberCount ?? 0) > 0}
-              style={{ padding: '4px 10px' }}
-              title={plan.id === 'free'
-                ? 'Free plan cannot be deleted'
-                : (plan.subscriberCount ?? 0) > 0
-                  ? `Cannot delete: ${plan.subscriberCount} tenant(s) are subscribed to this package`
-                  : 'Delete package'}
-            >
-              Delete package
-            </button>
+            <strong>
+              {isReadOnly ? 'Viewing SaaS Billing Type' : 'Editing SaaS Billing Type'}: {activePlan.name || activePlan.id || 'New Package'}
+            </strong>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {!isReadOnly && (
+                <button type="button" onClick={() => setActivePlanMode('view')} style={buttonBaseStyle}>Done Editing</button>
+              )}
+              {isReadOnly && (
+                <button type="button" onClick={() => setActivePlanMode('edit')} style={primaryButtonStyle}>Switch to Edit</button>
+              )}
+              <button type="button" onClick={() => setActivePlanIndex(null)} style={buttonBaseStyle}>Close</button>
+            </div>
           </div>
-          <label style={{ display: 'grid', gap: 6 }}>
+          <label style={{ display: 'grid', gap: 6, opacity: isReadOnly ? 0.85 : 1 }}>
             <span style={{ fontSize: 12, color: '#475569' }}>Package ID</span>
             <input
-              value={plan.id}
+              value={activePlan.id}
+              disabled={isReadOnly}
               onChange={(e) =>
-                setPlans((p) => p.map((x, i) => (i === idx ? { ...x, id: e.target.value.replace(/\s+/g, '-').toLowerCase() } : x)))
+                setPlans((p) => p.map((x, i) => (i === activePlanIndex ? { ...x, id: e.target.value.replace(/\s+/g, '-').toLowerCase() } : x)))
               }
               placeholder="e.g. growth"
             />
           </label>
-          <label style={{ display: 'grid', gap: 6 }}>
+          <label style={{ display: 'grid', gap: 6, opacity: isReadOnly ? 0.85 : 1 }}>
             <span style={{ fontSize: 12, color: '#475569' }}>Plan Title</span>
             <input
-              value={plan.name}
-              onChange={(e) => setPlans((p) => p.map((x, i) => (i === idx ? { ...x, name: e.target.value } : x)))}
+              value={activePlan.name}
+              disabled={isReadOnly}
+              onChange={(e) => setPlans((p) => p.map((x, i) => (i === activePlanIndex ? { ...x, name: e.target.value } : x)))}
             />
           </label>
-          <label style={{ display: 'grid', gap: 6 }}>
+          <label style={{ display: 'grid', gap: 6, opacity: isReadOnly ? 0.85 : 1 }}>
             <span style={{ fontSize: 12, color: '#475569' }}>Monthly Amount (UGX)</span>
             <input
               type="number"
-              value={plan.priceUgx}
-              onChange={(e) => setPlans((p) => p.map((x, i) => (i === idx ? { ...x, priceUgx: Number(e.target.value) } : x)))}
+              value={activePlan.priceUgx}
+              disabled={isReadOnly}
+              onChange={(e) => setPlans((p) => p.map((x, i) => (i === activePlanIndex ? { ...x, priceUgx: Number(e.target.value) } : x)))}
             />
-            <small style={{ color: '#64748b' }}>Shown as {formatUgx(plan.priceUgx)} to tenants.</small>
+            <small style={{ color: '#64748b' }}>Shown as {formatUgx(activePlan.priceUgx)} to tenants.</small>
           </label>
-          <label style={{ display: 'grid', gap: 6 }}>
+          <label style={{ display: 'grid', gap: 6, opacity: isReadOnly ? 0.85 : 1 }}>
             <span style={{ fontSize: 12, color: '#475569' }}>Trial Days</span>
             <input
               type="number"
-              value={plan.trialDays}
-              onChange={(e) => setPlans((p) => p.map((x, i) => (i === idx ? { ...x, trialDays: Number(e.target.value) } : x)))}
+              value={activePlan.trialDays}
+              disabled={isReadOnly}
+              onChange={(e) => setPlans((p) => p.map((x, i) => (i === activePlanIndex ? { ...x, trialDays: Number(e.target.value) } : x)))}
             />
           </label>
-          <label style={{ display: 'grid', gap: 6 }}>
+          <label style={{ display: 'grid', gap: 6, opacity: isReadOnly ? 0.85 : 1 }}>
             <span style={{ fontSize: 12, color: '#475569' }}>Detailed Description</span>
             <input
-              value={plan.description ?? ''}
-              onChange={(e) => setPlans((p) => p.map((x, i) => (i === idx ? { ...x, description: e.target.value } : x)))}
+              value={activePlan.description ?? ''}
+              disabled={isReadOnly}
+              onChange={(e) => setPlans((p) => p.map((x, i) => (i === activePlanIndex ? { ...x, description: e.target.value } : x)))}
             />
           </label>
-          <label style={{ display: 'grid', gap: 6 }}>
+          <label style={{ display: 'grid', gap: 6, opacity: isReadOnly ? 0.85 : 1 }}>
             <span style={{ fontSize: 12, color: '#475569' }}>Max Tokens Per Package (monthly)</span>
             <input
               type="number"
               min={1}
-              value={plan.maxTokensPerPackage ?? ''}
-              onChange={(e) => setPlans((p) => p.map((x, i) => (i === idx ? { ...x, maxTokensPerPackage: e.target.value === '' || Number(e.target.value) <= 0 ? null : Number(e.target.value) } : x)))}
+              value={activePlan.maxTokensPerPackage ?? ''}
+              disabled={isReadOnly}
+              onChange={(e) => setPlans((p) => p.map((x, i) => (i === activePlanIndex ? { ...x, maxTokensPerPackage: e.target.value === '' || Number(e.target.value) <= 0 ? null : Number(e.target.value) } : x)))}
               placeholder="No cap"
             />
           </label>
-          <label style={{ display: 'grid', gap: 6 }}>
+          <label style={{ display: 'grid', gap: 6, opacity: isReadOnly ? 0.85 : 1 }}>
             <span style={{ fontSize: 12, color: '#475569' }}>Max Usage Amount Per Package (UGX/month)</span>
             <input
               type="number"
               min={1}
-              value={plan.maxUsageAmountUgxPerPackage ?? ''}
-              onChange={(e) => setPlans((p) => p.map((x, i) => (i === idx ? { ...x, maxUsageAmountUgxPerPackage: e.target.value === '' || Number(e.target.value) <= 0 ? null : Number(e.target.value) } : x)))}
+              value={activePlan.maxUsageAmountUgxPerPackage ?? ''}
+              disabled={isReadOnly}
+              onChange={(e) => setPlans((p) => p.map((x, i) => (i === activePlanIndex ? { ...x, maxUsageAmountUgxPerPackage: e.target.value === '' || Number(e.target.value) <= 0 ? null : Number(e.target.value) } : x)))}
               placeholder="No cap"
             />
             <small style={{ color: '#64748b' }}>If set, package expires early when this usage value is reached before 30 days.</small>
           </label>
-          <label style={{ display: 'grid', gap: 6 }}>
+          <label style={{ display: 'grid', gap: 6, opacity: isReadOnly ? 0.85 : 1 }}>
             <span style={{ fontSize: 12, color: '#475569' }}>Status</span>
             <select
-              value={plan.active ? 'active' : 'inactive'}
-              onChange={(e) => setPlans((p) => p.map((x, i) => (i === idx ? { ...x, active: e.target.value === 'active' } : x)))}
+              value={activePlan.active ? 'active' : 'inactive'}
+              disabled={isReadOnly}
+              onChange={(e) => setPlans((p) => p.map((x, i) => (i === activePlanIndex ? { ...x, active: e.target.value === 'active' } : x)))}
             >
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
             </select>
           </label>
-          {(plan.subscriberCount ?? 0) > 0 && (
+          {(activePlan.subscriberCount ?? 0) > 0 && (
             <small style={{ gridColumn: '1 / -1', color: '#991b1b', fontWeight: 600 }}>
-              {plan.subscriberCount} tenant(s) are currently subscribed to this package.
+              {activePlan.subscriberCount} tenant(s) are currently subscribed to this package.
             </small>
           )}
-          {plan.id === 'free' && (
+          {activePlan.id === 'free' && (
             <small style={{ gridColumn: '1 / -1', color: '#0f766e', fontWeight: 600 }}>Free plan value: Worth 5 USD tokens.</small>
           )}
         </div>
-      ))}
+      )}
 
-      <button type="button" onClick={addPlan} style={{ padding: '8px 12px', marginBottom: 16 }}>
+      <button type="button" onClick={addPlan} style={{ ...buttonBaseStyle, marginBottom: 16 }}>
         + Add Package
       </button>
 
@@ -303,15 +394,15 @@ export default function PlatformBilling() {
               style={{ flex: 1 }}
               placeholder="e.g. gemini-2.0-flash"
             />
-            <button type="button" onClick={() => removeModel(idx)} style={{ padding: '0 10px' }}>
+            <button type="button" onClick={() => removeModel(idx)} style={dangerButtonStyle}>
               Delete
             </button>
           </div>
         ))}
-        <button type="button" onClick={addModel} style={{ padding: '8px 10px' }}>+ Add Model</button>
+        <button type="button" onClick={addModel} style={buttonBaseStyle}>+ Add Model</button>
       </div>
 
-      <button onClick={save} disabled={saving} style={{ padding: '8px 14px', marginTop: 16 }}>
+      <button onClick={save} disabled={saving} style={{ ...primaryButtonStyle, marginTop: 16, opacity: saving ? 0.7 : 1 }}>
         {saving ? 'Saving...' : 'Save Billing Settings'}
       </button>
     </div>
