@@ -149,7 +149,10 @@ main {
 }
 
 .surface-section { padding: 72px 0; background: #fff; border-top: 1px solid #e2e8f0; }
-.platform-highlights-section { background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%); }
+.platform-pricing-flow {
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+}
+.platform-highlights-section { background: transparent; }
 .section-title { margin: 0 0 10px; font-size: clamp(28px, 5vw, 42px); letter-spacing: -0.03em; }
 .section-subtitle { margin: 0 auto; max-width: 760px; color: #64748b; font-size: 19px; }
 
@@ -192,7 +195,7 @@ main {
 .feature-title { margin: 0 0 8px; font-size: 20px; }
 .feature-description { margin: 0; color: #64748b; font-size: 15px; line-height: 1.65; }
 
-.pricing-section { padding: 78px 0 94px; background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%); }
+.pricing-section { padding: 78px 0 94px; background: transparent; }
 .pricing-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 20px; }
 @media (min-width: 900px) { .pricing-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
