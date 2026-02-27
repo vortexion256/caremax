@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { api } from '../api';
 
 type Payment = {
@@ -59,6 +59,19 @@ export default function PlatformPayments() {
 
   const totalPages = Math.max(1, Math.ceil(filteredPayments.length / pageSize));
   const safePage = Math.min(page, totalPages);
+  const statusCounts = useMemo(() => {
+    return payments.reduce(
+      (acc, payment) => {
+        if (payment.status === 'completed') acc.completed += 1;
+        else if (payment.status === 'pending') acc.pending += 1;
+        else if (payment.status === 'failed') acc.failed += 1;
+        else acc.other += 1;
+        return acc;
+      },
+      { completed: 0, pending: 0, failed: 0, other: 0 },
+    );
+  }, [payments]);
+
   const paginatedPayments = useMemo(() => {
     const start = (safePage - 1) * pageSize;
     return filteredPayments.slice(start, start + pageSize);
@@ -91,6 +104,13 @@ export default function PlatformPayments() {
     <div>
       <h1 style={{ marginTop: 0 }}>Payment Transactions</h1>
       <p style={{ color: '#64748b' }}>Monitor Marz Pay payment attempts and completed subscription purchases.</p>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+        <StatusPill label="Completed" value={statusCounts.completed} tone="success" />
+        <StatusPill label="Pending" value={statusCounts.pending} tone="neutral" />
+        <StatusPill label="Failed" value={statusCounts.failed} tone="danger" />
+        {statusCounts.other > 0 && <StatusPill label="Other" value={statusCounts.other} tone="neutral" />}
+      </div>
 
       <div style={{
         display: 'grid',
@@ -139,28 +159,28 @@ export default function PlatformPayments() {
         </label>
       </div>
 
-      <div style={{ width: '100%', overflowX: 'auto' }}>
-        <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse', fontSize: 13 }}>
+      <div style={{ width: '100%', overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 12, background: '#fff' }}>
+        <table style={{ width: '100%', minWidth: 980, borderCollapse: 'separate', borderSpacing: 0, fontSize: 13 }}>
           <thead>
-            <tr>
-              <th align="left">Time</th>
-              <th align="left">Tenant</th>
-              <th align="left">Plan</th>
-              <th align="left">Customer</th>
-              <th align="right">Amount</th>
-              <th align="left">Status</th>
-              <th align="left">Tx Ref</th>
-              <th align="right">Actions</th>
+            <tr style={{ background: '#f8fafc' }}>
+              <th align="left" style={headerCellStyle}>Time</th>
+              <th align="left" style={headerCellStyle}>Tenant</th>
+              <th align="left" style={headerCellStyle}>Plan</th>
+              <th align="left" style={headerCellStyle}>Customer</th>
+              <th align="right" style={headerCellStyle}>Amount</th>
+              <th align="left" style={headerCellStyle}>Status</th>
+              <th align="left" style={headerCellStyle}>Tx Ref</th>
+              <th align="right" style={headerCellStyle}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {paginatedPayments.map((p) => (
-              <tr key={p.paymentId} style={{ borderTop: '1px solid #e2e8f0' }}>
-                <td>{p.createdAt ? new Date(p.createdAt).toLocaleString() : '—'}</td>
-                <td>{p.tenantId ?? '—'}</td>
-                <td>{p.billingPlanId ?? '—'}</td>
-                <td>{p.customerEmail ?? '—'}</td>
-                <td align="right">{p.currency} {p.amount.toFixed(2)}</td>
+            {paginatedPayments.map((p, index) => (
+              <tr key={p.paymentId} style={{ background: index % 2 ? '#fcfdff' : '#fff' }}>
+                <td style={dataCellStyle}>{p.createdAt ? new Date(p.createdAt).toLocaleString() : '—'}</td>
+                <td style={dataCellStyle}>{p.tenantId ?? '—'}</td>
+                <td style={dataCellStyle}>{p.billingPlanId ?? '—'}</td>
+                <td style={dataCellStyle}>{p.customerEmail ?? '—'}</td>
+                <td align="right" style={{ ...dataCellStyle, fontWeight: 600 }}>{p.currency} {p.amount.toFixed(2)}</td>
                 <td>
                   <span style={{
                     padding: '2px 8px',
@@ -172,8 +192,8 @@ export default function PlatformPayments() {
                     {p.status}
                   </span>
                 </td>
-                <td style={{ fontFamily: 'monospace' }}>{p.txRef}</td>
-                <td align="right">
+                <td style={{ ...dataCellStyle, fontFamily: 'monospace', fontSize: 12 }}>{p.txRef}</td>
+                <td align="right" style={dataCellStyle}>
                   <button
                     onClick={() => void deletePayment(p.paymentId)}
                     disabled={deletingPaymentId === p.paymentId}
@@ -193,7 +213,7 @@ export default function PlatformPayments() {
             ))}
             {paginatedPayments.length === 0 && (
               <tr>
-                <td colSpan={8} style={{ padding: '16px 8px', color: '#64748b', textAlign: 'center' }}>
+                <td colSpan={8} style={{ padding: '24px 8px', color: '#64748b', textAlign: 'center' }}>
                   No payment transactions match the selected filters.
                 </td>
               </tr>
@@ -215,3 +235,47 @@ export default function PlatformPayments() {
     </div>
   );
 }
+
+function StatusPill({ label, value, tone }: { label: string; value: number; tone: 'success' | 'danger' | 'neutral' }) {
+  const palette =
+    tone === 'success'
+      ? { bg: '#dcfce7', fg: '#166534' }
+      : tone === 'danger'
+        ? { bg: '#fee2e2', fg: '#991b1b' }
+        : { bg: '#e2e8f0', fg: '#334155' };
+
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        borderRadius: 999,
+        background: palette.bg,
+        color: palette.fg,
+        padding: '4px 10px',
+        fontSize: 12,
+        fontWeight: 600,
+      }}
+    >
+      {label}
+      <span style={{ fontWeight: 700 }}>{value}</span>
+    </span>
+  );
+}
+
+const headerCellStyle: CSSProperties = {
+  padding: '12px 12px',
+  fontSize: 12,
+  color: '#475569',
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: 0.2,
+  borderBottom: '1px solid #e2e8f0',
+};
+
+const dataCellStyle: CSSProperties = {
+  padding: '11px 12px',
+  borderBottom: '1px solid #f1f5f9',
+  color: '#0f172a',
+};
