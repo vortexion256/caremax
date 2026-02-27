@@ -69,8 +69,6 @@ export default function PlatformTenants() {
     return list.filter((tenant) => (
       tenant.tenantId.toLowerCase().includes(query)
       || tenant.name.toLowerCase().includes(query)
-      || (tenant.createdBy ?? '').toLowerCase().includes(query)
-      || tenant.allowedDomains.join(', ').toLowerCase().includes(query)
     ));
   }, [list, searchText]);
 
@@ -126,7 +124,7 @@ export default function PlatformTenants() {
       <input
         value={searchText}
         onChange={(e) => setSearchText(e.target.value)}
-        placeholder="Search by tenant id, name, owner, or domain"
+        placeholder="Search by tenant id or tenant name"
         style={{
           width: '100%',
           maxWidth: 420,
@@ -141,50 +139,44 @@ export default function PlatformTenants() {
       {filteredTenants.length === 0 ? (
         <p>{list.length === 0 ? 'No tenants registered yet.' : 'No tenants match your search.'}</p>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
+        <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 12, backgroundColor: '#fff' }}>
+          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 920 }}>
             <thead>
-              <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
-                <th style={{ textAlign: 'left', padding: 8 }}>Tenant ID</th>
-                <th style={{ textAlign: 'left', padding: 8 }}>Name</th>
-                <th style={{ textAlign: 'left', padding: 8 }}>Allowed domains</th>
-                <th style={{ textAlign: 'left', padding: 8 }}>Created by</th>
-                <th style={{ textAlign: 'left', padding: 8 }}>Created at</th>
-                <th style={{ textAlign: 'right', padding: 8 }}>Calls</th>
-                <th style={{ textAlign: 'right', padding: 8 }}>Tokens</th>
-                <th style={{ textAlign: 'right', padding: 8 }}>Cost</th>
-                <th style={{ textAlign: 'left', padding: 8 }}>Last activity</th>
-                <th style={{ textAlign: 'left', padding: 8 }}>Actions</th>
+              <tr style={{ borderBottom: '2px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
+                <th style={{ textAlign: 'left', padding: '12px 10px', fontSize: 12, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 }}>Tenant ID</th>
+                <th style={{ textAlign: 'left', padding: '12px 10px', fontSize: 12, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 }}>Name</th>
+                <th style={{ textAlign: 'left', padding: '12px 10px', fontSize: 12, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 }}>Created at</th>
+                <th style={{ textAlign: 'right', padding: '12px 10px', fontSize: 12, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 }}>Calls</th>
+                <th style={{ textAlign: 'right', padding: '12px 10px', fontSize: 12, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 }}>Tokens</th>
+                <th style={{ textAlign: 'right', padding: '12px 10px', fontSize: 12, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 }}>Cost</th>
+                <th style={{ textAlign: 'left', padding: '12px 10px', fontSize: 12, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 }}>Last activity</th>
+                <th style={{ textAlign: 'left', padding: '12px 10px', fontSize: 12, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredTenants.map((t) => {
+              {filteredTenants.map((t, index) => {
                 const tenantUsage = usageByTenant.get(t.tenantId);
                 return (
-                  <tr key={t.tenantId} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: 8, fontFamily: 'monospace', fontSize: 12 }}>{t.tenantId}</td>
-                    <td style={{ padding: 8 }}>{t.name}</td>
-                    <td style={{ padding: 8, fontSize: 13 }}>
-                      {t.allowedDomains && t.allowedDomains.length > 0 ? t.allowedDomains.join(', ') : '—'}
-                    </td>
-                    <td style={{ padding: 8, fontSize: 13 }}>{t.createdBy ?? '—'}</td>
-                    <td style={{ padding: 8, fontSize: 13 }}>
+                  <tr key={t.tenantId} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: index % 2 === 0 ? '#ffffff' : '#fcfdff' }}>
+                    <td style={{ padding: '10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a' }}>{t.tenantId}</td>
+                    <td style={{ padding: '10px', fontSize: 14, color: '#0f172a', fontWeight: 500 }}>{t.name}</td>
+                    <td style={{ padding: '10px', fontSize: 13, color: '#334155' }}>
                       {t.createdAt ? new Date(t.createdAt).toLocaleString() : '—'}
                     </td>
-                    <td style={{ padding: 8, textAlign: 'right', fontSize: 13 }}>{(tenantUsage?.calls ?? 0).toLocaleString()}</td>
-                    <td style={{ padding: 8, textAlign: 'right', fontSize: 13 }}>{(tenantUsage?.totalTokens ?? 0).toLocaleString()}</td>
-                    <td style={{ padding: 8, textAlign: 'right', fontSize: 13, color: '#b91c1c' }}>
+                    <td style={{ padding: '10px', textAlign: 'right', fontSize: 13, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{(tenantUsage?.calls ?? 0).toLocaleString()}</td>
+                    <td style={{ padding: '10px', textAlign: 'right', fontSize: 13, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{(tenantUsage?.totalTokens ?? 0).toLocaleString()}</td>
+                    <td style={{ padding: '10px', textAlign: 'right', fontSize: 13, color: '#b91c1c', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                       {formatUgx((tenantUsage?.totalCostUsd ?? 0) * UGX_PER_USD)}
                     </td>
-                    <td style={{ padding: 8, fontSize: 13, color: '#666' }}>
+                    <td style={{ padding: '10px', fontSize: 13, color: '#475569' }}>
                       {tenantUsage?.lastUsed ? new Date(tenantUsage.lastUsed).toLocaleString() : '—'}
                     </td>
-                    <td style={{ padding: 8 }}>
+                    <td style={{ padding: '10px' }}>
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button
                           onClick={() => setSelectedTenantId(t.tenantId)}
                           style={{
-                            padding: '4px 12px',
+                            padding: '6px 12px',
                             fontSize: 13,
                             backgroundColor: '#1976d2',
                             color: 'white',
@@ -198,7 +190,7 @@ export default function PlatformTenants() {
                         <button
                           onClick={() => setDeleteConfirmTenantId(t.tenantId)}
                           style={{
-                            padding: '4px 12px',
+                            padding: '6px 12px',
                             fontSize: 13,
                             backgroundColor: '#d32f2f',
                             color: 'white',
