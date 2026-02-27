@@ -1,18 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 
-type MarzPayCredentialStatus = {
-  provider: 'marzpay';
-  credentials: {
-    hasCollectionsUrl: boolean;
-    hasPaymentLink: boolean;
-    hasCheckoutUrl: boolean;
-    hasSecretKey: boolean;
-    hasVerifyUrl: boolean;
-  };
-  readyForCheckout: boolean;
-};
-
 type Payment = {
   paymentId: string;
   provider: string;
@@ -33,7 +21,6 @@ export default function PlatformPayments() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [providerStatus, setProviderStatus] = useState<MarzPayCredentialStatus | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'completed' | 'failed'>('all');
   const [tenantFilter, setTenantFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -42,13 +29,9 @@ export default function PlatformPayments() {
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      api<{ payments: Payment[] }>('/platform/billing/payments'),
-      api<MarzPayCredentialStatus>('/platform/billing/providers/marzpay/status'),
-    ])
-      .then(([paymentsRes, providerRes]) => {
+    api<{ payments: Payment[] }>('/platform/billing/payments')
+      .then((paymentsRes) => {
         setPayments(paymentsRes.payments);
-        setProviderStatus(providerRes);
         setError(null);
       })
       .catch((e) => {
@@ -108,13 +91,6 @@ export default function PlatformPayments() {
     <div>
       <h1 style={{ marginTop: 0 }}>Payment Transactions</h1>
       <p style={{ color: '#64748b' }}>Monitor Marz Pay payment attempts and completed subscription purchases.</p>
-
-      {providerStatus && (
-        <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, border: '1px solid #cbd5e1', background: '#f8fafc' }}>
-          <strong>Marz Pay config:</strong>{' '}
-          collectionsUrl={String(providerStatus.credentials.hasCollectionsUrl)}, paymentLink={String(providerStatus.credentials.hasPaymentLink)}, checkoutUrl={String(providerStatus.credentials.hasCheckoutUrl)}, secret={String(providerStatus.credentials.hasSecretKey)}, verifyUrl={String(providerStatus.credentials.hasVerifyUrl)}
-        </div>
-      )}
 
       <div style={{
         display: 'grid',
