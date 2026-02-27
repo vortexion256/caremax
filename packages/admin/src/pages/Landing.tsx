@@ -220,66 +220,68 @@ export default function Landing() {
           </div>
         </section>
 
-        <section className="surface-section platform-highlights-section">
-          <div className="landing-container">
-            <div style={{ textAlign: 'center', marginBottom: 60 }} className="animate-fade-in delay-1">
-              <h3 className="section-title">Platform Highlights</h3>
-              <p className="section-subtitle">Built for healthcare operations, clinical quality, and trusted patient communications.</p>
+        <div className="platform-pricing-flow">
+          <section className="surface-section platform-highlights-section">
+            <div className="landing-container">
+              <div style={{ textAlign: 'center', marginBottom: 60 }} className="animate-fade-in delay-1">
+                <h3 className="section-title">Platform Highlights</h3>
+                <p className="section-subtitle">Built for healthcare operations, clinical quality, and trusted patient communications.</p>
+              </div>
+              <div className="landing-features-grid animate-fade-in delay-2">
+                <div className="feature-card">
+                  <div className="feature-icon">🩺</div>
+                  <h4 className="feature-title">AI Triage Intelligence</h4>
+                  <p className="feature-description">Assess symptoms, collect structured context, and route patients with configurable risk pathways.</p>
+                </div>
+                <div className="feature-card">
+                  <div className="feature-icon">🔐</div>
+                  <h4 className="feature-title">Secure by Design</h4>
+                  <p className="feature-description">Role-based access, audit visibility, and controlled integrations for high-trust healthcare delivery.</p>
+                </div>
+                <div className="feature-card">
+                  <div className="feature-icon">🤝</div>
+                  <h4 className="feature-title">Human Handoff</h4>
+                  <p className="feature-description">Escalate conversations to live care teams with context handover and continuity built in.</p>
+                </div>
+                <div className="feature-card">
+                  <div className="feature-icon">📊</div>
+                  <h4 className="feature-title">Operational Visibility</h4>
+                  <p className="feature-description">Track usage, response quality, and service demand to improve staffing and patient outcomes.</p>
+                </div>
+              </div>
             </div>
-            <div className="landing-features-grid animate-fade-in delay-2">
-              <div className="feature-card">
-                <div className="feature-icon">🩺</div>
-                <h4 className="feature-title">AI Triage Intelligence</h4>
-                <p className="feature-description">Assess symptoms, collect structured context, and route patients with configurable risk pathways.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">🔐</div>
-                <h4 className="feature-title">Secure by Design</h4>
-                <p className="feature-description">Role-based access, audit visibility, and controlled integrations for high-trust healthcare delivery.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">🤝</div>
-                <h4 className="feature-title">Human Handoff</h4>
-                <p className="feature-description">Escalate conversations to live care teams with context handover and continuity built in.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">📊</div>
-                <h4 className="feature-title">Operational Visibility</h4>
-                <p className="feature-description">Track usage, response quality, and service demand to improve staffing and patient outcomes.</p>
-              </div>
-            </div>
-          </div>
-        </section>
+          </section>
 
-        <section className="pricing-section">
-          <div className="landing-container">
-            <div style={{ textAlign: 'center', marginBottom: 48 }}>
-              <h3 className="section-title">Billing Plans</h3>
-              <p className="section-subtitle">Flexible plans for clinics, care teams, and enterprise health operations.</p>
+          <section className="pricing-section">
+            <div className="landing-container">
+              <div style={{ textAlign: 'center', marginBottom: 48 }}>
+                <h3 className="section-title">Billing Plans</h3>
+                <p className="section-subtitle">Flexible plans for clinics, care teams, and enterprise health operations.</p>
+              </div>
+              <div className="pricing-grid">
+                {displayPlans.map((pkg, idx) => (
+                  <div key={pkg.id} className={`pricing-card${idx === 1 ? ' highlighted' : ''}`}>
+                    <h4>{pkg.name}</h4>
+                    <p className="price">
+                      {pkg.priceUgx <= 0 ? 'Free' : formatUgx(pkg.priceUgx)}
+                      <span>{pkg.priceUgx > 0 ? '/month' : '/limited time'}</span>
+                    </p>
+                    {pkg.trialDays > 0 && <p className="price-trial">{pkg.trialDays} day trial included</p>}
+                    <p className="price-description">{pkg.description}</p>
+                    <button onClick={() => navigate('/signup')} className="pricing-btn">{pkg.priceUgx <= 0 ? 'Start Free Trial' : 'Choose Package'}</button>
+                  </div>
+                ))}
+                {displayPlans.length === 0 && (
+                  <div className="pricing-card" style={{ gridColumn: '1 / -1' }}>
+                    <h4>Plans unavailable</h4>
+                    <p className="price-description">Pricing plans are managed by SaaS admin settings and are temporarily unavailable.</p>
+                    <button onClick={() => navigate('/signup')} className="pricing-btn">Continue to Sign Up</button>
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="pricing-grid">
-              {displayPlans.map((pkg, idx) => (
-                <div key={pkg.id} className={`pricing-card${idx === 1 ? ' highlighted' : ''}`}>
-                  <h4>{pkg.name}</h4>
-                  <p className="price">
-                    {pkg.priceUgx <= 0 ? 'Free' : formatUgx(pkg.priceUgx)}
-                    <span>{pkg.priceUgx > 0 ? '/month' : '/limited time'}</span>
-                  </p>
-                  {pkg.trialDays > 0 && <p className="price-trial">{pkg.trialDays} day trial included</p>}
-                  <p className="price-description">{pkg.description}</p>
-                  <button onClick={() => navigate('/signup')} className="pricing-btn">{pkg.priceUgx <= 0 ? 'Start Free Trial' : 'Choose Package'}</button>
-                </div>
-              ))}
-              {displayPlans.length === 0 && (
-                <div className="pricing-card" style={{ gridColumn: '1 / -1' }}>
-                  <h4>Plans unavailable</h4>
-                  <p className="price-description">Pricing plans are managed by SaaS admin settings and are temporarily unavailable.</p>
-                  <button onClick={() => navigate('/signup')} className="pricing-btn">Continue to Sign Up</button>
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
+          </section>
+        </div>
       </main>
 
       <footer className="landing-footer">
