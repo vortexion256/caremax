@@ -95,7 +95,7 @@ curl -X POST "https://your-api.com/tenants/<tenantId>/payments/marzpay/initializ
   - production: `https://caremax-admin.vercel.app/billing?payment=marzpay`
   - If Marz supports placeholders, append `&tx_ref={tx_ref}` so verification can map transactions reliably.
 - **Widget**: Set `VITE_API_URL` to your API URL (e.g. `http://localhost:3001`).
-- **Admin**: Set `VITE_API_URL` and Firebase client env vars (`VITE_FIREBASE_*`).
+- **Admin**: Set `VITE_API_URL` and Firebase client env vars (`VITE_FIREBASE_*`). On Vercel API deployments, prefer `https://<your-api>.vercel.app/api` to avoid rewrite/config drift.
 
 ### 4. Install and run
 
