@@ -15,6 +15,28 @@ export type AgentResult = { text: string; requestHandoff?: boolean };
 
 const AGENT_FALLBACK_MODELS = ['gemini-3-flash-preview', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
 
+type DiagnosticStatus = 'ok' | 'warning' | 'error' | 'timeout';
+
+function classifyToolExecution(content: string, durationMs: number): { status: DiagnosticStatus; error?: string } {
+  const normalized = content.toLowerCase();
+  const timeoutHints = ['timeout', 'timed out'];
+  const errorHints = ['failed', 'error', 'invalid arguments'];
+
+  if (timeoutHints.some((hint) => normalized.includes(hint))) {
+    return { status: 'timeout', error: content };
+  }
+
+  if (errorHints.some((hint) => normalized.includes(hint))) {
+    return { status: 'error', error: content };
+  }
+
+  if (durationMs > 10000) {
+    return { status: 'warning' };
+  }
+
+  return { status: 'ok' };
+}
+
 /** Format existing Auto Agent Brain records for the system prompt so the agent can decide add vs edit vs delete. */
 const CONTENT_SNIPPET_LENGTH = 120;
 
@@ -604,6 +626,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       metadata: { round: round + 1, toolCallCount: toolCalls.length, toolNames: toolCalls.map((tc) => tc.name) },
     });
     const toolMessages: ToolMessage[] = [];
+    const toolRunDiagnostics: Array<{ toolName: string; status: DiagnosticStatus; durationMs: number; error?: string }> = [];
     for (const tc of toolCalls) {
       const toolStartedAt = Date.now();
       let content: string;
@@ -694,14 +717,22 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
         toolName: tc.name,
         durationMs: toolDurationMs,
       });
+      const toolExecution = classifyToolExecution(content, toolDurationMs);
+      toolRunDiagnostics.push({
+        toolName: tc.name,
+        status: toolExecution.status,
+        durationMs: toolDurationMs,
+        error: toolExecution.error,
+      });
       void recordDiagnosticLog({
         tenantId,
         source: 'agent',
         step: 'tool_execution',
-        status: toolDurationMs > 10000 ? 'warning' : 'ok',
+        status: toolExecution.status,
         durationMs: toolDurationMs,
         conversationId: options?.conversationId,
         metadata: { round: round + 1, toolName: tc.name },
+        error: toolExecution.error,
       });
       toolMessages.push(new ToolMessage({ content, tool_call_id: tc.id }));
     }
@@ -716,7 +747,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
         step: 'tool_round_llm_timeout',
         status: 'timeout',
         conversationId: options?.conversationId,
-        metadata: { round: round + 1 },
+        metadata: { round: round + 1, toolRunDiagnostics },
         error: e instanceof Error ? e.message : String(e),
       });
       // If timeout during tool execution, return a helpful message
