@@ -15,7 +15,30 @@ function normalizeApiUrl(rawUrl: string): string {
   }
 }
 
+function getAlternateApiUrl(rawApiUrl: string): string | null {
+  try {
+    const parsed = new URL(rawApiUrl);
+    if (!parsed.hostname.endsWith('.vercel.app')) {
+      return null;
+    }
+
+    const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
+    const hasApiPrefix = pathname === '/api' || pathname.startsWith('/api/');
+
+    if (hasApiPrefix) {
+      parsed.pathname = pathname === '/api' ? '/' : pathname.replace(/^\/api/, '') || '/';
+    } else {
+      parsed.pathname = `/api${pathname === '/' ? '' : pathname}`;
+    }
+
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
 const API_URL = normalizeApiUrl(DEFAULT_API_URL);
+const FALLBACK_API_URL = getAlternateApiUrl(API_URL);
 
 function getToken(): string | null {
   return localStorage.getItem('caremax_id_token');
@@ -39,16 +62,42 @@ export async function api<T>(
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    const errorMessage = (err as { error?: string }).error ?? res.statusText;
-    throw new Error(errorMessage);
+  const candidateUrls = [API_URL];
+  if (isReadOnlyMethod && FALLBACK_API_URL && FALLBACK_API_URL !== API_URL) {
+    candidateUrls.push(FALLBACK_API_URL);
   }
-  if (res.status === 204 || res.headers.get('content-length') === '0') {
-    return undefined as T;
+
+  let lastNetworkError: unknown = null;
+
+  for (let i = 0; i < candidateUrls.length; i += 1) {
+    const baseUrl = candidateUrls[i];
+    try {
+      const res = await fetch(`${baseUrl}${path}`, { ...options, headers });
+
+      if (!res.ok) {
+        if (res.status === 404 && i < candidateUrls.length - 1) {
+          continue;
+        }
+
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        const errorMessage = (err as { error?: string }).error ?? res.statusText;
+        throw new Error(errorMessage);
+      }
+
+      if (res.status === 204 || res.headers.get('content-length') === '0') {
+        return undefined as T;
+      }
+      return res.json();
+    } catch (error) {
+      lastNetworkError = error;
+      if (i < candidateUrls.length - 1) {
+        continue;
+      }
+      throw error;
+    }
   }
-  return res.json();
+
+  throw (lastNetworkError instanceof Error ? lastNetworkError : new Error('Request failed'));
 }
 
 export function setAuthToken(token: string) {
