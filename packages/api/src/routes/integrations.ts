@@ -141,12 +141,99 @@ function xmlEmptyResponse(): string {
   return '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 }
 
+function twilioBasicAuthHeader(accountSid: string, authToken: string): string {
+  return `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`;
+}
+
+
+function isLikelyWhatsAppVoiceNote(payload: Request['body']): boolean {
+  const messageType = typeof payload?.MessageType === 'string' ? payload.MessageType.trim().toLowerCase() : '';
+  const numMedia = Number.parseInt(String(payload?.NumMedia ?? '0'), 10);
+  const mediaType = typeof payload?.MediaContentType0 === 'string' ? payload.MediaContentType0.trim().toLowerCase() : '';
+  const mediaUrl = typeof payload?.MediaUrl0 === 'string' ? payload.MediaUrl0.trim().toLowerCase() : '';
+
+  if (!Number.isFinite(numMedia) || numMedia !== 1) return false;
+  if (!mediaType.startsWith('audio/')) return false;
+
+  // Twilio commonly marks inbound WhatsApp voice notes as MessageType=audio.
+  // We also accept typical voice-note codecs/extensions as a fallback.
+  const hasVoiceType = messageType === 'audio';
+  const hasVoiceCodec = mediaType.includes('ogg') || mediaType.includes('opus');
+  const hasVoiceExt = mediaUrl.endsWith('.ogg') || mediaUrl.endsWith('.opus');
+
+  return hasVoiceType || hasVoiceCodec || hasVoiceExt;
+}
+
+async function transcribeWhatsAppAudio(params: {
+  mediaUrl: string;
+  contentType: string;
+  accountSid: string;
+  authToken: string;
+}): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const audioRes = await fetch(params.mediaUrl, {
+      headers: {
+        Authorization: twilioBasicAuthHeader(params.accountSid, params.authToken),
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!audioRes.ok) return null;
+
+    const audioBuf = Buffer.from(await audioRes.arrayBuffer());
+    const base64Audio = audioBuf.toString('base64');
+
+    const transcriptionRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: 'Transcribe this audio verbatim. Return only the transcript text with no extra commentary.',
+              },
+              {
+                inline_data: {
+                  mime_type: params.contentType,
+                  data: base64Audio,
+                },
+              },
+            ],
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!transcriptionRes.ok) return null;
+
+    const payload = await transcriptionRes.json() as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{ text?: string }>;
+        };
+      }>;
+    };
+
+    const transcript = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join(' ').trim();
+    return transcript || null;
+  } catch (error) {
+    console.warn('WhatsApp audio transcription failed:', error);
+    return null;
+  }
+}
+
 integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req: Request, res: Response) => {
   const tenantId = req.params.tenantId;
   const from = typeof req.body?.From === 'string' ? req.body.From.trim() : '';
-  const body = typeof req.body?.Body === 'string' ? req.body.Body.trim() : '';
 
-  if (!tenantId || !from || !body) {
+  if (!tenantId || !from) {
     res.set('Content-Type', 'text/xml');
     res.status(200).send(xmlResponse('Message not received correctly. Please try again.'));
     return;
@@ -159,6 +246,35 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     if (!whatsapp?.connected) {
       res.set('Content-Type', 'text/xml');
       res.status(200).send(xmlResponse('WhatsApp integration is not connected for this tenant.'));
+      return;
+    }
+
+    let body = typeof req.body?.Body === 'string' ? req.body.Body.trim() : '';
+    const hasVoiceNote = isLikelyWhatsAppVoiceNote(req.body);
+
+    if (!body && hasVoiceNote) {
+      const mediaUrl = typeof req.body?.MediaUrl0 === 'string' ? req.body.MediaUrl0.trim() : '';
+      const mediaType = typeof req.body?.MediaContentType0 === 'string' ? req.body.MediaContentType0.trim().toLowerCase() : '';
+      const isAudio = mediaType.startsWith('audio/');
+      const accountSid = typeof whatsapp.accountSid === 'string' ? whatsapp.accountSid.trim() : '';
+      const authToken = typeof whatsapp.authToken === 'string' ? whatsapp.authToken.trim() : '';
+
+      if (isAudio && mediaUrl && accountSid && authToken) {
+        const transcript = await transcribeWhatsAppAudio({
+          mediaUrl,
+          contentType: mediaType,
+          accountSid,
+          authToken,
+        });
+        if (transcript) {
+          body = transcript;
+        }
+      }
+    }
+
+    if (!body) {
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlResponse('We could not read that message yet. Please send text or a clearer voice note.'));
       return;
     }
 
