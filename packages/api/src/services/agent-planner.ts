@@ -232,8 +232,14 @@ Create a detailed execution plan. Use create_plan to structure your response.`
           ...s,
           requiresConfirmation,
           status: 'pending' as const,
-          confirmed: requiresConfirmation ? false : undefined,
+          ...(requiresConfirmation && { confirmed: false }),
         };
+        // return {
+        //   ...s,
+        //   requiresConfirmation,
+        //   status: 'pending' as const,
+        //   confirmed: requiresConfirmation ? false : undefined,
+        // };
       });
 
       const hasImmediateConfirmationNeeded = steps.some(s => s.stepNumber === 1 && s.requiresConfirmation && !s.confirmed);
