@@ -5,6 +5,24 @@ import { indexDocument, deleteChunksForDocument } from './rag.js';
 const COLLECTION = 'auto_agent_brain';
 const CHUNK_SIZE = 500;
 
+const PERSONAL_DATA_PATTERNS: RegExp[] = [
+  /\bmy name is\b/i,
+  /\bcall me\b/i,
+  /\bi am\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b/,
+  /\buser\s*name\b/i,
+  /\bpatient\s*name\b/i,
+  /\bdate of birth\b|\bdob\b/i,
+  /\b(ssn|social security|passport|driver(?:'s)? license)\b/i,
+];
+
+function assertGenericKnowledge(title: string, content: string): void {
+  const combined = `${title}\n${content}`;
+  const hasPersonalData = PERSONAL_DATA_PATTERNS.some((pattern) => pattern.test(combined));
+  if (hasPersonalData) {
+    throw new Error('Record rejected: learned records must remain generic and must not contain user-identifying information.');
+  }
+}
+
 function chunkText(text: string): string[] {
   const chunks: string[] = [];
   for (let i = 0; i < text.length; i += CHUNK_SIZE) {
@@ -30,6 +48,7 @@ export async function createRecord(
 ): Promise<{ recordId: string; title: string }> {
   const trimmedTitle = title.trim();
   const trimmedContent = content.trim();
+  assertGenericKnowledge(trimmedTitle, trimmedContent);
   const ref = await db.collection(COLLECTION).add({
     tenantId,
     title: trimmedTitle,
@@ -84,9 +103,14 @@ export async function updateRecord(
   if ((data.tenantId as string) !== tenantId) return null;
 
   const set: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
-  if (updates.title !== undefined) set.title = updates.title.trim();
+  const normalizedTitle = updates.title !== undefined ? updates.title.trim() : (data.title as string | undefined) ?? '';
+  if (updates.title !== undefined) set.title = normalizedTitle;
+  if (updates.title !== undefined && updates.content === undefined) {
+    assertGenericKnowledge(normalizedTitle, (data.content as string | undefined) ?? '');
+  }
   if (updates.content !== undefined) {
     const content = updates.content.trim();
+    assertGenericKnowledge(normalizedTitle, content);
     set.content = content;
     await deleteChunksForDocument(tenantId, recordId);
     const chunks = chunkText(content);

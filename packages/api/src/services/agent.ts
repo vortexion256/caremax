@@ -69,6 +69,20 @@ function formatExistingRecordsForPrompt(records: { recordId: string; title: stri
 /** When the model includes this at the end of its reply, we escalate to a human. Enables indirect "I want a person" and "couldn't help after repeat" detection. */
 const HANDOFF_MARKER = '[HANDOFF]';
 
+
+const PERSONAL_DATA_NOTE_PATTERNS: RegExp[] = [
+  /\bmy name is\b/i,
+  /\bcall me\b/i,
+  /\bpatient name\b/i,
+  /\buser name\b/i,
+  /\bdate of birth\b|\bdob\b/i,
+  /\b(ssn|social security|passport|driver(?:'s)? license)\b/i,
+];
+
+function isGenericLearningContent(text: string): boolean {
+  return !PERSONAL_DATA_NOTE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 const defaultSystemPrompt = `You are a helpful clinical triage assistant. You help users understand possible next steps based on their symptoms.
 You may suggest: possible diagnoses (as possibilities, not certainties), tests they could discuss with a doctor, first aid or home care when appropriate, and when to seek emergency or in-person care.
 Always be clear that you are not a doctor and cannot diagnose. If the user shares images (e.g. skin, wound), you may comment on what you observe and suggest next steps, but never give a definitive diagnosis from images alone.
@@ -332,14 +346,14 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     try {
       const existingNotes = await listAgentNotes(tenantId, { conversationId: options.conversationId, limit: 10 });
       if (existingNotes.length > 0) {
-        existingNotesContext = `\n\n--- Existing notes in this conversation (do NOT create duplicates) ---\n${existingNotes.map((n, i) => `${i + 1}. [${n.category}] ${n.content}${n.patientName ? ` (User: ${n.patientName})` : ''}`).join('\n')}\n--- End of existing notes ---\n\nBefore creating a note, check the list above. If a note about the same topic already exists (same question pattern, same keyword, same insight), do NOT create a duplicate. Only create a note if it's genuinely new information not already covered above.`;
+        existingNotesContext = `\n\n--- Existing notes in this conversation (do NOT create duplicates) ---\n${existingNotes.map((n, i) => `${i + 1}. [${n.category}] ${n.content}`).join('\n')}\n--- End of existing notes ---\n\nBefore creating a note, check the list above. If a note about the same topic already exists (same question pattern, same keyword, same insight), do NOT create a duplicate. Only create a note if it's genuinely new information not already covered above.`;
       }
     } catch (e) {
       console.warn('Failed to load existing notes for deduplication:', e);
     }
   }
 
-  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}`;
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked topics, important keywords or trends, and user behavior patterns. Notes MUST be generic and aggregated. Never store names, personal identifiers, or user-specific profile details. You can also use list_notes to see existing notes for this conversation and update_note to refine an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points). Avoid creating redundant or trivial notes.${existingNotesContext}`;
   if (config.ragEnabled) {
     const lastUser = history.filter((m) => m.role === 'user').pop();
     // Add timeout for RAG context retrieval (5 seconds)
@@ -381,7 +395,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       console.warn('[Agent] listRecords error:', e);
     }
     systemContent += `\n\n--- Current Auto Agent Brain records (check these before adding anything) ---\n${formatExistingRecordsForPrompt(existingRecords)}\n--- End of existing records ---`;
-    systemContent += `\n\nWhen the user or care team provides information to remember, you MUST decide based on the existing records above:\n1) If it UPDATES or CORRECTS an existing record (e.g. new phone number for the same branch, changed hours, corrected detail)—use request_edit_record with that record's recordId; do NOT add a new record (that causes duplicates).\n2) If a record is obsolete or should be removed—use request_delete_record with that recordId.\n3) Only use record_learned_knowledge for genuinely NEW information that does not overlap any existing record (no similar title/topic).\nUse short, clear titles and key facts. To edit or delete you must use the recordId from the list above; an admin will approve before the change is applied.`;
+    systemContent += `\n\nWhen the user or care team provides information to remember, you MUST decide based on the existing records above:\n1) If it UPDATES or CORRECTS an existing record (e.g. new phone number for the same branch, changed hours, corrected detail)—use request_edit_record with that record's recordId; do NOT add a new record (that causes duplicates).\n2) If a record is obsolete or should be removed—use request_delete_record with that recordId.\n3) Only use record_learned_knowledge for genuinely NEW generic information that does not overlap any existing record (no similar title/topic). Never store user-specific identity details.\nUse short, clear titles and key facts. To edit or delete you must use the recordId from the list above; an admin will approve before the change is applied.`;
   }
 
   const googleSheetsList = config.googleSheets ?? [];
@@ -439,7 +453,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   const recordTool = new DynamicStructuredTool({
     name: 'record_learned_knowledge',
     description:
-      'Save a new fact or piece of information that you did not know before, so you can use it in future answers. Use when the user or care team has provided contact details, policy info, or other org-specific facts.',
+      'Save a new generic organizational fact for future answers. Never store user-specific details (names, personal preferences, or identifiers).',
     schema: z.object({
       title: z.string().describe('Short title for the record (e.g. "Support email address")'),
       content: z.string().describe('The key information to remember'),
@@ -505,20 +519,21 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
 
   const createNoteTool = new DynamicStructuredTool({
     name: 'create_note',
-    description: 'Create a note for admin review. Use this EXCLUSIVELY to save and record any information for admin from user (e.g. contact details, preferences, specific requests). Also use it to track analytics, insights, or patterns observed during conversations. Create notes whenever the user provides information that should be recorded for the admin.',
+    description: 'Create a generic note for admin review. Use this for aggregate analytics, trends, and common questions. Never store user-identifying details.',
     schema: z.object({
       content: z.string().describe('The note content describing the information, insight or pattern (e.g. "User requested follow-up on insurance" or "Common question: Many users asking about appointment booking process")'),
-      patientName: z.string().optional().describe('Optional: Patient or user name if relevant to the note'),
       category: z.enum(['admin_info', 'common_questions', 'keywords', 'analytics', 'insights', 'other']).optional().describe('Category: "admin_info" for information to be recorded for admin, "common_questions" for frequently asked questions, "keywords" for trending keywords/phrases, "analytics" for usage patterns/metrics, "insights" for general observations, "other" for anything else'),
     }),
-    func: async ({ content, patientName, category }) => {
+    func: async ({ content, category }) => {
       if (!options?.conversationId) {
         return 'Cannot create note: conversation ID not available.';
       }
       try {
-        await createNote(tenantId, options.conversationId, content.trim(), {
-          userId: options?.userId,
-          patientName: patientName?.trim(),
+        const normalized = content.trim();
+        if (!isGenericLearningContent(normalized)) {
+          return 'Note rejected: store only generic patterns without personal user information.';
+        }
+        await createNote(tenantId, options.conversationId, normalized, {
           category: category ?? 'other',
         });
         return 'Note created successfully.';
@@ -537,7 +552,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       try {
         const notes = await listAgentNotes(tenantId);
         if (notes.length === 0) return 'No notes found.';
-        return notes.map((n) => `noteId: ${n.noteId}\ncategory: ${n.category}\ncontent: ${n.content}${n.patientName ? `\nuser: ${n.patientName}` : ''}`).join('\n\n');
+        return notes.map((n) => `noteId: ${n.noteId}\ncategory: ${n.category}\ncontent: ${n.content}`).join('\n\n');
       } catch (e) {
         console.error('list_notes error:', e);
         return e instanceof Error ? e.message : 'Failed to list notes.';
@@ -556,7 +571,11 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       try {
         const note = await getNote(tenantId, noteId);
         if (!note) return 'Note not found.';
-        await updateNoteContent(tenantId, noteId, content.trim());
+        const normalized = content.trim();
+        if (!isGenericLearningContent(normalized)) {
+          return 'Update rejected: notes must remain generic and must not include personal user information.';
+        }
+        await updateNoteContent(tenantId, noteId, normalized);
         return 'Note updated successfully.';
       } catch (e) {
         console.error('update_note error:', e);
@@ -696,13 +715,11 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
         }
       } else if (tc.name === 'create_note' && tc.args && typeof tc.args.content === 'string') {
         try {
-          const patientName = typeof tc.args.patientName === 'string' ? tc.args.patientName : undefined;
-          const category = typeof tc.args.category === 'string' && ['common_questions', 'keywords', 'analytics', 'insights', 'other'].includes(tc.args.category)
-            ? (tc.args.category as 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'other')
+          const category = typeof tc.args.category === 'string' && ['admin_info', 'common_questions', 'keywords', 'analytics', 'insights', 'other'].includes(tc.args.category)
+            ? (tc.args.category as 'admin_info' | 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'other')
             : undefined;
           content = await createNoteTool.invoke({
             content: tc.args.content,
-            patientName,
             category,
           });
           void recordActivity(tenantId, 'agent-notes');
@@ -1123,7 +1140,7 @@ ${existingBlock}
 You MUST decide for each piece of information:
 1) If it UPDATES or CORRECTS an existing record (e.g. new phone number for same branch, changed hours)—use request_edit_record with that record's recordId; do NOT add a new record.
 2) If a record is obsolete or wrong and should be removed—use request_delete_record with that recordId.
-3) Only use record_learned_knowledge for genuinely NEW information that does not overlap any existing record (no similar title/topic).
+3) Only use record_learned_knowledge for genuinely NEW generic information that does not overlap any existing record (no similar title/topic). Never store user-specific identity details.
 If there is nothing new or nothing to update/remove, do not call any tool.`;
   let learningOnlySystem: string;
   if (config.learningOnlyPrompt?.trim()) {
@@ -1140,7 +1157,7 @@ If there is nothing new or nothing to update/remove, do not call any tool.`;
 
   const recordTool = new DynamicStructuredTool({
     name: 'record_learned_knowledge',
-    description: 'Save a new fact (only when no existing record covers this topic).',
+    description: 'Save a new generic fact (only when no existing record covers this topic). Never store user-identifying details.',
     schema: z.object({
       title: z.string().describe('Short title for the record'),
       content: z.string().describe('The key information to remember'),
