@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Router } from 'express';
 import cors from 'cors';
 import { authRouter } from './routes/auth.js';
 import { healthRouter } from './routes/health.js';
@@ -39,25 +39,32 @@ app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-app.use('/health', healthRouter);
-app.use('/auth', authRouter);
-app.use('/register', registerRouter);
-app.use('/public', publicRouter);
-app.use('/platform', platformRouter);
-app.use('/integrations', integrationsCallbackRouter);
-app.use('/tenants', rateLimit);
-app.use('/tenants', domainAllowlist);
-// Mount tenant-scoped routes first so they are not covered by tenantRouter (which requires auth)
-app.use('/tenants/:tenantId/integrations', tenantIntegrationsRouter);
-app.use('/tenants/:tenantId/conversations', conversationRouter);
-app.use('/tenants/:tenantId/upload', uploadRouter);
-app.use('/tenants/:tenantId/agent-config', agentConfigRouter);
-app.use('/tenants/:tenantId/handoffs', handoffRouter);
-app.use('/tenants/:tenantId/rag', ragRouter);
-app.use('/tenants/:tenantId/agent-records', agentRecordsRouter);
-app.use('/tenants/:tenantId/agent-notes', agentNotesRouter);
-app.use('/tenants/:tenantId/analytics', analyticsRouter);
-app.use('/tenants', tenantRouter);
+const registerRoutes = (router: Router) => {
+  router.use('/health', healthRouter);
+  router.use('/auth', authRouter);
+  router.use('/register', registerRouter);
+  router.use('/public', publicRouter);
+  router.use('/platform', platformRouter);
+  router.use('/integrations', integrationsCallbackRouter);
+  router.use('/tenants', rateLimit);
+  router.use('/tenants', domainAllowlist);
+  // Mount tenant-scoped routes first so they are not covered by tenantRouter (which requires auth)
+  router.use('/tenants/:tenantId/integrations', tenantIntegrationsRouter);
+  router.use('/tenants/:tenantId/conversations', conversationRouter);
+  router.use('/tenants/:tenantId/upload', uploadRouter);
+  router.use('/tenants/:tenantId/agent-config', agentConfigRouter);
+  router.use('/tenants/:tenantId/handoffs', handoffRouter);
+  router.use('/tenants/:tenantId/rag', ragRouter);
+  router.use('/tenants/:tenantId/agent-records', agentRecordsRouter);
+  router.use('/tenants/:tenantId/agent-notes', agentNotesRouter);
+  router.use('/tenants/:tenantId/analytics', analyticsRouter);
+  router.use('/tenants', tenantRouter);
+};
+
+const apiRouter = Router();
+registerRoutes(apiRouter);
+app.use(apiRouter);
+app.use('/api', apiRouter);
 
 export default app;
 
