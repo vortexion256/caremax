@@ -574,8 +574,11 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
   
-  // Add timeout wrapper for LLM calls (60 seconds per call)
-  const invokeWithTimeout = async (messages: BaseMessage[], timeoutMs = 60000): Promise<BaseMessage> => {
+  const LLM_CALL_TIMEOUT_MS = 120000;
+  const SLOW_LLM_WARNING_MS = 90000;
+
+  // Add timeout wrapper for LLM calls (2 minutes per call)
+  const invokeWithTimeout = async (messages: BaseMessage[], timeoutMs = LLM_CALL_TIMEOUT_MS): Promise<BaseMessage> => {
     const invokeStart = Date.now();
     const llmInput = getLlmInputSummary(messages);
     return Promise.race([
@@ -590,7 +593,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
           tenantId,
           source: 'agent',
           step: 'llm_invoke',
-          status: durationMs > 45000 ? 'warning' : 'ok',
+          status: durationMs > SLOW_LLM_WARNING_MS ? 'warning' : 'ok',
           durationMs,
           conversationId: options?.conversationId,
           metadata: {
@@ -878,7 +881,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
           const retryResponse = await Promise.race([
             model.invoke(retryMessages),
             new Promise<BaseMessage>((_, reject) => {
-              setTimeout(() => reject(new Error('Retry timeout')), 60000);
+              setTimeout(() => reject(new Error('Retry timeout')), LLM_CALL_TIMEOUT_MS);
             }),
           ]);
           
@@ -946,11 +949,11 @@ Tool results: ${toolResultsSummary}
 Provide a clear, user-friendly response based on these results.`,
             });
             
-            // Use longer timeout for fallback (60 seconds)
+            // Use the same timeout for fallback LLM calls (2 minutes)
             const fallbackResponse = await Promise.race([
               model.invoke([...currentMessages.slice(-10), contextPrompt]),
               new Promise<BaseMessage>((_, reject) => {
-                setTimeout(() => reject(new Error('Fallback LLM timeout')), 60000);
+                setTimeout(() => reject(new Error('Fallback LLM timeout')), LLM_CALL_TIMEOUT_MS);
               }),
             ]);
             
@@ -975,11 +978,11 @@ Provide a clear, user-friendly response based on these results.`,
             content: 'Reply to the user in plain text only. Do not use any tools. Provide a helpful response based on the conversation context.',
           });
           
-          // Use longer timeout for fallback (60 seconds instead of 15)
+          // Use the same timeout for fallback LLM calls (2 minutes)
           const fallbackResponse = await Promise.race([
             model.invoke([...currentMessages.slice(-10), plainTextPrompt]),
             new Promise<BaseMessage>((_, reject) => {
-              setTimeout(() => reject(new Error('Fallback LLM timeout')), 60000);
+              setTimeout(() => reject(new Error('Fallback LLM timeout')), LLM_CALL_TIMEOUT_MS);
             }),
           ]);
           
@@ -1081,7 +1084,7 @@ Provide a clear, user-friendly response based on these results.`,
     tenantId,
     source: 'agent',
     step: 'run_complete',
-    status: runDurationMs > 60000 ? 'warning' : 'ok',
+    status: runDurationMs > LLM_CALL_TIMEOUT_MS ? 'warning' : 'ok',
     durationMs: runDurationMs,
     conversationId: options?.conversationId,
     metadata: { requestHandoff, finalTextLength: finalText.length },
