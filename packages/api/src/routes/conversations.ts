@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../config/firebase.js';
 import { requireAuth, requireTenantParam, requireAdmin, type AuthLocals } from '../middleware/auth.js';
-import { runAgent, extractAndRecordLearningFromHistory } from '../services/agent.js';
+import { extractAndRecordLearningFromHistory } from '../services/agent.js';
+import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { getTenantBillingStatus, WIDGET_BILLING_ERROR } from '../services/billing.js';
 import type { ConversationStatus } from '../types/index.js';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -297,7 +298,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
   const traceStartedAt = Date.now();
   try {
     const userId = (convData?.userId as string | undefined) ?? undefined;
-    agentResponse = await runAgent(tenantId, history, {
+    agentResponse = await runConfiguredAgent(tenantId, history, {
       userId,
       conversationId,
     });

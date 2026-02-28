@@ -11,7 +11,7 @@ import { db } from '../config/firebase.js';
 import { activateTenantSubscription } from '../services/billing.js';
 import { verifyMarzPayTransaction } from '../services/marzpay.js';
 import { createTenantNotification } from '../services/tenant-notifications.js';
-import { runAgent } from '../services/agent.js';
+import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
 /** Callback from Google OAuth - no auth; state = tenantId. Redirects to admin. */
@@ -377,7 +377,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       };
     });
 
-    const agentResponse = await runAgent(tenantId, history, {
+    const agentResponse = await runConfiguredAgent(tenantId, history, {
       userId: from,
       conversationId: conversationRef.id,
     });
