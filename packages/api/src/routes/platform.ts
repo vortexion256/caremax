@@ -70,6 +70,7 @@ platformRouter.get('/tenants/:tenantId', async (req, res) => {
           agentName: agentData?.agentName ?? null,
           model: agentData?.model ?? null,
           ragEnabled: agentData?.ragEnabled ?? false,
+          agentVersion: agentData?.agentVersion ?? null,
           createdAt: agentData?.createdAt?.toMillis?.() ?? null,
         };
       }
@@ -347,6 +348,7 @@ const tenantAdminSettingsSchema = z.object({
   showUsageByApiFlow: z.boolean().optional(),
   maxTokensPerUser: z.number().int().positive().optional(),
   maxSpendUgxPerUser: z.number().positive().optional(),
+  agentVersion: z.enum(['v1', 'v2']).optional(),
 });
 
 const defaultBillingConfig = {
@@ -667,8 +669,15 @@ platformRouter.patch('/tenants/:tenantId/settings', async (req, res) => {
     if (typeof parsed.data.maxSpendUgxPerUser === 'number') {
       payload.maxSpendUgxPerUser = parsed.data.maxSpendUgxPerUser;
     }
+    if (parsed.data.agentVersion) {
+      await db.collection('agent_config').doc(tenantId).set({
+        tenantId,
+        agentVersion: parsed.data.agentVersion,
+        updatedAt: new Date(),
+      }, { merge: true });
+    }
     await tenantRef.set(payload, { merge: true });
-    res.json({ success: true, ...payload });
+    res.json({ success: true, ...payload, agentVersion: parsed.data.agentVersion ?? null });
   } catch (e) {
     console.error('Failed to update tenant settings:', e);
     res.status(500).json({ error: 'Failed to update tenant settings' });

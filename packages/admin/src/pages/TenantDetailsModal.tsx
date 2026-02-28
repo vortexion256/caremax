@@ -12,6 +12,7 @@ type TenantDetails = {
     agentName: string | null;
     model: string | null;
     ragEnabled: boolean;
+    agentVersion: 'v1' | 'v2' | null;
     createdAt: number | null;
   } | null;
   billingPlanId: string;
@@ -125,6 +126,7 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
     showUsageByApiFlow?: boolean;
     maxTokensPerUser?: number;
     maxSpendUgxPerUser?: number;
+    agentVersion?: 'v1' | 'v2';
   }) => {
     if (savingSettings) return;
     setSavingSettings(true);
@@ -266,6 +268,10 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
                     <div style={{ fontSize: 12, color: '#666', marginBottom: 2 }}>RAG Enabled</div>
                     <div style={{ fontSize: 14 }}>{details.agentConfig.ragEnabled ? 'Yes' : 'No'}</div>
                   </div>
+                  <div>
+                    <div style={{ fontSize: 12, color: '#666', marginBottom: 2 }}>Agent Version</div>
+                    <div style={{ fontSize: 14 }}>{details.agentConfig.agentVersion || 'v1 (default)'}</div>
+                  </div>
                   {details.agentConfig.createdAt && (
                     <div>
                       <div style={{ fontSize: 12, color: '#666', marginBottom: 2 }}>Agent Config Created</div>
@@ -325,6 +331,18 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
                     disabled={savingSettings}
                   />
                   Show “Usage by API Flow” in tenant admin
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10, fontSize: 13 }}>
+                  Agent runtime version
+                  <select
+                    value={details.agentConfig?.agentVersion ?? 'v1'}
+                    onChange={(e) => saveTenantSettings({ agentVersion: e.target.value as 'v1' | 'v2' })}
+                    disabled={savingSettings}
+                    style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', width: 180 }}
+                  >
+                    <option value="v1">v1</option>
+                    <option value="v2">v2</option>
+                  </select>
                 </label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button
