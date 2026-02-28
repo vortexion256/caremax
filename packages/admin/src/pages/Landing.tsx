@@ -108,7 +108,7 @@ export default function Landing() {
 
   useEffect(() => {
     let active = true;
-    api<{ plans: PublicBillingPlan[] }>('/public/billing/plans')
+    api<{ plans: PublicBillingPlan[] }>('https://caremax-api.vercel.app/public/billing/plans')
       .then((data) => {
         if (!active || !Array.isArray(data.plans) || data.plans.length === 0) return;
         setPlans(data.plans);
@@ -117,7 +117,7 @@ export default function Landing() {
         setPlans([]);
       });
 
-    api<PublicContent>('/public/content')
+    api<PublicContent>('https://caremax-api.vercel.app/public/content')
       .then((data) => {
         if (!active) return;
         setPublicContent(data);
