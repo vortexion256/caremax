@@ -1,4 +1,21 @@
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+const DEFAULT_API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+
+function normalizeApiUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim().replace(/\/+$/, '');
+  try {
+    const parsed = new URL(trimmed);
+    const isVercelDomain = parsed.hostname.endsWith('.vercel.app');
+    const hasApiPrefix = parsed.pathname === '/api' || parsed.pathname.startsWith('/api/');
+    if (isVercelDomain && !hasApiPrefix) {
+      parsed.pathname = `/api${parsed.pathname === '/' ? '' : parsed.pathname}`;
+    }
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return trimmed;
+  }
+}
+
+const API_URL = normalizeApiUrl(DEFAULT_API_URL);
 
 function getToken(): string | null {
   return localStorage.getItem('caremax_id_token');
