@@ -472,9 +472,9 @@ export class ToolExecutor {
   async executeRecordKnowledge(params: {
     title: string;
     content: string;
-  }): Promise<RecordKnowledgeResult> {
+  }, userId?: string): Promise<RecordKnowledgeResult> {
     try {
-      await createRecord(this.tenantId, params.title.trim(), params.content.trim());
+      await createRecord(this.tenantId, params.title.trim(), params.content.trim(), { userId });
       return {
         success: true,
         action: 'write',
@@ -771,7 +771,7 @@ export class AgentOrchestrator {
           result = await this.toolExecutor.executeRecordKnowledge({
             title: toolCall.args.title,
             content: toolCall.args.content,
-          });
+          }, userId);
           // Record agent-brain activity for dashboard visualization
           if (result.success) {
             void recordActivity(this.tenantId, 'agent-brain');

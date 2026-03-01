@@ -151,7 +151,7 @@ export async function runAgentV2(
     // ========================================================================
     // STEP 1.5: PLANNING DECISION (Planner agent decides if planning needed)
     // ========================================================================
-    const memory = await buildAgentContext(tenantId, options?.conversationId, history, []);
+    const memory = await buildAgentContext(tenantId, options?.conversationId, history, [], undefined, 3, options?.userId);
     let executionPlan: ExecutionPlan | null = memory.structuredState.activePlan || null;
 
     // Handle confirmation intent
@@ -267,7 +267,8 @@ export async function runAgentV2(
       trimmedMemory.recentMessages,
       executionLogs,
       ragContext,
-      3 // Max 3 RAG chunks
+      3, // Max 3 RAG chunks
+      options?.userId
     );
 
     // ========================================================================
@@ -288,7 +289,7 @@ export async function runAgentV2(
 
     // Add RAG records if enabled
     if (config.ragEnabled) {
-      const existingRecords = await listRecords(tenantId);
+      const existingRecords = await listRecords(tenantId, { userId: options?.userId });
       systemContent += `--- Current Auto Agent Brain records ---\n${formatExistingRecordsForPrompt(existingRecords)}\n--- End of records ---\n\n`;
       systemContent += `When the user provides information to remember:\n`;
       systemContent += `1) If it UPDATES an existing record → use request_edit_record\n`;

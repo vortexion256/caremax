@@ -116,7 +116,8 @@ export interface StructuredState {
  */
 export async function loadStructuredState(
   tenantId: string,
-  conversationId?: string
+  conversationId?: string,
+  userId?: string
 ): Promise<StructuredState> {
   const state: StructuredState = {
     appointments: [],
@@ -127,7 +128,7 @@ export async function loadStructuredState(
   // Load notes and active plan for this conversation
   if (conversationId) {
     try {
-      const notes = await listNotes(tenantId, { conversationId, limit: 20 });
+      const notes = await listNotes(tenantId, { conversationId, userId, limit: 20 });
       state.notes = notes.map((n) => ({
         category: n.category,
         content: n.content,
@@ -226,14 +227,18 @@ export async function storeConversationSummary(
   tenantId: string,
   conversationId: string,
   summary: string,
-  keyTopics: string[]
+  keyTopics: string[],
+  options?: { userId?: string; scope?: "shared" | "user" }
 ): Promise<void> {
   try {
+    const scope: 'shared' | 'user' = options?.scope ?? (options?.userId ? 'user' : 'shared');
     await db.collection('conversation_summaries').add({
       tenantId,
       conversationId,
       summary,
       keyTopics,
+      scope,
+      userId: scope === 'user' ? (options?.userId ?? null) : null,
       createdAt: FieldValue.serverTimestamp(),
     });
   } catch (e) {
@@ -247,7 +252,8 @@ export async function storeConversationSummary(
 export async function loadRelevantSummaries(
   tenantId: string,
   currentTopics: string[],
-  limit: number = 3
+  limit: number = 3,
+  options?: { userId?: string; includeShared?: boolean }
 ): Promise<ConversationSummary[]> {
   try {
     // Simple implementation - could be enhanced with semantic search
@@ -262,7 +268,18 @@ export async function loadRelevantSummaries(
     for (const doc of snapshot.docs) {
       const data = doc.data();
       const summaryTopics = (data.keyTopics as string[]) || [];
-      
+      const scope = (data.scope as 'shared' | 'user' | undefined) ?? 'shared';
+      const summaryUserId = (data.userId as string | null | undefined) ?? null;
+      const includeShared = options?.includeShared ?? true;
+      const currentUserId = options?.userId?.trim();
+
+      if (scope === 'user' && (!currentUserId || summaryUserId !== currentUserId)) {
+        continue;
+      }
+      if (scope !== 'user' && !includeShared) {
+        continue;
+      }
+
       // Check if any topics overlap
       const hasOverlap = currentTopics.some((topic) =>
         summaryTopics.some((st) => st.toLowerCase().includes(topic.toLowerCase()))
@@ -309,20 +326,21 @@ export async function buildAgentContext(
   history: Array<{ role: string; content: string; imageUrls?: string[] }>,
   executionLogs: ExecutionLog[],
   ragContext?: string,
-  maxRagChunks: number = 3
+  maxRagChunks: number = 3,
+  userId?: string
 ): Promise<AgentContext> {
   // 1. Trim conversation history
   const conversationMemory = trimConversationHistory(history, 10);
 
   // 2. Load structured state
-  const structuredState = await loadStructuredState(tenantId, conversationId);
+  const structuredState = await loadStructuredState(tenantId, conversationId, userId);
 
   // 3. Format execution logs
   const logsFormatted = formatExecutionLogs(executionLogs, 5);
 
   // 4. Load relevant summaries
   const keyTopics = extractKeyTopics(history);
-  const relevantSummaries = await loadRelevantSummaries(tenantId, keyTopics, 3);
+  const relevantSummaries = await loadRelevantSummaries(tenantId, keyTopics, 3, { userId });
 
   // 5. Limit RAG context (if provided)
   const limitedRagContext = ragContext
