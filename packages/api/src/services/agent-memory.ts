@@ -125,32 +125,39 @@ export async function loadStructuredState(
     lastUpdated: new Date(),
   };
 
-  // Load notes and active plan for this conversation
-  if (conversationId) {
+  // Load notes and active plan scoped to the current user when available,
+  // otherwise fall back to the current conversation.
+  if (conversationId || userId) {
     try {
-      const notes = await listNotes(tenantId, { conversationId, userId, limit: 20 });
+      const notes = await listNotes(tenantId, {
+        ...(userId ? { userId } : {}),
+        ...(!userId && conversationId ? { conversationId } : {}),
+        limit: 20,
+      });
       state.notes = notes.map((n) => ({
         category: n.category,
         content: n.content,
         patientName: n.patientName ?? undefined,
       }));
 
-      // Load active plan
-      const planSnap = await db.collection('execution_plans')
-        .where('conversationId', '==', conversationId)
-        .where('status', 'in', ['ready', 'executing', 'needs_info', 'awaiting_confirmation'])
-        .orderBy('createdAt', 'desc')
-        .limit(1)
-        .get();
-      
-      if (!planSnap.empty) {
-        const planData = planSnap.docs[0].data();
-        state.activePlan = {
-          ...planData,
-          planId: planSnap.docs[0].id,
-          createdAt: planData.createdAt?.toDate(),
-          updatedAt: planData.updatedAt?.toDate(),
-        } as ExecutionPlan;
+      // Load active plan for this conversation only.
+      if (conversationId) {
+        const planSnap = await db.collection('execution_plans')
+          .where('conversationId', '==', conversationId)
+          .where('status', 'in', ['ready', 'executing', 'needs_info', 'awaiting_confirmation'])
+          .orderBy('createdAt', 'desc')
+          .limit(1)
+          .get();
+        
+        if (!planSnap.empty) {
+          const planData = planSnap.docs[0].data();
+          state.activePlan = {
+            ...planData,
+            planId: planSnap.docs[0].id,
+            createdAt: planData.createdAt?.toDate(),
+            updatedAt: planData.updatedAt?.toDate(),
+          } as ExecutionPlan;
+        }
       }
 
       // Extract bookings from notes
