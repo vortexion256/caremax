@@ -53,10 +53,11 @@ export async function createRecord(
 
 export async function listRecords(
   tenantId: string,
-  options?: { userId?: string; includeShared?: boolean }
+  options?: { userId?: string; includeShared?: boolean; includeAllUserScoped?: boolean }
 ): Promise<AgentRecord[]> {
   const includeShared = options?.includeShared ?? true;
   const userId = options?.userId?.trim();
+  const includeAllUserScoped = options?.includeAllUserScoped ?? false;
 
   const snap = await db.collection(COLLECTION).where('tenantId', '==', tenantId).get();
   const records = snap.docs.map((d) => {
@@ -73,6 +74,7 @@ export async function listRecords(
     };
   }).filter((r) => {
     if (r.scope === 'user') {
+      if (includeAllUserScoped) return true;
       return Boolean(userId) && r.userId === userId;
     }
     return includeShared;

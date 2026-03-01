@@ -19,8 +19,9 @@ agentRecordsRouter.use(requireTenantParam);
 
 agentRecordsRouter.get('/', requireAuth, requireAdmin, async (req, res) => {
   const tenantId = res.locals.tenantId as string;
+  const includeAllUserScoped = req.query.includeAllUserScoped === 'true';
   try {
-    const records = await listRecords(tenantId);
+    const records = await listRecords(tenantId, { includeAllUserScoped });
     res.json({ records });
   } catch (e) {
     console.error('List agent records error:', e);

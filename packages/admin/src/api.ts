@@ -79,6 +79,8 @@ export type AgentRecord = {
   recordId: string;
   title: string;
   content: string;
+  scope: 'shared' | 'user';
+  userId: string | null;
   createdAt: number | null;
   updatedAt?: number | null;
 };
