@@ -141,6 +141,21 @@ function xmlEmptyResponse(): string {
   return '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
 function twilioBasicAuthHeader(accountSid: string, authToken: string): string {
   return `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`;
 }
@@ -342,16 +357,19 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     if (alreadyRequestedHandoff && wantsHumanAgain) {
       await conversationRef.update({ updatedAt: FieldValue.serverTimestamp() });
       const shortMessage = 'A care team member has already been notified and will join shortly.';
-      await db.collection('messages').add({
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlResponse(shortMessage));
+
+      void db.collection('messages').add({
         conversationId: conversationRef.id,
         tenantId,
         role: 'assistant',
         content: shortMessage,
         channel: 'whatsapp',
         createdAt: FieldValue.serverTimestamp(),
+      }).catch((error) => {
+        console.error('Failed to persist WhatsApp short handoff message:', error);
       });
-      res.set('Content-Type', 'text/xml');
-      res.status(200).send(xmlResponse(shortMessage));
       return;
     }
 
@@ -365,10 +383,11 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     const historySnap = await db
       .collection('messages')
       .where('conversationId', '==', conversationRef.id)
-      .orderBy('createdAt', 'asc')
+      .orderBy('createdAt', 'desc')
+      .limit(30)
       .get();
 
-    const history = historySnap.docs.map((doc) => {
+    const history = historySnap.docs.reverse().map((doc) => {
       const data = doc.data();
       return {
         role: data.role,
@@ -377,28 +396,45 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       };
     });
 
-    const agentResponse = await runConfiguredAgent(tenantId, history, {
-      userId: from,
-      conversationId: conversationRef.id,
-    });
+    let responseText = 'Thanks for your message. I am checking and will reply shortly.';
+    let requestHandoff = false;
 
-    await db.collection('messages').add({
-      conversationId: conversationRef.id,
-      tenantId,
-      role: 'assistant',
-      content: agentResponse.text,
-      channel: 'whatsapp',
-      createdAt: FieldValue.serverTimestamp(),
-    });
-
-    const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
-    if (agentResponse.requestHandoff) {
-      updates.status = 'handoff_requested';
+    try {
+      const agentResponse = await withTimeout(
+        runConfiguredAgent(tenantId, history, {
+          userId: from,
+          conversationId: conversationRef.id,
+        }),
+        9000,
+        'AI response timed out while handling Twilio webhook',
+      );
+      responseText = agentResponse.text;
+      requestHandoff = agentResponse.requestHandoff ?? false;
+    } catch (error) {
+      console.error('WhatsApp webhook AI execution timed out or failed:', error);
     }
-    await conversationRef.update(updates);
 
     res.set('Content-Type', 'text/xml');
-    res.status(200).send(xmlResponse(agentResponse.text));
+    res.status(200).send(xmlResponse(responseText));
+
+    void (async () => {
+      await db.collection('messages').add({
+        conversationId: conversationRef.id,
+        tenantId,
+        role: 'assistant',
+        content: responseText,
+        channel: 'whatsapp',
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+      if (requestHandoff) {
+        updates.status = 'handoff_requested';
+      }
+      await conversationRef.update(updates);
+    })().catch((error) => {
+      console.error('Failed to persist WhatsApp assistant response after TwiML response:', error);
+    });
   } catch (error) {
     console.error('Twilio WhatsApp webhook error:', error);
     res.set('Content-Type', 'text/xml');
