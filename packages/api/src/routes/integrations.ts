@@ -160,6 +160,42 @@ function twilioBasicAuthHeader(accountSid: string, authToken: string): string {
   return `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`;
 }
 
+async function sendWhatsAppMessage(params: {
+  accountSid: string;
+  authToken: string;
+  to: string;
+  body: string;
+  from?: string;
+  messagingServiceSid?: string;
+}): Promise<void> {
+  const payload = new URLSearchParams();
+  payload.set('To', params.to);
+  payload.set('Body', params.body);
+
+  if (params.messagingServiceSid) {
+    payload.set('MessagingServiceSid', params.messagingServiceSid);
+  } else if (params.from) {
+    payload.set('From', params.from);
+  } else {
+    throw new Error('Twilio outbound message requires either messagingServiceSid or from number');
+  }
+
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(params.accountSid)}/Messages.json`, {
+    method: 'POST',
+    headers: {
+      Authorization: twilioBasicAuthHeader(params.accountSid, params.authToken),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: payload,
+    signal: AbortSignal.timeout(12_000),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Twilio outbound send failed (${response.status}): ${errorText}`);
+  }
+}
+
 
 function isLikelyWhatsAppVoiceNote(payload: Request['body']): boolean {
   const messageType = typeof payload?.MessageType === 'string' ? payload.MessageType.trim().toLowerCase() : '';
@@ -396,8 +432,10 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       };
     });
 
-    let responseText = 'Thanks for your message. I am checking and will reply shortly.';
+    const pendingReplyText = 'Thanks for your message. I am checking and will reply shortly.';
+    let responseText = pendingReplyText;
     let requestHandoff = false;
+    let aiTimedOut = false;
 
     try {
       const agentResponse = await withTimeout(
@@ -405,12 +443,13 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
           userId: from,
           conversationId: conversationRef.id,
         }),
-        9000,
+        14000,
         'AI response timed out while handling Twilio webhook',
       );
       responseText = agentResponse.text;
       requestHandoff = agentResponse.requestHandoff ?? false;
     } catch (error) {
+      aiTimedOut = true;
       console.error('WhatsApp webhook AI execution timed out or failed:', error);
     }
 
@@ -432,6 +471,48 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         updates.status = 'handoff_requested';
       }
       await conversationRef.update(updates);
+
+      if (!aiTimedOut) {
+        return;
+      }
+
+      try {
+        const delayedAgentResponse = await runConfiguredAgent(tenantId, history, {
+          userId: from,
+          conversationId: conversationRef.id,
+        });
+
+        if (!delayedAgentResponse.text || delayedAgentResponse.text.trim() === pendingReplyText) {
+          return;
+        }
+
+        await sendWhatsAppMessage({
+          accountSid: whatsapp.accountSid,
+          authToken: whatsapp.authToken,
+          to: from,
+          body: delayedAgentResponse.text,
+          from: whatsapp.whatsappNumber,
+          messagingServiceSid: whatsapp.messagingServiceSid,
+        });
+
+        await db.collection('messages').add({
+          conversationId: conversationRef.id,
+          tenantId,
+          role: 'assistant',
+          content: delayedAgentResponse.text,
+          channel: 'whatsapp',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
+        if (delayedAgentResponse.requestHandoff) {
+          await conversationRef.update({
+            status: 'handoff_requested',
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (delayedError) {
+        console.error('Failed to send delayed WhatsApp AI response after timeout:', delayedError);
+      }
     })().catch((error) => {
       console.error('Failed to persist WhatsApp assistant response after TwiML response:', error);
     });
