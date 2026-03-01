@@ -369,7 +369,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     let existingRecords: Awaited<ReturnType<typeof listRecords>> = [];
     try {
       existingRecords = await Promise.race([
-        listRecords(tenantId),
+        listRecords(tenantId, { userId: options?.userId }),
         new Promise<typeof existingRecords>((_, reject) => {
           setTimeout(() => reject(new Error('listRecords timeout')), 3000);
         }),
@@ -445,7 +445,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       content: z.string().describe('The key information to remember'),
     }),
     func: async ({ title, content }) => {
-      await createRecord(tenantId, title.trim(), content.trim());
+      await createRecord(tenantId, title.trim(), content.trim(), { userId: options?.userId });
       return 'Record saved.';
     },
   });
@@ -656,7 +656,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       let content: string;
       if (tc.name === 'record_learned_knowledge' && tc.args && typeof tc.args.title === 'string' && typeof tc.args.content === 'string') {
         try {
-          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim());
+          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim(), { userId: options?.userId });
           void recordActivity(tenantId, 'agent-brain');
           content = 'Record saved.';
         } catch (e) {
@@ -1115,7 +1115,7 @@ export async function extractAndRecordLearningFromHistory(
     apiKey,
   });
 
-  const existingRecords = await listRecords(tenantId);
+  const existingRecords = await listRecords(tenantId, { userId: options?.userId });
   const existingBlock = formatExistingRecordsForPrompt(existingRecords);
   const defaultLearningPrompt = `You are reviewing a conversation after a human care team member has finished helping the user. Your only job is to identify information from this conversation (by the user or care team in messages labeled "[Care team said to the user]: ...") that should be reflected in the Auto Agent Brain—e.g. contact details, phone numbers, policy info, or corrections.
 
@@ -1149,7 +1149,7 @@ If there is nothing new or nothing to update/remove, do not call any tool.`;
       content: z.string().describe('The key information to remember'),
     }),
     func: async ({ title, content }) => {
-      await createRecord(tenantId, title.trim(), content.trim());
+      await createRecord(tenantId, title.trim(), content.trim(), { userId: options?.userId });
       return 'Record saved.';
     },
   });
@@ -1213,7 +1213,7 @@ If there is nothing new or nothing to update/remove, do not call any tool.`;
       let content: string;
       if (tc.name === 'record_learned_knowledge' && tc.args && typeof tc.args.title === 'string' && typeof tc.args.content === 'string') {
         try {
-          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim());
+          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim(), { userId: options?.userId });
           void recordActivity(tenantId, 'agent-brain');
           content = 'Record saved.';
         } catch (e) {

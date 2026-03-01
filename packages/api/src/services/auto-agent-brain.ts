@@ -18,6 +18,8 @@ export type AgentRecord = {
   recordId: string;
   title: string;
   content: string;
+  scope: 'shared' | 'user';
+  userId: string | null;
   createdAt: number | null;
   updatedAt?: number | null;
 };
@@ -26,14 +28,21 @@ export type AgentRecord = {
 export async function createRecord(
   tenantId: string,
   title: string,
-  content: string
+  content: string,
+  options?: { userId?: string; scope?: 'shared' | 'user' }
 ): Promise<{ recordId: string; title: string }> {
   const trimmedTitle = title.trim();
   const trimmedContent = content.trim();
+  const explicitScope = options?.scope;
+  const scope: 'shared' | 'user' = explicitScope ?? (options?.userId ? 'user' : 'shared');
+  const scopedUserId = scope === 'user' ? (options?.userId ?? null) : null;
+
   const ref = await db.collection(COLLECTION).add({
     tenantId,
     title: trimmedTitle,
     content: trimmedContent,
+    scope,
+    userId: scopedUserId,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   });
@@ -42,18 +51,33 @@ export async function createRecord(
   return { recordId: ref.id, title: trimmedTitle };
 }
 
-export async function listRecords(tenantId: string): Promise<AgentRecord[]> {
+export async function listRecords(
+  tenantId: string,
+  options?: { userId?: string; includeShared?: boolean }
+): Promise<AgentRecord[]> {
+  const includeShared = options?.includeShared ?? true;
+  const userId = options?.userId?.trim();
+
   const snap = await db.collection(COLLECTION).where('tenantId', '==', tenantId).get();
   const records = snap.docs.map((d) => {
     const data = d.data();
+    const scope = (data.scope as 'shared' | 'user' | undefined) ?? 'shared';
     return {
       recordId: d.id,
       title: data.title ?? '',
       content: data.content ?? '',
+      scope,
+      userId: (data.userId as string | null) ?? null,
       createdAt: data.createdAt?.toMillis?.() ?? null,
       updatedAt: data.updatedAt?.toMillis?.() ?? null,
     };
+  }).filter((r) => {
+    if (r.scope === 'user') {
+      return Boolean(userId) && r.userId === userId;
+    }
+    return includeShared;
   });
+
   records.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
   return records;
 }
@@ -67,6 +91,8 @@ export async function getRecord(tenantId: string, recordId: string): Promise<Age
     recordId: doc.id,
     title: data.title ?? '',
     content: data.content ?? '',
+    scope: (data.scope as 'shared' | 'user' | undefined) ?? 'shared',
+    userId: (data.userId as string | null) ?? null,
     createdAt: data.createdAt?.toMillis?.() ?? null,
     updatedAt: data.updatedAt?.toMillis?.() ?? null,
   };

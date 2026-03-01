@@ -24,11 +24,13 @@ export type AgentNote = {
  */
 async function findSimilarNote(
   tenantId: string,
+  conversationId: string,
   content: string,
   patientName?: string,
-  category?: AgentNote['category']
+  category?: AgentNote['category'],
+  userId?: string
 ): Promise<AgentNote | null> {
-  // Check for notes with similar content across all conversations
+  // Check for notes with similar content in the same conversation/user scope only
   // Look for notes created in the last hour to catch duplicates from the same session
   const oneHourAgo = Date.now() - 60 * 60 * 1000;
   
@@ -46,6 +48,11 @@ async function findSimilarNote(
       
       // Only check notes from the last hour
       if (noteCreatedAt < oneHourAgo) continue;
+
+      const noteConversationId = data.conversationId as string | undefined;
+      const noteUserId = (data.userId as string | null | undefined) ?? null;
+      if (noteConversationId !== conversationId) continue;
+      if (userId && noteUserId && noteUserId !== userId) continue;
       
       const noteContent = (data.content as string).toLowerCase();
       const notePatientName = (data.patientName as string)?.toLowerCase();
@@ -106,9 +113,11 @@ export async function createNote(
   // Check for similar existing notes to prevent duplicates
   const similarNote = await findSimilarNote(
     tenantId,
+    conversationId,
     content,
     options?.patientName,
-    options?.category
+    options?.category,
+    options?.userId
   );
   
   if (similarNote) {
@@ -158,6 +167,7 @@ export async function listNotes(
     status?: AgentNote['status'];
     patientName?: string;
     category?: AgentNote['category'];
+    userId?: string;
     limit?: number;
   }
 ): Promise<AgentNote[]> {
@@ -178,6 +188,10 @@ export async function listNotes(
 
   if (options?.category) {
     query = query.where('category', '==', options.category);
+  }
+
+  if (options?.userId) {
+    query = query.where('userId', '==', options.userId);
   }
 
   // Try to add orderBy - if index doesn't exist, we'll catch and fetch without it

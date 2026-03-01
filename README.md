@@ -152,3 +152,30 @@ Optional: `data-theme="dark"`.
 ## Safety
 
 Agent responses include a disclaimer. Configure Gemini safety settings and monitor logs as needed. For production, consider HIPAA and data retention.
+
+## Preventing user-memory mixups in the widget
+
+If your AI is remembering user-specific details (like names) and then reusing them with other visitors, treat this as a **memory-scoping** issue.
+
+Recommended setup (best-practice order):
+
+1. **Use a stable `userId` per end user** when creating conversations (`POST /tenants/:tenantId/conversations`).
+   - Do not rely on random anonymous IDs for returning users.
+   - Prefer your website/app's own unique user ID (or a generated browser UUID persisted in local storage/cookie if users are anonymous).
+2. **Scope memory by both `tenantId` + `userId`** for anything learned from chat.
+   - Tenant-only memory can leak one user's details to another user in the same tenant.
+3. **Separate "shared business knowledge" from "personal memory"**.
+   - Keep operational knowledge (clinic hours, services, policies) in shared tenant RAG.
+   - Keep personal details (names, phone numbers, preferences) in user-scoped storage only.
+4. **Add TTL/retention + deletion controls** for personal memory.
+5. **Default to privacy-first behavior**:
+   - If no reliable user identity is available, do not store personal memory.
+   - Optionally disable learned-memory tools entirely and use conversation-only context.
+
+Practical recommendation for this codebase:
+
+- For a website widget where users are not strongly authenticated, either:
+  - pass a stable unique ID from your app as `userId` and only store/retrieve personal memory under that ID, or
+  - disable personal memory capture (Auto Agent Brain for user facts) and keep only session/conversation context.
+
+This approach prevents cross-user name/personality leakage while still allowing high-quality shared support knowledge.
