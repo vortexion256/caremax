@@ -160,41 +160,6 @@ function twilioBasicAuthHeader(accountSid: string, authToken: string): string {
   return `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`;
 }
 
-async function sendWhatsAppMessage(params: {
-  accountSid: string;
-  authToken: string;
-  to: string;
-  body: string;
-  from?: string;
-  messagingServiceSid?: string;
-}): Promise<void> {
-  const payload = new URLSearchParams();
-  payload.set('To', params.to);
-  payload.set('Body', params.body);
-
-  if (params.messagingServiceSid) {
-    payload.set('MessagingServiceSid', params.messagingServiceSid);
-  } else if (params.from) {
-    payload.set('From', params.from);
-  } else {
-    throw new Error('Twilio outbound message requires either messagingServiceSid or from number');
-  }
-
-  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(params.accountSid)}/Messages.json`, {
-    method: 'POST',
-    headers: {
-      Authorization: twilioBasicAuthHeader(params.accountSid, params.authToken),
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: payload,
-    signal: AbortSignal.timeout(12_000),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Twilio outbound send failed (${response.status}): ${errorText}`);
-  }
-}
 
 
 function isLikelyWhatsAppVoiceNote(payload: Request['body']): boolean {
@@ -300,35 +265,6 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       return;
     }
 
-    let body = typeof req.body?.Body === 'string' ? req.body.Body.trim() : '';
-    const hasVoiceNote = isLikelyWhatsAppVoiceNote(req.body);
-
-    if (!body && hasVoiceNote) {
-      const mediaUrl = typeof req.body?.MediaUrl0 === 'string' ? req.body.MediaUrl0.trim() : '';
-      const mediaType = typeof req.body?.MediaContentType0 === 'string' ? req.body.MediaContentType0.trim().toLowerCase() : '';
-      const isAudio = mediaType.startsWith('audio/');
-      const accountSid = typeof whatsapp.accountSid === 'string' ? whatsapp.accountSid.trim() : '';
-      const authToken = typeof whatsapp.authToken === 'string' ? whatsapp.authToken.trim() : '';
-
-      if (isAudio && mediaUrl && accountSid && authToken) {
-        const transcript = await transcribeWhatsAppAudio({
-          mediaUrl,
-          contentType: mediaType,
-          accountSid,
-          authToken,
-        });
-        if (transcript) {
-          body = transcript;
-        }
-      }
-    }
-
-    if (!body) {
-      res.set('Content-Type', 'text/xml');
-      res.status(200).send(xmlResponse('We could not read that message yet. Please send text or a clearer voice note.'));
-      return;
-    }
-
     const configuredSecret = typeof whatsapp.webhookSecret === 'string' ? whatsapp.webhookSecret.trim() : '';
     if (configuredSecret) {
       const suppliedSecret =
@@ -339,6 +275,13 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         res.status(200).send(xmlResponse('Webhook secret mismatch.'));
         return;
       }
+    }
+
+    const body = typeof req.body?.Body === 'string' ? req.body.Body.trim() : '';
+    if (!body) {
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlResponse('We could not read that message yet. Please send text or a clearer voice note.'));
+      return;
     }
 
     const conversationsRef = db.collection('conversations');
@@ -375,7 +318,6 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     const conversationData = (await conversationRef.get()).data() ?? {};
     const status = typeof conversationData.status === 'string' ? conversationData.status : 'open';
     const humanActive = status === 'human_joined';
-    const alreadyRequestedHandoff = status === 'handoff_requested';
 
     if (humanActive) {
       await conversationRef.update({ updatedAt: FieldValue.serverTimestamp() });
@@ -390,35 +332,113 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       /\b(want|need)\s+to\s+(speak|talk)\s+to\s+(a\s+)?(human|person|someone)/i.test(body) ||
       /\b(real\s+person|human\s+agent|live\s+agent)/i.test(body);
 
-    if (alreadyRequestedHandoff && wantsHumanAgain) {
-      await conversationRef.update({ updatedAt: FieldValue.serverTimestamp() });
-      const shortMessage = 'A care team member has already been notified and will join shortly.';
-      res.set('Content-Type', 'text/xml');
-      res.status(200).send(xmlResponse(shortMessage));
+    if (wantsHumanAgain) {
+      const alreadyRequestedHandoff = status === 'handoff_requested';
+      await conversationRef.update({
+        status: 'handoff_requested',
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      const shortMessage = alreadyRequestedHandoff
+        ? 'A care team member has already been notified and will join shortly.'
+        : 'Thanks for your message. A care team member has been notified and will join shortly.';
 
-      void db.collection('messages').add({
+      await db.collection('messages').add({
         conversationId: conversationRef.id,
         tenantId,
         role: 'assistant',
         content: shortMessage,
         channel: 'whatsapp',
         createdAt: FieldValue.serverTimestamp(),
-      }).catch((error) => {
-        console.error('Failed to persist WhatsApp short handoff message:', error);
       });
+
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlResponse(shortMessage));
       return;
     }
 
-    if (status === 'open' && wantsHumanAgain) {
-      await conversationRef.update({
-        status: 'handoff_requested',
-        updatedAt: FieldValue.serverTimestamp(),
+    const pendingReplyText = 'Thanks for your message. I am checking and will reply shortly.';
+
+    const protocol = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim() || req.protocol;
+    const host = req.get('host');
+    const processUrl = host
+      ? `${protocol}://${host}/integrations/twilio/whatsapp/process/${encodeURIComponent(tenantId)}/${encodeURIComponent(conversationRef.id)}`
+      : null;
+
+    if (processUrl) {
+      void fetch(processUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(configuredSecret ? { 'x-webhook-secret': configuredSecret } : {}),
+        },
+        body: JSON.stringify({ from }),
+        signal: AbortSignal.timeout(4_000),
+      }).catch((error) => {
+        console.error('Failed to dispatch async WhatsApp processor request:', error);
       });
+    }
+
+    await conversationRef.update({ updatedAt: FieldValue.serverTimestamp() });
+
+    await db.collection('messages').add({
+      conversationId: conversationRef.id,
+      tenantId,
+      role: 'assistant',
+      content: pendingReplyText,
+      channel: 'whatsapp',
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    res.set('Content-Type', 'text/xml');
+    res.status(200).send(xmlResponse(pendingReplyText));
+  } catch (error) {
+    console.error('Twilio WhatsApp webhook error:', error);
+    res.set('Content-Type', 'text/xml');
+    res.status(200).send(xmlResponse('Sorry, something went wrong while processing your message.'));
+  }
+});
+
+integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversationId', async (req: Request, res: Response) => {
+  const tenantId = req.params.tenantId;
+  const conversationId = req.params.conversationId;
+  const from = typeof req.body?.from === 'string' ? req.body.from.trim() : '';
+
+  if (!tenantId || !conversationId || !from) {
+    res.status(400).json({ error: 'Missing tenantId, conversationId, or from' });
+    return;
+  }
+
+  try {
+    const integrationDoc = await db.collection('tenant_integrations').doc(tenantId).get();
+    const whatsapp = integrationDoc.data()?.whatsapp;
+    if (!whatsapp?.connected) {
+      res.status(404).json({ error: 'WhatsApp integration not connected' });
+      return;
+    }
+
+    const configuredSecret = typeof whatsapp.webhookSecret === 'string' ? whatsapp.webhookSecret.trim() : '';
+    if (configuredSecret) {
+      const suppliedSecret = typeof req.headers['x-webhook-secret'] === 'string' ? req.headers['x-webhook-secret'].trim() : '';
+      if (suppliedSecret !== configuredSecret) {
+        res.status(403).json({ error: 'Webhook secret mismatch' });
+        return;
+      }
+    }
+
+    const conversationRef = db.collection('conversations').doc(conversationId);
+    const conversationData = (await conversationRef.get()).data() ?? {};
+    if (conversationData.tenantId !== tenantId) {
+      res.status(404).json({ error: 'Conversation not found' });
+      return;
+    }
+    if (conversationData.status === 'human_joined') {
+      res.status(200).json({ ok: true, skipped: 'human_joined' });
+      return;
     }
 
     const historySnap = await db
       .collection('messages')
-      .where('conversationId', '==', conversationRef.id)
+      .where('conversationId', '==', conversationId)
       .orderBy('createdAt', 'desc')
       .limit(30)
       .get();
@@ -433,95 +453,85 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     });
 
     const pendingReplyText = 'Thanks for your message. I am checking and will reply shortly.';
-    let responseText = pendingReplyText;
+    let responseText = '';
     let requestHandoff = false;
-    let aiTimedOut = false;
 
     try {
       const agentResponse = await withTimeout(
         runConfiguredAgent(tenantId, history, {
           userId: from,
-          conversationId: conversationRef.id,
+          conversationId,
         }),
-        14000,
-        'AI response timed out while handling Twilio webhook',
+        25_000,
+        'AI response timed out while handling Twilio async processor',
       );
-      responseText = agentResponse.text;
+      responseText = agentResponse.text?.trim() ?? '';
       requestHandoff = agentResponse.requestHandoff ?? false;
     } catch (error) {
-      aiTimedOut = true;
-      console.error('WhatsApp webhook AI execution timed out or failed:', error);
+      console.error('WhatsApp async processor AI execution failed:', error);
+      responseText = 'Sorry, I ran into a delay while checking that. Please send your message again in a moment.';
     }
 
-    res.set('Content-Type', 'text/xml');
-    res.status(200).send(xmlResponse(responseText));
+    if (!responseText || responseText === pendingReplyText) {
+      res.status(200).json({ ok: true, skipped: 'empty_or_pending_response' });
+      return;
+    }
 
-    void (async () => {
-      await db.collection('messages').add({
-        conversationId: conversationRef.id,
-        tenantId,
-        role: 'assistant',
-        content: responseText,
-        channel: 'whatsapp',
-        createdAt: FieldValue.serverTimestamp(),
-      });
+    const outboundTo = from.startsWith('whatsapp:') ? from : `whatsapp:${from}`;
+    const accountSid = typeof whatsapp.accountSid === 'string' ? whatsapp.accountSid.trim() : '';
+    const authToken = typeof whatsapp.authToken === 'string' ? whatsapp.authToken.trim() : '';
+    const messagingServiceSid = typeof whatsapp.messagingServiceSid === 'string' ? whatsapp.messagingServiceSid.trim() : '';
+    const whatsappNumber = typeof whatsapp.whatsappNumber === 'string' ? whatsapp.whatsappNumber.trim() : '';
 
-      const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
-      if (requestHandoff) {
-        updates.status = 'handoff_requested';
-      }
-      await conversationRef.update(updates);
-
-      if (!aiTimedOut) {
-        return;
-      }
-
-      try {
-        const delayedAgentResponse = await runConfiguredAgent(tenantId, history, {
-          userId: from,
-          conversationId: conversationRef.id,
-        });
-
-        if (!delayedAgentResponse.text || delayedAgentResponse.text.trim() === pendingReplyText) {
-          return;
-        }
-
-        await sendWhatsAppMessage({
-          accountSid: whatsapp.accountSid,
-          authToken: whatsapp.authToken,
-          to: from,
-          body: delayedAgentResponse.text,
-          from: whatsapp.whatsappNumber,
-          messagingServiceSid: whatsapp.messagingServiceSid,
-        });
-
-        await db.collection('messages').add({
-          conversationId: conversationRef.id,
-          tenantId,
-          role: 'assistant',
-          content: delayedAgentResponse.text,
-          channel: 'whatsapp',
-          createdAt: FieldValue.serverTimestamp(),
-        });
-
-        if (delayedAgentResponse.requestHandoff) {
-          await conversationRef.update({
-            status: 'handoff_requested',
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-        }
-      } catch (delayedError) {
-        console.error('Failed to send delayed WhatsApp AI response after timeout:', delayedError);
-      }
-    })().catch((error) => {
-      console.error('Failed to persist WhatsApp assistant response after TwiML response:', error);
+    const payload = new URLSearchParams({
+      To: outboundTo,
+      Body: responseText,
     });
+    if (messagingServiceSid) {
+      payload.set('MessagingServiceSid', messagingServiceSid);
+    } else if (whatsappNumber) {
+      payload.set('From', whatsappNumber.startsWith('whatsapp:') ? whatsappNumber : `whatsapp:${whatsappNumber}`);
+    } else {
+      throw new Error('Twilio outbound message requires either messagingServiceSid or from number');
+    }
+
+    const twilioRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`, {
+      method: 'POST',
+      headers: {
+        Authorization: twilioBasicAuthHeader(accountSid, authToken),
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: payload,
+      signal: AbortSignal.timeout(12_000),
+    });
+
+    if (!twilioRes.ok) {
+      const errorText = await twilioRes.text();
+      throw new Error(`Twilio outbound send failed (${twilioRes.status}): ${errorText}`);
+    }
+
+    await db.collection('messages').add({
+      conversationId,
+      tenantId,
+      role: 'assistant',
+      content: responseText,
+      channel: 'whatsapp',
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+    if (requestHandoff) {
+      updates.status = 'handoff_requested';
+    }
+    await conversationRef.update(updates);
+
+    res.status(200).json({ ok: true });
   } catch (error) {
-    console.error('Twilio WhatsApp webhook error:', error);
-    res.set('Content-Type', 'text/xml');
-    res.status(200).send(xmlResponse('Sorry, something went wrong while processing your message.'));
+    console.error('Twilio WhatsApp async processing error:', error);
+    res.status(500).json({ error: 'Failed to process async WhatsApp response' });
   }
 });
+
 
 /** Tenant-scoped integration routes (auth, status, disconnect). */
 export const tenantIntegrationsRouter: Router = Router({ mergeParams: true });
