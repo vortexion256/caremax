@@ -7,6 +7,7 @@ import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { getTenantBillingStatus, WIDGET_BILLING_ERROR } from '../services/billing.js';
 import type { ConversationStatus } from '../types/index.js';
 import { FieldValue } from 'firebase-admin/firestore';
+import { resolveConversationIdentity } from '../services/user-identity.js';
 
 export const conversationRouter: Router = Router({ mergeParams: true });
 
@@ -116,7 +117,11 @@ async function sendWhatsAppHumanMessage(params: {
 
 conversationRouter.use(requireTenantParam);
 
-const createBody = z.object({ userId: z.string().optional() });
+const createBody = z.object({
+  userId: z.string().optional(),
+  externalUserId: z.string().optional(),
+  channel: z.enum(['widget']).optional(),
+});
 const messageBody = z.object({
   content: z.string().min(1),
   imageUrls: z.array(z.string().url()).optional(),
@@ -130,10 +135,16 @@ conversationRouter.post('/', async (req, res) => {
     return;
   }
   const parsed = createBody.safeParse(req.body);
-  const userId = parsed.success ? (parsed.data.userId ?? `anon-${Date.now()}-${Math.random().toString(36).slice(2)}`) : `anon-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const identity = resolveConversationIdentity({
+    channel: 'widget',
+    externalUserId: parsed.success ? parsed.data.externalUserId : undefined,
+    fallbackUserId: parsed.success ? parsed.data.userId : undefined,
+  });
   const ref = await db.collection(CONVERSATIONS).add({
     tenantId,
-    userId,
+    userId: identity.scopedUserId,
+    externalUserId: identity.externalUserId,
+    channel: 'widget',
     status: 'open',
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
@@ -141,7 +152,8 @@ conversationRouter.post('/', async (req, res) => {
   res.status(201).json({
     conversationId: ref.id,
     tenantId,
-    userId,
+    userId: identity.scopedUserId,
+    externalUserId: identity.externalUserId,
     status: 'open',
   });
 });
@@ -297,7 +309,10 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
   let agentResponse: { text: string; requestHandoff?: boolean };
   const traceStartedAt = Date.now();
   try {
-    const userId = (convData?.userId as string | undefined) ?? undefined;
+    const userId = (convData?.userId as string | undefined)
+      ?? ((convData?.channel as string | undefined) && (convData?.externalUserId as string | undefined)
+        ? `${convData.channel}:${convData.externalUserId}`
+        : undefined);
     agentResponse = await runConfiguredAgent(tenantId, history, {
       userId,
       conversationId,

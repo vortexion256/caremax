@@ -27,6 +27,19 @@ type EmbedAppProps = { tenantId: string; theme: string; debugMode?: boolean };
 
 type WidgetConfig = { chatTitle: string; agentName: string; welcomeText: string; suggestedQuestions: string[]; widgetColor: string };
 
+function getWidgetDeviceId(tenantId: string): string {
+  if (typeof window === 'undefined') return `device-${Date.now()}`;
+  const key = `caremax:widget-device:${tenantId}`;
+  const existing = window.localStorage.getItem(key);
+  if (existing) return existing;
+
+  const generated = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? `dev-${crypto.randomUUID()}`
+    : `dev-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  window.localStorage.setItem(key, generated);
+  return generated;
+}
+
 export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAppProps) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -73,10 +86,16 @@ export default function EmbedApp({ tenantId, theme, debugMode = false }: EmbedAp
 
   const createConversation = async () => {
     const uid = await ensureAnonymousAuth();
+    const deviceId = getWidgetDeviceId(tenantId);
+    const externalUserId = `widget-device:${deviceId}`;
     const res = await fetch(`${API_URL}/tenants/${tenantId}/conversations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: uid }),
+      body: JSON.stringify({
+        userId: uid,
+        externalUserId,
+        channel: 'widget',
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
