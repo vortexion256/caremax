@@ -145,7 +145,7 @@ export class ToolExecutor {
     doctorName: string;
     appointmentTime: string;
     notes?: string;
-  }): Promise<BookAppointmentResult> {
+  }, options?: { userId?: string }): Promise<BookAppointmentResult> {
     if (!this.bookingsSheetEntry) {
       return {
         success: false,
@@ -214,6 +214,7 @@ export class ToolExecutor {
         // Also record in Agent Notebook (notes)
         try {
           await createNote(this.tenantId, 'SYSTEM', `Booking UPDATED: ${params.patientName} (${params.phone}) with Dr. ${params.doctorName} on ${dateStr} at ${params.appointmentTime}. Notes: ${params.notes ?? 'none'}`, {
+            userId: options?.userId,
             patientName: params.patientName,
             category: 'bookings'
           });
@@ -254,6 +255,7 @@ export class ToolExecutor {
         // Also record in Agent Notebook (notes)
         try {
           await createNote(this.tenantId, 'SYSTEM', `NEW Booking: ${params.patientName} (${params.phone}) with Dr. ${params.doctorName} on ${dateStr} at ${params.appointmentTime}. Notes: ${params.notes ?? 'none'}`, {
+            userId: options?.userId,
             patientName: params.patientName,
             category: 'bookings'
           });
@@ -613,7 +615,10 @@ export class AgentOrchestrator {
     let noteContext = '';
     if (conversationId && ['append_booking_row', 'check_availability', 'record_learned_knowledge'].includes(toolCall.name)) {
       try {
-        const notes = await listAgentNotes(this.tenantId, { conversationId, limit: 20 });
+        const notes = await listAgentNotes(this.tenantId, {
+          ...(userId ? { userId } : { conversationId }),
+          limit: 20,
+        });
         if (notes.length > 0) {
           noteContext = notes.map(n => `[${n.category}] ${n.content}`).join('; ');
           console.log(`[Orchestrator] Consistency check: Loaded ${notes.length} notes for validation.`);
@@ -653,7 +658,7 @@ export class AgentOrchestrator {
             doctorName: toolCall.args.doctorName,
             appointmentTime: toolCall.args.appointmentTime,
             notes: typeof toolCall.args.notes === 'string' ? toolCall.args.notes : undefined,
-          });
+          }, { userId });
 
           // Record integration activity for dashboard visualization
           if (result.success) {
