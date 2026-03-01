@@ -141,6 +141,9 @@ function xmlEmptyResponse(): string {
   return '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 }
 
+const WHATSAPP_PENDING_REPLY_TEXT = 'Thanks for your message. I am checking and will reply shortly.';
+const WHATSAPP_PENDING_REPLY_DELAY_MS = 10_000;
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
@@ -277,7 +280,29 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       }
     }
 
-    const body = typeof req.body?.Body === 'string' ? req.body.Body.trim() : '';
+    const incomingBody = typeof req.body?.Body === 'string' ? req.body.Body.trim() : '';
+    const mediaUrl = typeof req.body?.MediaUrl0 === 'string' ? req.body.MediaUrl0.trim() : '';
+    const mediaContentType = typeof req.body?.MediaContentType0 === 'string' ? req.body.MediaContentType0.trim() : '';
+
+    let body = incomingBody;
+    if (!body && isLikelyWhatsAppVoiceNote(req.body) && mediaUrl && mediaContentType) {
+      const accountSid = typeof whatsapp.accountSid === 'string' ? whatsapp.accountSid.trim() : '';
+      const authToken = typeof whatsapp.authToken === 'string' ? whatsapp.authToken.trim() : '';
+
+      if (accountSid && authToken) {
+        const transcript = await transcribeWhatsAppAudio({
+          mediaUrl,
+          contentType: mediaContentType,
+          accountSid,
+          authToken,
+        });
+
+        if (transcript) {
+          body = transcript;
+        }
+      }
+    }
+
     if (!body) {
       res.set('Content-Type', 'text/xml');
       res.status(200).send(xmlResponse('We could not read that message yet. Please send text or a clearer voice note.'));
@@ -356,7 +381,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       return;
     }
 
-    const pendingReplyText = 'Thanks for your message. I am checking and will reply shortly.';
+    const pendingReplyText = WHATSAPP_PENDING_REPLY_TEXT;
 
     const protocol = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim() || req.protocol;
     const host = req.get('host');
@@ -364,21 +389,32 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       ? `${protocol}://${host}/integrations/twilio/whatsapp/process/${encodeURIComponent(tenantId)}/${encodeURIComponent(conversationRef.id)}`
       : null;
 
-    if (processUrl) {
-      void fetch(processUrl, {
+    const asyncProcessorRequest = processUrl
+      ? fetch(processUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(configuredSecret ? { 'x-webhook-secret': configuredSecret } : {}),
         },
         body: JSON.stringify({ from }),
-        signal: AbortSignal.timeout(4_000),
       }).catch((error) => {
         console.error('Failed to dispatch async WhatsApp processor request:', error);
-      });
-    }
+        return null;
+      })
+      : Promise.resolve<globalThis.Response | null>(null);
 
     await conversationRef.update({ updatedAt: FieldValue.serverTimestamp() });
+
+    const processorFinishedWithinDelay = await Promise.race([
+      asyncProcessorRequest.then((processorResponse) => processorResponse?.ok ?? false),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), WHATSAPP_PENDING_REPLY_DELAY_MS)),
+    ]);
+
+    if (processorFinishedWithinDelay) {
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlEmptyResponse());
+      return;
+    }
 
     await db.collection('messages').add({
       conversationId: conversationRef.id,
@@ -452,7 +488,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       };
     });
 
-    const pendingReplyText = 'Thanks for your message. I am checking and will reply shortly.';
+    const pendingReplyText = WHATSAPP_PENDING_REPLY_TEXT;
     let responseText = '';
     let requestHandoff = false;
 
