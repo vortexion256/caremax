@@ -204,6 +204,8 @@ export default function AgentNotebook() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>
                 <div style={{ fontSize: 12, color: '#64748b' }}>
                   {note.patientName && <span>Patient: <strong>{note.patientName}</strong></span>}
+                  {!note.patientName && note.userId && <span>User Scope ID: <strong>{note.userId}</strong></span>}
+                  {note.patientName && note.userId && <span style={{ marginLeft: 10 }}>User Scope ID: <strong>{note.userId}</strong></span>}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   {note.status === 'unread' && (

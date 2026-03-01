@@ -12,6 +12,7 @@ import { activateTenantSubscription } from '../services/billing.js';
 import { verifyMarzPayTransaction } from '../services/marzpay.js';
 import { createTenantNotification } from '../services/tenant-notifications.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
+import { resolveConversationIdentity } from '../services/user-identity.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
 /** Callback from Google OAuth - no auth; state = tenantId. Redirects to admin. */
@@ -251,8 +252,9 @@ async function transcribeWhatsAppAudio(params: {
 integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req: Request, res: Response) => {
   const tenantId = req.params.tenantId;
   const from = typeof req.body?.From === 'string' ? req.body.From.trim() : '';
+  const identity = resolveConversationIdentity({ channel: 'whatsapp', externalUserId: from });
 
-  if (!tenantId || !from) {
+  if (!tenantId || !identity.externalUserId) {
     res.set('Content-Type', 'text/xml');
     res.status(200).send(xmlResponse('Message not received correctly. Please try again.'));
     return;
@@ -313,7 +315,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     const existingConversationSnap = await conversationsRef
       .where('tenantId', '==', tenantId)
       .where('channel', '==', 'whatsapp')
-      .where('externalUserId', '==', from)
+      .where('externalUserId', '==', identity.externalUserId)
       .where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
       .orderBy('updatedAt', 'desc')
       .limit(1)
@@ -322,8 +324,8 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     const conversationRef = existingConversationSnap.empty
       ? await conversationsRef.add({
         tenantId,
-        userId: from,
-        externalUserId: from,
+        userId: identity.scopedUserId,
+        externalUserId: identity.externalUserId,
         channel: 'whatsapp',
         status: 'open',
         createdAt: FieldValue.serverTimestamp(),
@@ -396,7 +398,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
           'Content-Type': 'application/json',
           ...(configuredSecret ? { 'x-webhook-secret': configuredSecret } : {}),
         },
-        body: JSON.stringify({ from }),
+        body: JSON.stringify({ from: identity.externalUserId }),
       }).catch((error) => {
         console.error('Failed to dispatch async WhatsApp processor request:', error);
         return null;
@@ -438,8 +440,9 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
   const tenantId = req.params.tenantId;
   const conversationId = req.params.conversationId;
   const from = typeof req.body?.from === 'string' ? req.body.from.trim() : '';
+  const identity = resolveConversationIdentity({ channel: 'whatsapp', externalUserId: from });
 
-  if (!tenantId || !conversationId || !from) {
+  if (!tenantId || !conversationId || !identity.externalUserId) {
     res.status(400).json({ error: 'Missing tenantId, conversationId, or from' });
     return;
   }
@@ -495,7 +498,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     try {
       const agentResponse = await withTimeout(
         runConfiguredAgent(tenantId, history, {
-          userId: from,
+          userId: identity.scopedUserId,
           conversationId,
         }),
         25_000,
@@ -513,7 +516,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       return;
     }
 
-    const outboundTo = from.startsWith('whatsapp:') ? from : `whatsapp:${from}`;
+    const outboundTo = identity.externalUserId;
     const accountSid = typeof whatsapp.accountSid === 'string' ? whatsapp.accountSid.trim() : '';
     const authToken = typeof whatsapp.authToken === 'string' ? whatsapp.authToken.trim() : '';
     const messagingServiceSid = typeof whatsapp.messagingServiceSid === 'string' ? whatsapp.messagingServiceSid.trim() : '';
