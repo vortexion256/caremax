@@ -23,7 +23,7 @@ export default function AutoAgentBrain() {
   const load = () => {
     setLoading(true);
     Promise.all([
-      api<{ records: AgentRecord[] }>(`/tenants/${tenantId}/agent-records`),
+      api<{ records: AgentRecord[] }>(`/tenants/${tenantId}/agent-records?includeAllUserScoped=true`),
       api<{ requests: AgentBrainModificationRequest[] }>(`/tenants/${tenantId}/agent-records/modification-requests`),
     ])
       .then(([r, m]) => {
@@ -262,9 +262,19 @@ export default function AutoAgentBrain() {
                   flexDirection: 'column'
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                  <h4 style={{ margin: 0, fontSize: 15, color: '#0f172a', fontWeight: 600 }}>{r.title}</h4>
-                  <span style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(r.createdAt)}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, gap: 8 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <h4 style={{ margin: 0, fontSize: 15, color: '#0f172a', fontWeight: 600 }}>{r.title}</h4>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', padding: '2px 8px', borderRadius: 999, background: r.scope === 'shared' ? '#dbeafe' : '#f5d0fe', color: r.scope === 'shared' ? '#1d4ed8' : '#a21caf' }}>
+                        {r.scope === 'shared' ? 'Shared Memory' : 'User Memory'}
+                      </span>
+                      {r.scope === 'user' && r.userId && (
+                        <span style={{ fontSize: 11, color: '#64748b' }}>User ID: {r.userId}</span>
+                      )}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}>{formatDate(r.createdAt)}</span>
                 </div>
                 <div style={{ margin: '0 0 20px 0', color: '#475569', fontSize: 14, lineHeight: 1.5, flex: 1 }}>
                   <ReactMarkdown>{r.content.length > 150 ? `${r.content.slice(0, 150)}...` : r.content}</ReactMarkdown>
