@@ -23,7 +23,9 @@ export default function AdvancedPromptSettings() {
     // Show confirmation dialog
     setPendingChanges({
       learningOnlyPrompt: config.learningOnlyPrompt,
+      learningOnlyPromptEnabled: config.learningOnlyPromptEnabled,
       consolidationPrompt: config.consolidationPrompt,
+      consolidationPromptEnabled: config.consolidationPromptEnabled,
     });
     setShowConfirmDialog(true);
   };
@@ -40,7 +42,9 @@ export default function AdvancedPromptSettings() {
         method: 'PUT',
         body: JSON.stringify({
           learningOnlyPrompt: config.learningOnlyPrompt?.trim() || undefined,
+          learningOnlyPromptEnabled: config.learningOnlyPromptEnabled === true,
           consolidationPrompt: config.consolidationPrompt?.trim() || undefined,
+          consolidationPromptEnabled: config.consolidationPromptEnabled === true,
         }),
       });
       setConfig(updated);
@@ -76,10 +80,21 @@ export default function AdvancedPromptSettings() {
             Used when reviewing conversations after a human care team member finishes helping. 
             The agent extracts information to add/edit/delete Auto Agent Brain records.
           </p>
+          <p style={{ fontSize: 12, color: config?.learningOnlyPromptEnabled ? '#166534' : '#7f1d1d', marginBottom: 12, fontWeight: 600 }}>
+            Current status: {config?.learningOnlyPromptEnabled ? 'Active custom prompt (editable)' : 'Default system prompt active'}
+          </p>
           <p style={{ fontSize: 12, color: '#888', marginBottom: 12, fontStyle: 'italic' }}>
             Use <code style={{ background: '#fff', padding: '2px 6px', borderRadius: 3 }}>{'{existingRecords}'}</code> as a placeholder 
             to insert the current Auto Agent Brain records list. If omitted, records will be appended automatically.
           </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13, fontWeight: 600, color: '#333' }}>
+            <input
+              type="checkbox"
+              checked={config?.learningOnlyPromptEnabled === true}
+              onChange={(e) => setConfig((c) => (c ? { ...c, learningOnlyPromptEnabled: e.target.checked } : c))}
+            />
+            Make current learning prompt active
+          </label>
           <label>
             <textarea
               value={config?.learningOnlyPrompt ?? ''}
@@ -116,10 +131,21 @@ If there is nothing new or nothing to update/remove, do not call any tool.`}
             Used when consolidating Auto Agent Brain records to merge duplicates and scattered information.
             The agent reviews all records and proposes edits/deletes to merge related data.
           </p>
+          <p style={{ fontSize: 12, color: config?.consolidationPromptEnabled ? '#166534' : '#7f1d1d', marginBottom: 12, fontWeight: 600 }}>
+            Current status: {config?.consolidationPromptEnabled ? 'Active custom prompt (editable)' : 'Default system prompt active'}
+          </p>
           <p style={{ fontSize: 12, color: '#888', marginBottom: 12, fontStyle: 'italic' }}>
             Use <code style={{ background: '#fff', padding: '2px 6px', borderRadius: 3 }}>{'{recordsBlock}'}</code> as a placeholder 
             to insert the formatted records list. If omitted, records will be appended automatically.
           </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13, fontWeight: 600, color: '#333' }}>
+            <input
+              type="checkbox"
+              checked={config?.consolidationPromptEnabled === true}
+              onChange={(e) => setConfig((c) => (c ? { ...c, consolidationPromptEnabled: e.target.checked } : c))}
+            />
+            Make current consolidation prompt active
+          </label>
           <label>
             <textarea
               value={config?.consolidationPrompt ?? ''}

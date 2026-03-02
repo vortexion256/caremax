@@ -53,8 +53,12 @@ export type AgentConfig = {
   googleSheets?: { spreadsheetId: string; range?: string; useWhen: string }[];
   /** Advanced prompt for learning-only mode (extracting knowledge from conversations) */
   learningOnlyPrompt?: string;
+  /** Whether the custom learning-only prompt should override defaults */
+  learningOnlyPromptEnabled?: boolean;
   /** Advanced prompt for consolidation mode (merging duplicate records) */
   consolidationPrompt?: string;
+  /** Whether the custom consolidation prompt should override defaults */
+  consolidationPromptEnabled?: boolean;
   availableModels?: string[];
 };
 

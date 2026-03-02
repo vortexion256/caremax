@@ -140,7 +140,9 @@ export async function getAgentConfig(tenantId: string): Promise<{
   ragEnabled: boolean;
   googleSheets: GoogleSheetEntry[];
   learningOnlyPrompt?: string;
+  learningOnlyPromptEnabled: boolean;
   consolidationPrompt?: string;
+  consolidationPromptEnabled: boolean;
 }> {
   const defaultModel = await getDefaultAgentModel();
   const configRef = db.collection('agent_config').doc(tenantId);
@@ -158,7 +160,9 @@ export async function getAgentConfig(tenantId: string): Promise<{
       ragEnabled: data?.ragEnabled === true,
       googleSheets: normalizeGoogleSheets(data),
       learningOnlyPrompt: data?.learningOnlyPrompt?.trim() || undefined,
+      learningOnlyPromptEnabled: data?.learningOnlyPromptEnabled === true,
       consolidationPrompt: data?.consolidationPrompt?.trim() || undefined,
+      consolidationPromptEnabled: data?.consolidationPromptEnabled === true,
     };
   }
 
@@ -189,7 +193,9 @@ export async function getAgentConfig(tenantId: string): Promise<{
     ragEnabled: data?.ragEnabled === true,
     googleSheets: normalizeGoogleSheets(data),
     learningOnlyPrompt: data?.learningOnlyPrompt?.trim() || undefined,
+    learningOnlyPromptEnabled: data?.learningOnlyPromptEnabled === true,
     consolidationPrompt: data?.consolidationPrompt?.trim() || undefined,
+    consolidationPromptEnabled: data?.consolidationPromptEnabled === true,
   };
 }
 
@@ -1129,7 +1135,7 @@ You MUST decide for each piece of information:
 3) Only use record_learned_knowledge for genuinely NEW information that does not overlap any existing record (no similar title/topic).
 If there is nothing new or nothing to update/remove, do not call any tool.`;
   let learningOnlySystem: string;
-  if (config.learningOnlyPrompt?.trim()) {
+  if (config.learningOnlyPromptEnabled && config.learningOnlyPrompt?.trim()) {
     const customPrompt = config.learningOnlyPrompt.trim();
     // Replace placeholder if present, otherwise append records block
     if (customPrompt.includes('{existingRecords}')) {
@@ -1341,7 +1347,7 @@ ${recordsBlock}
 
 Review the list above and submit edit/delete requests to consolidate scattered or duplicate data.`;
   let systemContent: string;
-  if (config.consolidationPrompt?.trim()) {
+  if (config.consolidationPromptEnabled && config.consolidationPrompt?.trim()) {
     const customPrompt = config.consolidationPrompt.trim();
     // Replace placeholder if present, otherwise append records block
     if (customPrompt.includes('{recordsBlock}')) {
