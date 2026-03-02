@@ -34,8 +34,9 @@ export async function createRecord(
   const trimmedTitle = title.trim();
   const trimmedContent = content.trim();
   const explicitScope = options?.scope;
-  const scope: 'shared' | 'user' = explicitScope ?? (options?.userId ? 'user' : 'shared');
-  const scopedUserId = scope === 'user' ? (options?.userId ?? null) : null;
+  const normalizedUserId = options?.userId?.trim() || null;
+  const scope: 'shared' | 'user' = explicitScope ?? (normalizedUserId ? 'user' : 'shared');
+  const scopedUserId = scope === 'user' ? normalizedUserId : null;
 
   const ref = await db.collection(COLLECTION).add({
     tenantId,
@@ -55,8 +56,8 @@ export async function listRecords(
   tenantId: string,
   options?: { userId?: string; includeShared?: boolean; includeAllUserScoped?: boolean }
 ): Promise<AgentRecord[]> {
-  const includeShared = options?.includeShared ?? true;
   const userId = options?.userId?.trim();
+  const includeShared = options?.includeShared ?? !userId;
   const includeAllUserScoped = options?.includeAllUserScoped ?? false;
 
   const snap = await db.collection(COLLECTION).where('tenantId', '==', tenantId).get();

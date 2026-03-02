@@ -20,8 +20,14 @@ agentRecordsRouter.use(requireTenantParam);
 agentRecordsRouter.get('/', requireAuth, requireAdmin, async (req, res) => {
   const tenantId = res.locals.tenantId as string;
   const includeAllUserScoped = req.query.includeAllUserScoped === 'true';
+  const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : undefined;
+  const includeShared = req.query.includeShared === 'true';
   try {
-    const records = await listRecords(tenantId, { includeAllUserScoped });
+    const records = await listRecords(tenantId, {
+      includeAllUserScoped,
+      ...(userId ? { userId } : {}),
+      ...(userId ? { includeShared } : {}),
+    });
     res.json({ records });
   } catch (e) {
     console.error('List agent records error:', e);

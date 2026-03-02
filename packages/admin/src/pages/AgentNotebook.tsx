@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useTenant } from '../TenantContext';
 import { api } from '../api';
@@ -9,6 +9,7 @@ type AgentNote = {
   tenantId: string;
   conversationId: string;
   userId: string | null;
+  externalUserId: string | null;
   patientName: string | null;
   content: string;
   category: 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'other';
@@ -19,14 +20,30 @@ type AgentNote = {
   reviewedAt: number | null;
 };
 
+function inferChannel(note: AgentNote): 'whatsapp' | 'widget' | 'unknown' {
+  if (note.userId?.startsWith('whatsapp:') || note.externalUserId?.startsWith('whatsapp:')) return 'whatsapp';
+  if (note.userId?.startsWith('widget:') || note.externalUserId?.startsWith('widget-device:')) return 'widget';
+  return 'unknown';
+}
+
+function identityKey(note: AgentNote): string {
+  const channel = inferChannel(note);
+  const external = note.externalUserId?.trim();
+  const scoped = note.userId?.trim();
+  if (channel === 'whatsapp') return `whatsapp:${external ?? scoped ?? 'unknown'}`;
+  if (channel === 'widget') return `widget:${external ?? scoped ?? 'unknown'}`;
+  return `other:${external ?? scoped ?? 'unknown'}`;
+}
+
 export default function AgentNotebook() {
   const { tenantId } = useTenant();
   const { isMobile } = useIsMobile();
-  const [notes, setNotes] = useState<AgentNote[]>([]);
+  const [allNotes, setAllNotes] = useState<AgentNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<'all' | 'unread' | 'read' | 'archived'>('all');
   const [filterCategory, setFilterCategory] = useState<'all' | AgentNote['category']>('all');
+  const [selectedIdentity, setSelectedIdentity] = useState<'all' | string>('all');
   const [searchKeyword, setSearchKeyword] = useState('');
 
   const loadNotes = async () => {
@@ -35,24 +52,11 @@ export default function AgentNotebook() {
     try {
       const params = new URLSearchParams();
       if (filterStatus !== 'all') params.append('status', filterStatus);
-      params.append('limit', '200');
-      
+      params.append('limit', '300');
+
       const url = `/tenants/${tenantId}/agent-notes${params.toString() ? `?${params.toString()}` : ''}`;
       const data = await api<{ notes: AgentNote[] }>(url);
-      
-      let filtered = data.notes;
-      if (filterCategory !== 'all') {
-        filtered = filtered.filter((n) => n.category === filterCategory);
-      }
-      if (searchKeyword.trim()) {
-        const keyword = searchKeyword.trim().toLowerCase();
-        filtered = filtered.filter((n) => 
-          n.content.toLowerCase().includes(keyword) ||
-          (n.patientName && n.patientName.toLowerCase().includes(keyword))
-        );
-      }
-      
-      setNotes(filtered);
+      setAllNotes(data.notes ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load notes');
     } finally {
@@ -62,7 +66,49 @@ export default function AgentNotebook() {
 
   useEffect(() => {
     loadNotes();
-  }, [tenantId, filterStatus, filterCategory, searchKeyword]);
+  }, [tenantId, filterStatus]);
+
+  const identityOptions = useMemo(() => {
+    const uniq = new Set<string>();
+    for (const note of allNotes) {
+      uniq.add(identityKey(note));
+    }
+    return Array.from(uniq).sort();
+  }, [allNotes]);
+
+  const notes = useMemo(() => {
+    let filtered = allNotes;
+
+    if (filterCategory !== 'all') {
+      filtered = filtered.filter((n) => n.category === filterCategory);
+    }
+
+    if (selectedIdentity !== 'all') {
+      filtered = filtered.filter((n) => identityKey(n) === selectedIdentity);
+    }
+
+    if (searchKeyword.trim()) {
+      const keyword = searchKeyword.trim().toLowerCase();
+      filtered = filtered.filter((n) =>
+        n.content.toLowerCase().includes(keyword) ||
+        (n.patientName && n.patientName.toLowerCase().includes(keyword)) ||
+        (n.userId && n.userId.toLowerCase().includes(keyword)) ||
+        (n.externalUserId && n.externalUserId.toLowerCase().includes(keyword))
+      );
+    }
+
+    return filtered;
+  }, [allNotes, filterCategory, selectedIdentity, searchKeyword]);
+
+  const notesByIdentity = useMemo(() => {
+    const grouped: Record<string, AgentNote[]> = {};
+    for (const note of notes) {
+      const key = identityKey(note);
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(note);
+    }
+    return grouped;
+  }, [notes]);
 
   const updateNoteStatus = async (noteId: string, status: AgentNote['status']) => {
     try {
@@ -146,6 +192,12 @@ export default function AgentNotebook() {
           <option value="analytics">Analytics</option>
           <option value="insights">Insights</option>
         </select>
+        <select value={selectedIdentity} onChange={(e: any) => setSelectedIdentity(e.target.value)} style={{ minWidth: 220 }}>
+          <option value="all">All Users / Devices</option>
+          {identityOptions.map((identity) => (
+            <option key={identity} value={identity}>{identity}</option>
+          ))}
+        </select>
       </div>
 
       {loading ? (
@@ -156,75 +208,82 @@ export default function AgentNotebook() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {notes.map((note) => (
-            <div 
-              key={note.noteId} 
-              style={{ 
-                padding: 20, 
-                background: '#fff', 
-                border: '1px solid #e2e8f0', 
-                borderRadius: 12,
-                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, gap: 12 }}>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ 
-                    fontSize: 11, 
-                    fontWeight: 700, 
-                    textTransform: 'uppercase', 
-                    padding: '2px 8px', 
-                    borderRadius: 4, 
-                    background: `${categoryColors[note.category]}15`, 
-                    color: categoryColors[note.category] 
-                  }}>
-                    {categoryLabels[note.category]}
-                  </span>
-                  <span style={{ 
-                    fontSize: 11, 
-                    fontWeight: 700, 
-                    textTransform: 'uppercase', 
-                    padding: '2px 8px', 
-                    borderRadius: 4, 
-                    background: `${statusColors[note.status]}15`, 
-                    color: statusColors[note.status] 
-                  }}>
-                    {note.status}
-                  </span>
-                </div>
-                <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                  {note.createdAt ? new Date(note.createdAt).toLocaleDateString() : ''}
-                </div>
-              </div>
-              
-              <div style={{ fontSize: 15, color: '#1e293b', lineHeight: 1.6, marginBottom: 16 }}>
-                <ReactMarkdown>{note.content}</ReactMarkdown>
-              </div>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>
-                <div style={{ fontSize: 12, color: '#64748b' }}>
-                  {note.patientName && <span>Patient: <strong>{note.patientName}</strong></span>}
-                  {!note.patientName && note.userId && <span>User Scope ID: <strong>{note.userId}</strong></span>}
-                  {note.patientName && note.userId && <span style={{ marginLeft: 10 }}>User Scope ID: <strong>{note.userId}</strong></span>}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {note.status === 'unread' && (
-                    <button 
-                      onClick={() => updateNoteStatus(note.noteId, 'read')}
-                      style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, background: '#f0fdf4', color: '#166534', border: 'none', borderRadius: 6, cursor: 'pointer' }}
-                    >
-                      Mark Read
-                    </button>
-                  )}
-                  <button 
-                    onClick={() => deleteNote(note.noteId)}
-                    style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, background: 'transparent', color: '#ef4444', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+          {Object.entries(notesByIdentity).sort(([a], [b]) => a.localeCompare(b)).map(([identity, identityNotes]) => (
+            <section key={identity} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 12, background: '#f8fafc' }}>
+              <h3 style={{ margin: '0 0 12px 0', fontSize: 14, color: '#334155' }}>{identity}</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {identityNotes.map((note) => (
+                  <div
+                    key={note.noteId}
+                    style={{
+                      padding: 20,
+                      background: '#fff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 12,
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                    }}
                   >
-                    Delete
-                  </button>
-                </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, gap: 12 }}>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          background: `${categoryColors[note.category]}15`,
+                          color: categoryColors[note.category]
+                        }}>
+                          {categoryLabels[note.category]}
+                        </span>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          background: `${statusColors[note.status]}15`,
+                          color: statusColors[note.status]
+                        }}>
+                          {note.status}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                        {note.createdAt ? new Date(note.createdAt).toLocaleDateString() : ''}
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: 15, color: '#1e293b', lineHeight: 1.6, marginBottom: 16 }}>
+                      <ReactMarkdown>{note.content}</ReactMarkdown>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>
+                      <div style={{ fontSize: 12, color: '#64748b', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {note.patientName && <span>Patient: <strong>{note.patientName}</strong></span>}
+                        {note.userId && <span>User Scope ID: <strong>{note.userId}</strong></span>}
+                        {note.externalUserId && <span>External User ID: <strong>{note.externalUserId}</strong></span>}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {note.status === 'unread' && (
+                          <button
+                            onClick={() => updateNoteStatus(note.noteId, 'read')}
+                            style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, background: '#f0fdf4', color: '#166534', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                          >
+                            Mark Read
+                          </button>
+                        )}
+                        <button
+                          onClick={() => deleteNote(note.noteId)}
+                          style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, background: 'transparent', color: '#ef4444', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
+            </section>
           ))}
         </div>
       )}
