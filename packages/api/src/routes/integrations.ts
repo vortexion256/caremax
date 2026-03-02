@@ -144,6 +144,11 @@ function xmlEmptyResponse(): string {
 
 const WHATSAPP_PENDING_REPLY_TEXT = 'Thanks for your message. I am checking and will reply shortly.';
 const WHATSAPP_PENDING_REPLY_DELAY_MS = 10_000;
+const WHATSAPP_MAX_VOICE_NOTE_DURATION_SECONDS = 120;
+const WHATSAPP_MAX_AUDIO_BYTES = 6 * 1024 * 1024;
+const WHATSAPP_TRANSCRIPTION_DOWNLOAD_TIMEOUT_MS = 35_000;
+const WHATSAPP_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 45_000;
+const WHATSAPP_AI_RESPONSE_TIMEOUT_MS = 45_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -189,20 +194,28 @@ async function transcribeWhatsAppAudio(params: {
   contentType: string;
   accountSid: string;
   authToken: string;
-}): Promise<string | null> {
+}): Promise<{ transcript: string | null; rejectedForLength: boolean }> {
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) return { transcript: null, rejectedForLength: false };
 
   try {
     const audioRes = await fetch(params.mediaUrl, {
       headers: {
         Authorization: twilioBasicAuthHeader(params.accountSid, params.authToken),
       },
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(WHATSAPP_TRANSCRIPTION_DOWNLOAD_TIMEOUT_MS),
     });
-    if (!audioRes.ok) return null;
+    if (!audioRes.ok) return { transcript: null, rejectedForLength: false };
+
+    const contentLength = reqNumberHeader(audioRes.headers.get('content-length'), params.mediaUrl);
+    if (contentLength !== null && contentLength > WHATSAPP_MAX_AUDIO_BYTES) {
+      return { transcript: null, rejectedForLength: true };
+    }
 
     const audioBuf = Buffer.from(await audioRes.arrayBuffer());
+    if (audioBuf.length > WHATSAPP_MAX_AUDIO_BYTES) {
+      return { transcript: null, rejectedForLength: true };
+    }
     const base64Audio = audioBuf.toString('base64');
 
     const transcriptionRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`, {
@@ -228,10 +241,10 @@ async function transcribeWhatsAppAudio(params: {
           },
         ],
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(WHATSAPP_TRANSCRIPTION_REQUEST_TIMEOUT_MS),
     });
 
-    if (!transcriptionRes.ok) return null;
+    if (!transcriptionRes.ok) return { transcript: null, rejectedForLength: false };
 
     const payload = await transcriptionRes.json() as {
       candidates?: Array<{
@@ -242,10 +255,52 @@ async function transcribeWhatsAppAudio(params: {
     };
 
     const transcript = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join(' ').trim();
-    return transcript || null;
+    return { transcript: transcript || null, rejectedForLength: false };
   } catch (error) {
     console.warn('WhatsApp audio transcription failed:', error);
+    return { transcript: null, rejectedForLength: false };
+  }
+}
+
+function reqNumberHeader(value: string | null | undefined, context: string): number | null {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    console.warn(`Unable to parse numeric header (${context}):`, value);
     return null;
+  }
+  return parsed;
+}
+
+function getWhatsAppAudioDurationSeconds(payload: Request['body']): number | null {
+  const durationCandidates = [payload?.MediaDuration0, payload?.MediaDuration, payload?.RecordingDuration, payload?.Duration]
+    .map((value) => Number.parseInt(String(value ?? ''), 10))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+
+  if (durationCandidates.length === 0) return null;
+  return durationCandidates[0];
+}
+
+async function runAgentWithRetry(
+  tenantId: string,
+  history: Array<{ role: string; content: string; imageUrls?: string[] }>,
+  context: { userId: string; externalUserId: string; conversationId: string },
+): Promise<{ text?: string; requestHandoff?: boolean }> {
+  try {
+    return await withTimeout(
+      runConfiguredAgent(tenantId, history, context),
+      WHATSAPP_AI_RESPONSE_TIMEOUT_MS,
+      'AI response timed out while handling Twilio async processor',
+    );
+  } catch (error) {
+    const isTimeoutError = error instanceof Error && /timed out/i.test(error.message);
+    if (!isTimeoutError) throw error;
+
+    return withTimeout(
+      runConfiguredAgent(tenantId, history, context),
+      WHATSAPP_AI_RESPONSE_TIMEOUT_MS,
+      'AI response timed out while handling Twilio async processor retry',
+    );
   }
 }
 
@@ -288,16 +343,29 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
 
     let body = incomingBody;
     if (!body && isLikelyWhatsAppVoiceNote(req.body) && mediaUrl && mediaContentType) {
+      const mediaDurationSeconds = getWhatsAppAudioDurationSeconds(req.body);
+      if (mediaDurationSeconds !== null && mediaDurationSeconds > WHATSAPP_MAX_VOICE_NOTE_DURATION_SECONDS) {
+        res.set('Content-Type', 'text/xml');
+        res.status(200).send(xmlResponse('That voice note is too long. Please keep audio messages under 2 minutes or split into shorter notes.'));
+        return;
+      }
+
       const accountSid = typeof whatsapp.accountSid === 'string' ? whatsapp.accountSid.trim() : '';
       const authToken = typeof whatsapp.authToken === 'string' ? whatsapp.authToken.trim() : '';
 
       if (accountSid && authToken) {
-        const transcript = await transcribeWhatsAppAudio({
+        const { transcript, rejectedForLength } = await transcribeWhatsAppAudio({
           mediaUrl,
           contentType: mediaContentType,
           accountSid,
           authToken,
         });
+
+        if (rejectedForLength) {
+          res.set('Content-Type', 'text/xml');
+          res.status(200).send(xmlResponse('That voice note is too large. Please keep audio messages under 2 minutes and send shorter clips.'));
+          return;
+        }
 
         if (transcript) {
           body = transcript;
@@ -496,15 +564,11 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     let requestHandoff = false;
 
     try {
-      const agentResponse = await withTimeout(
-        runConfiguredAgent(tenantId, history, {
+      const agentResponse = await runAgentWithRetry(tenantId, history, {
           userId: identity.scopedUserId,
           externalUserId: identity.externalUserId,
           conversationId,
-        }),
-        25_000,
-        'AI response timed out while handling Twilio async processor',
-      );
+        });
       responseText = agentResponse.text?.trim() ?? '';
       requestHandoff = agentResponse.requestHandoff ?? false;
     } catch (error) {
