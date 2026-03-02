@@ -22,14 +22,17 @@ agentNotesRouter.get('/', async (req, res) => {
     const patientName = typeof req.query.patientName === 'string' ? req.query.patientName : undefined;
     const category = typeof req.query.category === 'string' ? (req.query.category as any) : undefined;
     const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : undefined;
+    const requestedUserId = typeof req.query.userId === 'string' ? req.query.userId.trim() : undefined;
+    const externalUserId = typeof req.query.externalUserId === 'string' ? req.query.externalUserId.trim() : undefined;
 
-    // If not admin, filter by userId
     const notes = await listNotes(tenantId, {
       conversationId,
       status,
       patientName,
       category,
       limit,
+      ...(isAdmin ? (requestedUserId ? { userId: requestedUserId } : {}) : { userId }),
+      ...(externalUserId ? { externalUserId } : {}),
     });
 
     res.json({ notes });

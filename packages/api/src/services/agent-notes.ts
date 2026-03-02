@@ -9,6 +9,7 @@ export type AgentNote = {
   tenantId: string;
   conversationId: string;
   userId: string | null;
+  externalUserId: string | null;
   patientName: string | null;
   content: string;
   category: 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'bookings' | 'admin_info' | 'other';
@@ -28,48 +29,51 @@ async function findSimilarNote(
   content: string,
   patientName?: string,
   category?: AgentNote['category'],
-  userId?: string
+  userId?: string,
+  externalUserId?: string
 ): Promise<AgentNote | null> {
   // Check for notes with similar content in the same conversation/user scope only
   // Look for notes created in the last hour to catch duplicates from the same session
   const oneHourAgo = Date.now() - 60 * 60 * 1000;
-  
+
   try {
     const snap = await db.collection(NOTES_COLLECTION)
       .where('tenantId', '==', tenantId)
       .get();
-    
+
     const normalizedContent = content.trim().toLowerCase();
     const normalizedPatientName = patientName?.trim().toLowerCase();
-    
+
     for (const doc of snap.docs) {
       const data = doc.data();
       const noteCreatedAt = data.createdAt?.toMillis?.() ?? 0;
-      
+
       // Only check notes from the last hour
       if (noteCreatedAt < oneHourAgo) continue;
 
       const noteConversationId = data.conversationId as string | undefined;
       const noteUserId = (data.userId as string | null | undefined) ?? null;
+      const noteExternalUserId = (data.externalUserId as string | null | undefined) ?? null;
       if (noteConversationId !== conversationId) continue;
-      if (userId && noteUserId && noteUserId !== userId) continue;
-      
+      if (userId && noteUserId !== userId) continue;
+      if (externalUserId && noteExternalUserId !== externalUserId) continue;
+
       const noteContent = (data.content as string).toLowerCase();
       const notePatientName = (data.patientName as string)?.toLowerCase();
       const noteCategory = data.category as AgentNote['category'];
-      
+
       // Check if it's the same category
       if (category && noteCategory !== category) continue;
-      
+
       // Check if patient names match (if both provided)
       if (normalizedPatientName && notePatientName && normalizedPatientName !== notePatientName) continue;
-      
+
       // Check content similarity - if 70% of words overlap, consider it a duplicate
       const contentWords = new Set(normalizedContent.split(/\s+/).filter(w => w.length > 2));
       const noteWords = new Set(noteContent.split(/\s+/).filter(w => w.length > 2));
       const intersection = new Set([...contentWords].filter(w => noteWords.has(w)));
       const similarity = intersection.size / Math.max(contentWords.size, noteWords.size);
-      
+
       // If similarity is high (70%+) and it's the same category, it's likely a duplicate
       if (similarity >= 0.7) {
         return {
@@ -77,6 +81,7 @@ async function findSimilarNote(
           tenantId: data.tenantId as string,
           conversationId: data.conversationId as string,
           userId: data.userId as string | null,
+          externalUserId: (data.externalUserId as string | null | undefined) ?? null,
           patientName: data.patientName as string | null,
           content: data.content as string,
           category: (data.category as AgentNote['category']) || 'other',
@@ -92,7 +97,7 @@ async function findSimilarNote(
     // If query fails, proceed with creation (better to have duplicates than miss notes)
     console.warn('Failed to check for duplicate notes:', e);
   }
-  
+
   return null;
 }
 
@@ -106,6 +111,7 @@ export async function createNote(
   content: string,
   options?: {
     userId?: string;
+    externalUserId?: string;
     patientName?: string;
     category?: AgentNote['category'];
   }
@@ -117,18 +123,20 @@ export async function createNote(
     content,
     options?.patientName,
     options?.category,
-    options?.userId
+    options?.userId,
+    options?.externalUserId
   );
-  
+
   if (similarNote) {
     console.log(`Duplicate note detected, skipping creation. Similar note: ${similarNote.noteId}`);
     return similarNote; // Return existing note instead of creating duplicate
   }
-  
+
   const ref = await db.collection(NOTES_COLLECTION).add({
     tenantId,
     conversationId,
-    userId: options?.userId ?? null,
+    userId: options?.userId?.trim() || null,
+    externalUserId: options?.externalUserId?.trim() || null,
     patientName: options?.patientName?.trim() || null,
     content: content.trim(),
     category: options?.category ?? 'other',
@@ -146,6 +154,7 @@ export async function createNote(
     tenantId: data.tenantId as string,
     conversationId: data.conversationId as string,
     userId: data.userId as string | null,
+    externalUserId: (data.externalUserId as string | null | undefined) ?? null,
     patientName: data.patientName as string | null,
     content: data.content as string,
     category: (data.category as AgentNote['category']) || 'other',
@@ -168,6 +177,7 @@ export async function listNotes(
     patientName?: string;
     category?: AgentNote['category'];
     userId?: string;
+    externalUserId?: string;
     limit?: number;
   }
 ): Promise<AgentNote[]> {
@@ -191,7 +201,11 @@ export async function listNotes(
   }
 
   if (options?.userId) {
-    query = query.where('userId', '==', options.userId);
+    query = query.where('userId', '==', options.userId.trim());
+  }
+
+  if (options?.externalUserId) {
+    query = query.where('externalUserId', '==', options.externalUserId.trim());
   }
 
   // Try to add orderBy - if index doesn't exist, we'll catch and fetch without it
@@ -208,6 +222,7 @@ export async function listNotes(
         tenantId: data.tenantId as string,
         conversationId: data.conversationId as string,
         userId: data.userId as string | null,
+        externalUserId: (data.externalUserId as string | null | undefined) ?? null,
         patientName: data.patientName as string | null,
         content: data.content as string,
         category: (data.category as AgentNote['category']) || 'other',
@@ -233,6 +248,7 @@ export async function listNotes(
           tenantId: data.tenantId as string,
           conversationId: data.conversationId as string,
           userId: data.userId as string | null,
+          externalUserId: (data.externalUserId as string | null | undefined) ?? null,
           patientName: data.patientName as string | null,
           content: data.content as string,
           category: (data.category as AgentNote['category']) || 'other',
@@ -266,6 +282,7 @@ export async function getNote(tenantId: string, noteId: string): Promise<AgentNo
     tenantId: data.tenantId as string,
     conversationId: data.conversationId as string,
     userId: data.userId as string | null,
+    externalUserId: (data.externalUserId as string | null | undefined) ?? null,
     patientName: data.patientName as string | null,
     content: data.content as string,
     category: (data.category as AgentNote['category']) || 'other',
