@@ -30,7 +30,9 @@ const updateBody = z.object({
   googleSheetsRange: z.string().optional(),
   googleSheets: z.array(googleSheetEntry).optional(),
   learningOnlyPrompt: z.string().optional(),
+  learningOnlyPromptEnabled: z.boolean().optional(),
   consolidationPrompt: z.string().optional(),
+  consolidationPromptEnabled: z.boolean().optional(),
 });
 
 const fallbackModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
@@ -81,12 +83,20 @@ agentConfigRouter.get('/', async (req, res) => {
 
 agentConfigRouter.put('/', requireAuth, requireAdmin, async (req, res) => {
   const tenantId = res.locals.tenantId as string;
+  const locals = res.locals as { isPlatformAdmin?: boolean };
   const parsed = updateBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
     return;
   }
   const availableModels = await getAvailableModels();
+  const advancedPromptFields = ['learningOnlyPrompt', 'learningOnlyPromptEnabled', 'consolidationPrompt', 'consolidationPromptEnabled'] as const;
+  const isUpdatingAdvancedPrompts = advancedPromptFields.some((field) => Object.prototype.hasOwnProperty.call(parsed.data, field));
+  if (isUpdatingAdvancedPrompts && locals.isPlatformAdmin !== true) {
+    res.status(403).json({ error: 'Only SaaS admins can update learning and consolidation prompts' });
+    return;
+  }
+
   if (parsed.data.model && !availableModels.includes(parsed.data.model)) {
     res.status(400).json({ error: 'Model is not allowed for tenant selection' });
     return;
