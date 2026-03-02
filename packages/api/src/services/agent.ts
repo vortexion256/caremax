@@ -302,7 +302,7 @@ function hasMultipleUserTurns(history: { role: string }[]): boolean {
 export async function runAgent(
   tenantId: string,
   history: { role: string; content: string; imageUrls?: string[] }[],
-  options?: { userId?: string; conversationId?: string }
+  options?: { userId?: string; externalUserId?: string; conversationId?: string }
 ): Promise<AgentResult> {
   const runStartedAt = Date.now();
   const config = await getAgentConfig(tenantId);
@@ -375,7 +375,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     let existingRecords: Awaited<ReturnType<typeof listRecords>> = [];
     try {
       existingRecords = await Promise.race([
-        listRecords(tenantId, { userId: options?.userId }),
+        listRecords(tenantId, { userId: options?.userId, externalUserId: options?.externalUserId }),
         new Promise<typeof existingRecords>((_, reject) => {
           setTimeout(() => reject(new Error('listRecords timeout')), 3000);
         }),
@@ -451,7 +451,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       content: z.string().describe('The key information to remember'),
     }),
     func: async ({ title, content }) => {
-      await createRecord(tenantId, title.trim(), content.trim(), { userId: options?.userId });
+      await createRecord(tenantId, title.trim(), content.trim(), { userId: options?.userId, externalUserId: options?.externalUserId });
       return 'Record saved.';
     },
   });
@@ -524,6 +524,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       try {
         await createNote(tenantId, options.conversationId, content.trim(), {
           userId: options?.userId,
+          externalUserId: options?.externalUserId,
           patientName: patientName?.trim(),
           category: category ?? 'other',
         });
@@ -541,7 +542,11 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     schema: z.object({}),
     func: async () => {
       try {
-        const notes = await listAgentNotes(tenantId);
+        const notes = await listAgentNotes(tenantId, {
+          ...(options?.userId ? { userId: options.userId } : {}),
+          ...(options?.externalUserId ? { externalUserId: options.externalUserId } : {}),
+          ...(!options?.userId && !options?.externalUserId && options?.conversationId ? { conversationId: options.conversationId } : {}),
+        });
         if (notes.length === 0) return 'No notes found.';
         return notes.map((n) => `noteId: ${n.noteId}\ncategory: ${n.category}\ncontent: ${n.content}${n.patientName ? `\nuser: ${n.patientName}` : ''}`).join('\n\n');
       } catch (e) {
@@ -662,7 +667,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
       let content: string;
       if (tc.name === 'record_learned_knowledge' && tc.args && typeof tc.args.title === 'string' && typeof tc.args.content === 'string') {
         try {
-          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim(), { userId: options?.userId });
+          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim(), { userId: options?.userId, externalUserId: options?.externalUserId });
           void recordActivity(tenantId, 'agent-brain');
           content = 'Record saved.';
         } catch (e) {
@@ -1107,7 +1112,7 @@ Provide a clear, user-friendly response based on these results.`,
 export async function extractAndRecordLearningFromHistory(
   tenantId: string,
   history: { role: string; content: string; imageUrls?: string[] }[],
-  options?: { userId?: string; conversationId?: string }
+  options?: { userId?: string; externalUserId?: string; conversationId?: string }
 ): Promise<void> {
   const config = await getAgentConfig(tenantId);
   if (!config.ragEnabled) return;
@@ -1121,7 +1126,7 @@ export async function extractAndRecordLearningFromHistory(
     apiKey,
   });
 
-  const existingRecords = await listRecords(tenantId, { userId: options?.userId });
+  const existingRecords = await listRecords(tenantId, { userId: options?.userId, externalUserId: options?.externalUserId });
   const existingBlock = formatExistingRecordsForPrompt(existingRecords);
   const defaultLearningPrompt = `You are reviewing a conversation after a human care team member has finished helping the user. Your only job is to identify information from this conversation (by the user or care team in messages labeled "[Care team said to the user]: ...") that should be reflected in the Auto Agent Brain—e.g. contact details, phone numbers, policy info, or corrections.
 
@@ -1155,7 +1160,7 @@ If there is nothing new or nothing to update/remove, do not call any tool.`;
       content: z.string().describe('The key information to remember'),
     }),
     func: async ({ title, content }) => {
-      await createRecord(tenantId, title.trim(), content.trim(), { userId: options?.userId });
+      await createRecord(tenantId, title.trim(), content.trim(), { userId: options?.userId, externalUserId: options?.externalUserId });
       return 'Record saved.';
     },
   });
@@ -1219,7 +1224,7 @@ If there is nothing new or nothing to update/remove, do not call any tool.`;
       let content: string;
       if (tc.name === 'record_learned_knowledge' && tc.args && typeof tc.args.title === 'string' && typeof tc.args.content === 'string') {
         try {
-          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim(), { userId: options?.userId });
+          await createRecord(tenantId, tc.args.title.trim(), tc.args.content.trim(), { userId: options?.userId, externalUserId: options?.externalUserId });
           void recordActivity(tenantId, 'agent-brain');
           content = 'Record saved.';
         } catch (e) {

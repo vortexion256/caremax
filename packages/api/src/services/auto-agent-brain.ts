@@ -20,6 +20,7 @@ export type AgentRecord = {
   content: string;
   scope: 'shared' | 'user';
   userId: string | null;
+  externalUserId: string | null;
   createdAt: number | null;
   updatedAt?: number | null;
 };
@@ -29,13 +30,14 @@ export async function createRecord(
   tenantId: string,
   title: string,
   content: string,
-  options?: { userId?: string; scope?: 'shared' | 'user' }
+  options?: { userId?: string; externalUserId?: string; scope?: 'shared' | 'user' }
 ): Promise<{ recordId: string; title: string }> {
   const trimmedTitle = title.trim();
   const trimmedContent = content.trim();
   const explicitScope = options?.scope;
   const normalizedUserId = options?.userId?.trim() || null;
-  const scope: 'shared' | 'user' = explicitScope ?? (normalizedUserId ? 'user' : 'shared');
+  const normalizedExternalUserId = options?.externalUserId?.trim() || null;
+  const scope: 'shared' | 'user' = explicitScope ?? ((normalizedUserId || normalizedExternalUserId) ? 'user' : 'shared');
   const scopedUserId = scope === 'user' ? normalizedUserId : null;
 
   const ref = await db.collection(COLLECTION).add({
@@ -44,6 +46,7 @@ export async function createRecord(
     content: trimmedContent,
     scope,
     userId: scopedUserId,
+    externalUserId: scope === 'user' ? normalizedExternalUserId : null,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   });
@@ -54,10 +57,11 @@ export async function createRecord(
 
 export async function listRecords(
   tenantId: string,
-  options?: { userId?: string; includeShared?: boolean; includeAllUserScoped?: boolean }
+  options?: { userId?: string; externalUserId?: string; includeShared?: boolean; includeAllUserScoped?: boolean }
 ): Promise<AgentRecord[]> {
   const userId = options?.userId?.trim();
-  const includeShared = options?.includeShared ?? !userId;
+  const externalUserId = options?.externalUserId?.trim();
+  const includeShared = options?.includeShared ?? true;
   const includeAllUserScoped = options?.includeAllUserScoped ?? false;
 
   const snap = await db.collection(COLLECTION).where('tenantId', '==', tenantId).get();
@@ -70,13 +74,16 @@ export async function listRecords(
       content: data.content ?? '',
       scope,
       userId: (data.userId as string | null) ?? null,
+      externalUserId: (data.externalUserId as string | null | undefined) ?? null,
       createdAt: data.createdAt?.toMillis?.() ?? null,
       updatedAt: data.updatedAt?.toMillis?.() ?? null,
     };
   }).filter((r) => {
     if (r.scope === 'user') {
       if (includeAllUserScoped) return true;
-      return Boolean(userId) && r.userId === userId;
+      if (userId && r.userId === userId) return true;
+      if (externalUserId && r.externalUserId === externalUserId) return true;
+      return false;
     }
     return includeShared;
   });
@@ -96,6 +103,7 @@ export async function getRecord(tenantId: string, recordId: string): Promise<Age
     content: data.content ?? '',
     scope: (data.scope as 'shared' | 'user' | undefined) ?? 'shared',
     userId: (data.userId as string | null) ?? null,
+    externalUserId: (data.externalUserId as string | null | undefined) ?? null,
     createdAt: data.createdAt?.toMillis?.() ?? null,
     updatedAt: data.updatedAt?.toMillis?.() ?? null,
   };

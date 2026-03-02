@@ -474,9 +474,9 @@ export class ToolExecutor {
   async executeRecordKnowledge(params: {
     title: string;
     content: string;
-  }, userId?: string): Promise<RecordKnowledgeResult> {
+  }, userId?: string, externalUserId?: string): Promise<RecordKnowledgeResult> {
     try {
-      await createRecord(this.tenantId, params.title.trim(), params.content.trim(), { userId });
+      await createRecord(this.tenantId, params.title.trim(), params.content.trim(), { userId, externalUserId });
       return {
         success: true,
         action: 'write',
@@ -497,7 +497,7 @@ export class ToolExecutor {
     content: string;
     patientName?: string;
     category?: 'admin_info' | 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'other';
-  }, conversationId?: string, userId?: string): Promise<CreateNoteResult> {
+  }, conversationId?: string, userId?: string, externalUserId?: string): Promise<CreateNoteResult> {
     if (!conversationId) {
       return {
         success: false,
@@ -508,6 +508,7 @@ export class ToolExecutor {
     try {
       await createNote(this.tenantId, conversationId, params.content.trim(), {
         userId,
+        externalUserId,
         patientName: params.patientName?.trim(),
         category: params.category ?? 'other',
       });
@@ -606,7 +607,8 @@ export class AgentOrchestrator {
     toolCall: ToolCall,
     googleSheetsList: Array<{ spreadsheetId: string; range?: string; useWhen: string }>,
     conversationId?: string,
-    userId?: string
+    userId?: string,
+    externalUserId?: string
   ): Promise<ToolResult> {
     let result: ToolResult;
 
@@ -776,7 +778,7 @@ export class AgentOrchestrator {
           result = await this.toolExecutor.executeRecordKnowledge({
             title: toolCall.args.title,
             content: toolCall.args.content,
-          }, userId);
+          }, userId, externalUserId);
           // Record agent-brain activity for dashboard visualization
           if (result.success) {
             void recordActivity(this.tenantId, 'agent-brain');
@@ -886,7 +888,8 @@ export class AgentOrchestrator {
                   : undefined,
             },
             conversationId,
-            userId
+            userId,
+            externalUserId
           );
         } else {
           result = {
