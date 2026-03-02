@@ -499,6 +499,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       const agentResponse = await withTimeout(
         runConfiguredAgent(tenantId, history, {
           userId: identity.scopedUserId,
+          externalUserId: identity.externalUserId,
           conversationId,
         }),
         25_000,

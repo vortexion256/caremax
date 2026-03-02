@@ -103,7 +103,7 @@ async function toLangChainMessages(
 export async function runAgentV2(
   tenantId: string,
   history: { role: string; content: string; imageUrls?: string[] }[],
-  options?: { userId?: string; conversationId?: string }
+  options?: { userId?: string; externalUserId?: string; conversationId?: string }
 ): Promise<AgentResult> {
   try {
     const config = await getAgentConfig(tenantId);
@@ -289,7 +289,7 @@ export async function runAgentV2(
 
     // Add RAG records if enabled
     if (config.ragEnabled) {
-      const existingRecords = await listRecords(tenantId, { userId: options?.userId });
+      const existingRecords = await listRecords(tenantId, { userId: options?.userId, externalUserId: options?.externalUserId });
       systemContent += `--- Current Auto Agent Brain records ---\n${formatExistingRecordsForPrompt(existingRecords)}\n--- End of records ---\n\n`;
       systemContent += `When the user provides information to remember:\n`;
       systemContent += `1) If it UPDATES an existing record → use request_edit_record\n`;
@@ -521,7 +521,8 @@ Follow this plan step by step. Execute each step in order.`;
             toolCall,
             googleSheetsList,
             options?.conversationId,
-            options?.userId
+            options?.userId,
+            options?.externalUserId
           );
 
           // Format result for LLM with enhanced state information
@@ -610,7 +611,8 @@ Follow this plan step by step. Execute each step in order.`;
             toolCall,
             googleSheetsList,
             options?.conversationId,
-            options?.userId
+            options?.userId,
+            options?.externalUserId
           );
 
           // Format result for LLM with enhanced state information

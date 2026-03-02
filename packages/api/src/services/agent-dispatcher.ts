@@ -3,7 +3,7 @@ import { runAgent, type AgentResult } from './agent.js';
 import { runAgentV2 } from './agent-v2.js';
 
 type AgentHistoryMessage = { role: string; content: string; imageUrls?: string[] };
-type AgentOptions = { userId?: string; conversationId?: string };
+type AgentOptions = { userId?: string; externalUserId?: string; conversationId?: string };
 type AgentVersion = 'v1' | 'v2';
 
 function normalizeAgentVersion(value: unknown): AgentVersion | null {

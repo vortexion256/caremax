@@ -313,8 +313,10 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
       ?? ((convData?.channel as string | undefined) && (convData?.externalUserId as string | undefined)
         ? `${convData.channel}:${convData.externalUserId}`
         : undefined);
+    const externalUserId = typeof convData?.externalUserId === 'string' ? convData.externalUserId : undefined;
     agentResponse = await runConfiguredAgent(tenantId, history, {
       userId,
+      externalUserId,
       conversationId,
     });
   } catch (err) {
