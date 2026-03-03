@@ -15,7 +15,6 @@ import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
-import { google } from 'googleapis';
 
 /** Callback from Google OAuth - no auth; state = tenantId. Redirects to admin. */
 export const integrationsCallbackRouter: Router = Router();
@@ -372,28 +371,30 @@ function resolveWhatsAppVoiceReplySettings(whatsapp: Record<string, unknown> | u
 }
 
 async function synthesizeWhatsAppVoiceReplyAudio(text: string): Promise<Buffer | null> {
-  const client = await google.auth.getClient({
-    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-  });
-  const accessTokenResponse = await client.getAccessToken();
-  const accessToken = typeof accessTokenResponse === 'string' ? accessTokenResponse : accessTokenResponse.token;
-  if (!accessToken) return null;
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) return null;
 
-  const ttsResponse = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize', {
+  const ttsResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      input: { text },
-      voice: {
-        languageCode: 'en-US',
-        name: 'en-US-Neural2-F',
-      },
-      audioConfig: {
-        audioEncoding: 'MP3',
-        speakingRate: 1,
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text }],
+        },
+      ],
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: 'Kore',
+            },
+          },
+        },
       },
     }),
     signal: AbortSignal.timeout(20_000),
@@ -404,9 +405,22 @@ async function synthesizeWhatsAppVoiceReplyAudio(text: string): Promise<Buffer |
     throw new Error(`TTS synth failed (${ttsResponse.status}): ${details}`);
   }
 
-  const payload = await ttsResponse.json() as { audioContent?: string };
-  if (!payload.audioContent) return null;
-  return Buffer.from(payload.audioContent, 'base64');
+  const payload = await ttsResponse.json() as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{
+          inlineData?: { data?: string };
+          inline_data?: { data?: string };
+        }>;
+      };
+    }>;
+  };
+
+  const audioPart = payload.candidates?.[0]?.content?.parts?.find((part) =>
+    Boolean(part.inlineData?.data || part.inline_data?.data));
+  const audioContent = audioPart?.inlineData?.data ?? audioPart?.inline_data?.data;
+  if (!audioContent) return null;
+  return Buffer.from(audioContent, 'base64');
 }
 
 async function buildWhatsAppVoiceReplyMediaUrl(tenantId: string, text: string): Promise<string | null> {
@@ -415,9 +429,9 @@ async function buildWhatsAppVoiceReplyMediaUrl(tenantId: string, text: string): 
   const audioBuffer = await synthesizeWhatsAppVoiceReplyAudio(text);
   if (!audioBuffer?.length) return null;
 
-  const path = `tenants/${tenantId}/whatsapp/voice-replies/${randomUUID()}.mp3`;
+  const path = `tenants/${tenantId}/whatsapp/voice-replies/${randomUUID()}.wav`;
   const fileRef = bucket.file(path);
-  await fileRef.save(audioBuffer, { metadata: { contentType: 'audio/mpeg' } });
+  await fileRef.save(audioBuffer, { metadata: { contentType: 'audio/wav' } });
   const [signedUrl] = await fileRef.getSignedUrl({ action: 'read', expires: Date.now() + WHATSAPP_VOICE_REPLY_SIGNED_URL_EXPIRY_MS });
   return signedUrl;
 }
