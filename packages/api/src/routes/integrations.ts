@@ -157,6 +157,9 @@ const WHATSAPP_VOICE_REPLY_SIGNED_URL_EXPIRY_MS = 2 * 60 * 60 * 1000;
 const WHATSAPP_DEFAULT_VOICE_REPLY_CHAR_THRESHOLD = 320;
 const WHATSAPP_MIN_VOICE_REPLY_CHAR_THRESHOLD = 80;
 const WHATSAPP_MAX_VOICE_REPLY_CHAR_THRESHOLD = 4_000;
+const WHATSAPP_TTS_REQUEST_TIMEOUT_MS = 60_000;
+const WHATSAPP_TTS_MAX_CHARS = 1_200;
+const WHATSAPP_TTS_MAX_ATTEMPTS = 2;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -374,53 +377,69 @@ async function synthesizeWhatsAppVoiceReplyAudio(text: string): Promise<Buffer |
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) return null;
 
-  const ttsResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text }],
+  const textForSpeech = text.length > WHATSAPP_TTS_MAX_CHARS
+    ? `${text.slice(0, WHATSAPP_TTS_MAX_CHARS - 1)}…`
+    : text;
+
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= WHATSAPP_TTS_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const ttsResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      ],
-      generationConfig: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: 'Kore',
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: textForSpeech }],
+            },
+          ],
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: 'Kore',
+                },
+              },
             },
           },
-        },
-      },
-    }),
-    signal: AbortSignal.timeout(20_000),
-  });
+        }),
+        signal: AbortSignal.timeout(WHATSAPP_TTS_REQUEST_TIMEOUT_MS),
+      });
 
-  if (!ttsResponse.ok) {
-    const details = await ttsResponse.text();
-    throw new Error(`TTS synth failed (${ttsResponse.status}): ${details}`);
-  }
+      if (!ttsResponse.ok) {
+        const details = await ttsResponse.text();
+        throw new Error(`TTS synth failed (${ttsResponse.status}): ${details}`);
+      }
 
-  const payload = await ttsResponse.json() as {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{
-          inlineData?: { data?: string };
-          inline_data?: { data?: string };
+      const payload = await ttsResponse.json() as {
+        candidates?: Array<{
+          content?: {
+            parts?: Array<{
+              inlineData?: { data?: string };
+              inline_data?: { data?: string };
+            }>;
+          };
         }>;
       };
-    }>;
-  };
 
-  const audioPart = payload.candidates?.[0]?.content?.parts?.find((part) =>
-    Boolean(part.inlineData?.data || part.inline_data?.data));
-  const audioContent = audioPart?.inlineData?.data ?? audioPart?.inline_data?.data;
-  if (!audioContent) return null;
-  return Buffer.from(audioContent, 'base64');
+      const audioPart = payload.candidates?.[0]?.content?.parts?.find((part) =>
+        Boolean(part.inlineData?.data || part.inline_data?.data));
+      const audioContent = audioPart?.inlineData?.data ?? audioPart?.inline_data?.data;
+      if (!audioContent) return null;
+      return Buffer.from(audioContent, 'base64');
+    } catch (error) {
+      lastError = error;
+      if (attempt < WHATSAPP_TTS_MAX_ATTEMPTS) {
+        console.warn(`WhatsApp TTS attempt ${attempt} failed; retrying`, error);
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Unknown WhatsApp TTS failure');
 }
 
 async function buildWhatsAppVoiceReplyMediaUrl(tenantId: string, text: string): Promise<string | null> {
