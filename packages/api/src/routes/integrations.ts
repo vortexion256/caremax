@@ -15,6 +15,7 @@ import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
+import { google } from 'googleapis';
 
 /** Callback from Google OAuth - no auth; state = tenantId. Redirects to admin. */
 export const integrationsCallbackRouter: Router = Router();
@@ -153,6 +154,10 @@ const WHATSAPP_AI_RESPONSE_TIMEOUT_MS = 90_000;
 const WHATSAPP_IMAGE_DOWNLOAD_TIMEOUT_MS = 20_000;
 const WHATSAPP_IMAGE_UPLOAD_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 const WHATSAPP_ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const WHATSAPP_VOICE_REPLY_SIGNED_URL_EXPIRY_MS = 2 * 60 * 60 * 1000;
+const WHATSAPP_DEFAULT_VOICE_REPLY_CHAR_THRESHOLD = 320;
+const WHATSAPP_MIN_VOICE_REPLY_CHAR_THRESHOLD = 80;
+const WHATSAPP_MAX_VOICE_REPLY_CHAR_THRESHOLD = 4_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -347,6 +352,74 @@ function getWhatsAppAudioDurationSeconds(payload: Request['body']): number | nul
 
   if (durationCandidates.length === 0) return null;
   return durationCandidates[0];
+}
+
+
+function resolveWhatsAppVoiceReplySettings(whatsapp: Record<string, unknown> | undefined): {
+  enabled: boolean;
+  charThreshold: number;
+} {
+  const enabled = whatsapp?.aiVoiceReplyEnabled === true;
+  const thresholdCandidate = Number.parseInt(String(whatsapp?.aiVoiceReplyCharThreshold ?? ''), 10);
+  const parsedThreshold = Number.isFinite(thresholdCandidate)
+    ? Math.max(WHATSAPP_MIN_VOICE_REPLY_CHAR_THRESHOLD, Math.min(WHATSAPP_MAX_VOICE_REPLY_CHAR_THRESHOLD, thresholdCandidate))
+    : WHATSAPP_DEFAULT_VOICE_REPLY_CHAR_THRESHOLD;
+
+  return {
+    enabled,
+    charThreshold: parsedThreshold,
+  };
+}
+
+async function synthesizeWhatsAppVoiceReplyAudio(text: string): Promise<Buffer | null> {
+  const client = await google.auth.getClient({
+    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+  });
+  const accessTokenResponse = await client.getAccessToken();
+  const accessToken = typeof accessTokenResponse === 'string' ? accessTokenResponse : accessTokenResponse.token;
+  if (!accessToken) return null;
+
+  const ttsResponse = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      input: { text },
+      voice: {
+        languageCode: 'en-US',
+        name: 'en-US-Neural2-F',
+      },
+      audioConfig: {
+        audioEncoding: 'MP3',
+        speakingRate: 1,
+      },
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  if (!ttsResponse.ok) {
+    const details = await ttsResponse.text();
+    throw new Error(`TTS synth failed (${ttsResponse.status}): ${details}`);
+  }
+
+  const payload = await ttsResponse.json() as { audioContent?: string };
+  if (!payload.audioContent) return null;
+  return Buffer.from(payload.audioContent, 'base64');
+}
+
+async function buildWhatsAppVoiceReplyMediaUrl(tenantId: string, text: string): Promise<string | null> {
+  if (!bucket) return null;
+
+  const audioBuffer = await synthesizeWhatsAppVoiceReplyAudio(text);
+  if (!audioBuffer?.length) return null;
+
+  const path = `tenants/${tenantId}/whatsapp/voice-replies/${randomUUID()}.mp3`;
+  const fileRef = bucket.file(path);
+  await fileRef.save(audioBuffer, { metadata: { contentType: 'audio/mpeg' } });
+  const [signedUrl] = await fileRef.getSignedUrl({ action: 'read', expires: Date.now() + WHATSAPP_VOICE_REPLY_SIGNED_URL_EXPIRY_MS });
+  return signedUrl;
 }
 
 async function runAgentWithRetry(
@@ -667,8 +740,25 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
 
     const payload = new URLSearchParams({
       To: outboundTo,
-      Body: responseText,
     });
+
+    const voiceReplySettings = resolveWhatsAppVoiceReplySettings(whatsapp as Record<string, unknown>);
+    let sendAsVoiceReply = false;
+    if (voiceReplySettings.enabled && responseText.length >= voiceReplySettings.charThreshold) {
+      try {
+        const mediaUrl = await buildWhatsAppVoiceReplyMediaUrl(tenantId, responseText);
+        if (mediaUrl) {
+          payload.set('MediaUrl', mediaUrl);
+          sendAsVoiceReply = true;
+        }
+      } catch (error) {
+        console.warn('Failed to generate WhatsApp voice reply. Falling back to text:', error);
+      }
+    }
+
+    if (!sendAsVoiceReply) {
+      payload.set('Body', responseText);
+    }
     if (messagingServiceSid) {
       payload.set('MessagingServiceSid', messagingServiceSid);
     } else if (whatsappNumber) {
@@ -726,6 +816,8 @@ const updateWhatsAppBody = z.object({
   whatsappNumber: z.string().min(1),
   messagingServiceSid: z.string().optional(),
   webhookSecret: z.string().optional(),
+  aiVoiceReplyEnabled: z.boolean().optional(),
+  aiVoiceReplyCharThreshold: z.number().int().min(WHATSAPP_MIN_VOICE_REPLY_CHAR_THRESHOLD).max(WHATSAPP_MAX_VOICE_REPLY_CHAR_THRESHOLD).optional(),
 });
 
 function maskSecret(secret: string): string {
@@ -785,6 +877,8 @@ tenantIntegrationsRouter.get('/whatsapp', requireAuth, requireAdmin, async (_req
       authTokenMasked: maskSecret(whatsapp.authToken),
       messagingServiceSid: whatsapp.messagingServiceSid ?? '',
       webhookSecretMasked: whatsapp.webhookSecret ? maskSecret(whatsapp.webhookSecret) : '',
+      aiVoiceReplyEnabled: whatsapp.aiVoiceReplyEnabled === true,
+      aiVoiceReplyCharThreshold: resolveWhatsAppVoiceReplySettings(whatsapp).charThreshold,
       updatedAt: whatsapp.updatedAt ?? null,
     });
   } catch (error) {

@@ -10,8 +10,12 @@ type WhatsAppConfigResponse = {
   authTokenMasked?: string;
   messagingServiceSid?: string;
   webhookSecretMasked?: string;
+  aiVoiceReplyEnabled?: boolean;
+  aiVoiceReplyCharThreshold?: number;
   updatedAt?: string | null;
 };
+
+type TextFieldKey = 'accountSid' | 'authToken' | 'whatsappNumber' | 'messagingServiceSid' | 'webhookSecret';
 
 type FormState = {
   accountSid: string;
@@ -19,6 +23,8 @@ type FormState = {
   whatsappNumber: string;
   messagingServiceSid: string;
   webhookSecret: string;
+  aiVoiceReplyEnabled: boolean;
+  aiVoiceReplyCharThreshold: string;
 };
 
 const initialFormState: FormState = {
@@ -27,6 +33,8 @@ const initialFormState: FormState = {
   whatsappNumber: '',
   messagingServiceSid: '',
   webhookSecret: '',
+  aiVoiceReplyEnabled: false,
+  aiVoiceReplyCharThreshold: '320',
 };
 
 export default function WhatsAppIntegration() {
@@ -51,6 +59,8 @@ export default function WhatsAppIntegration() {
         whatsappNumber: res.whatsappNumber ?? '',
         messagingServiceSid: res.messagingServiceSid ?? '',
         webhookSecret: '',
+        aiVoiceReplyEnabled: res.aiVoiceReplyEnabled === true,
+        aiVoiceReplyCharThreshold: String(res.aiVoiceReplyCharThreshold ?? 320),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load WhatsApp settings');
@@ -71,9 +81,13 @@ export default function WhatsAppIntegration() {
     setMessage('');
 
     try {
+      const parsedThreshold = Number.parseInt(form.aiVoiceReplyCharThreshold, 10);
       await api(`/tenants/${tenantId}/integrations/whatsapp`, {
         method: 'PUT',
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          aiVoiceReplyCharThreshold: Number.isFinite(parsedThreshold) ? parsedThreshold : 320,
+        }),
       });
       setMessage('WhatsApp number connected successfully.');
       await loadConfig();
@@ -131,19 +145,19 @@ export default function WhatsAppIntegration() {
       </div>
 
       <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12 }}>
-        {[
+        {([
           { key: 'accountSid', label: 'Twilio Account SID', required: true },
           { key: 'authToken', label: 'Twilio Auth Token', required: true },
           { key: 'whatsappNumber', label: 'Twilio WhatsApp Number (e.g. whatsapp:+14155238886)', required: true },
           { key: 'messagingServiceSid', label: 'Messaging Service SID (optional)', required: false },
           { key: 'webhookSecret', label: 'Webhook Secret (optional)', required: false },
-        ].map((field) => (
+        ] as Array<{ key: TextFieldKey; label: string; required: boolean }>).map((field) => (
           <label key={field.key} style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155' }}>
             {field.label}
             <input
               type="text"
               required={field.required}
-              value={form[field.key as keyof FormState]}
+              value={form[field.key]}
               onChange={(e) => setForm((prev) => ({ ...prev, [field.key]: e.target.value }))}
               style={{
                 border: '1px solid #cbd5e1',
@@ -154,6 +168,39 @@ export default function WhatsAppIntegration() {
             />
           </label>
         ))}
+
+        <div style={{ display: 'grid', gap: 8, border: '1px solid #e2e8f0', borderRadius: 10, padding: 12, background: '#f8fafc' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#334155' }}>
+            <input
+              type="checkbox"
+              checked={form.aiVoiceReplyEnabled}
+              onChange={(e) => setForm((prev) => ({ ...prev, aiVoiceReplyEnabled: e.target.checked }))}
+            />
+            Enable AI voice-note replies on WhatsApp for long responses
+          </label>
+
+          <label style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155', maxWidth: 360 }}>
+            Character threshold for voice note
+            <input
+              type="number"
+              min={80}
+              max={4000}
+              value={form.aiVoiceReplyCharThreshold}
+              onChange={(e) => setForm((prev) => ({ ...prev, aiVoiceReplyCharThreshold: e.target.value }))}
+              disabled={!form.aiVoiceReplyEnabled}
+              style={{
+                border: '1px solid #cbd5e1',
+                borderRadius: 8,
+                padding: '10px 12px',
+                fontSize: 14,
+                background: form.aiVoiceReplyEnabled ? '#fff' : '#f1f5f9',
+              }}
+            />
+          </label>
+          <div style={{ fontSize: 12, color: '#64748b' }}>
+            Default is 320 characters. When enabled, AI replies at or above this length are sent as voice notes (WhatsApp only).
+          </div>
+        </div>
 
         <div style={{ fontSize: 13, color: '#64748b', background: '#f8fafc', padding: 12, borderRadius: 8 }}>
           Configure the Twilio incoming webhook URL as:
