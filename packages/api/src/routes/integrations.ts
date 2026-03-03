@@ -469,7 +469,10 @@ function normalizeTtsAudio(dataBase64: string, mimeType: string | undefined): Wh
 
 async function synthesizeWhatsAppVoiceReplyAudio(text: string): Promise<WhatsAppTtsAudio | null> {
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.error('WhatsApp TTS: GEMINI_API_KEY or GOOGLE_API_KEY not configured');
+    return null;
+  }
 
   const textForSpeech = text.length > WHATSAPP_TTS_MAX_CHARS
     ? `${text.slice(0, WHATSAPP_TTS_MAX_CHARS - 1)}…`
@@ -524,12 +527,18 @@ async function synthesizeWhatsAppVoiceReplyAudio(text: string): Promise<WhatsApp
         Boolean(part.inlineData?.data || part.inline_data?.data));
       const audioContent = audioPart?.inlineData?.data ?? audioPart?.inline_data?.data;
       const audioMimeType = audioPart?.inlineData?.mimeType ?? audioPart?.inline_data?.mime_type;
-      if (!audioContent) return null;
+      if (!audioContent) {
+        console.warn('WhatsApp TTS: No audio content in response');
+        return null;
+      }
       return normalizeTtsAudio(audioContent, audioMimeType);
     } catch (error) {
       lastError = error;
+      const errorMsg = error instanceof Error ? error.message : String(error);
       if (attempt < WHATSAPP_TTS_MAX_ATTEMPTS) {
-        console.warn(`WhatsApp TTS attempt ${attempt} failed; retrying`, error);
+        console.warn(`WhatsApp TTS attempt ${attempt} failed; retrying: ${errorMsg}`);
+      } else {
+        console.error(`WhatsApp TTS all ${WHATSAPP_TTS_MAX_ATTEMPTS} attempts failed: ${errorMsg}`);
       }
     }
   }
@@ -538,16 +547,31 @@ async function synthesizeWhatsAppVoiceReplyAudio(text: string): Promise<WhatsApp
 }
 
 async function buildWhatsAppVoiceReplyMediaUrl(tenantId: string, text: string): Promise<string | null> {
-  if (!bucket) return null;
+  if (!bucket) {
+    console.error('WhatsApp voice reply: Firebase Storage bucket not initialized');
+    return null;
+  }
 
-  const audioBuffer = await synthesizeWhatsAppVoiceReplyAudio(text);
-  if (!audioBuffer?.buffer?.length) return null;
+  try {
+    const audioBuffer = await withTimeout(
+      synthesizeWhatsAppVoiceReplyAudio(text),
+      WHATSAPP_TTS_REQUEST_TIMEOUT_MS + 5_000,
+      'WhatsApp TTS synthesis timed out',
+    );
+    if (!audioBuffer?.buffer?.length) {
+      console.warn('WhatsApp voice reply: No audio buffer generated');
+      return null;
+    }
 
-  const path = `tenants/${tenantId}/whatsapp/voice-replies/${randomUUID()}.${audioBuffer.extension}`;
-  const fileRef = bucket.file(path);
-  await fileRef.save(audioBuffer.buffer, { metadata: { contentType: audioBuffer.contentType } });
-  const [signedUrl] = await fileRef.getSignedUrl({ action: 'read', expires: Date.now() + WHATSAPP_VOICE_REPLY_SIGNED_URL_EXPIRY_MS });
-  return signedUrl;
+    const path = `tenants/${tenantId}/whatsapp/voice-replies/${randomUUID()}.${audioBuffer.extension}`;
+    const fileRef = bucket.file(path);
+    await fileRef.save(audioBuffer.buffer, { metadata: { contentType: audioBuffer.contentType } });
+    const [signedUrl] = await fileRef.getSignedUrl({ action: 'read', expires: Date.now() + WHATSAPP_VOICE_REPLY_SIGNED_URL_EXPIRY_MS });
+    return signedUrl;
+  } catch (error) {
+    console.error('WhatsApp voice reply media URL generation failed:', error instanceof Error ? error.message : String(error));
+    return null;
+  }
 }
 
 async function runAgentWithRetry(
@@ -746,6 +770,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
           ...(configuredSecret ? { 'x-webhook-secret': configuredSecret } : {}),
         },
         body: JSON.stringify({ from: identity.externalUserId }),
+        signal: AbortSignal.timeout(WHATSAPP_AI_RESPONSE_TIMEOUT_MS + 10_000),
       }).catch((error) => {
         console.error('Failed to dispatch async WhatsApp processor request:', error);
         return null;
@@ -755,7 +780,15 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     await conversationRef.update({ updatedAt: FieldValue.serverTimestamp() });
 
     const processorFinishedWithinDelay = await Promise.race([
-      asyncProcessorRequest.then((processorResponse) => processorResponse?.ok ?? false),
+      asyncProcessorRequest.then(async (processorResponse) => {
+        if (!processorResponse) return false;
+        try {
+          const body = await processorResponse.json();
+          return processorResponse.ok && body?.ok === true;
+        } catch {
+          return processorResponse.ok;
+        }
+      }),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), WHATSAPP_PENDING_REPLY_DELAY_MS)),
     ]);
 
@@ -878,9 +911,15 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
         if (mediaUrl) {
           payload.set('MediaUrl', mediaUrl);
           sendAsVoiceReply = true;
+        } else {
+          console.warn('WhatsApp voice reply media URL is null; falling back to text');
         }
       } catch (error) {
-        console.warn('Failed to generate WhatsApp voice reply. Falling back to text:', error);
+        console.error('Failed to generate WhatsApp voice reply:', {
+          error: error instanceof Error ? error.message : String(error),
+          textLength: responseText.length,
+          charThreshold: voiceReplySettings.charThreshold,
+        });
       }
     }
 
