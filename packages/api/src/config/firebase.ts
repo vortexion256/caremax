@@ -58,7 +58,8 @@ function initFirebase(): admin.app.App {
 
   const storageBucket =
     process.env.FIREBASE_STORAGE_BUCKET ??
-    (projectId ? `${projectId}.appspot.com` : undefined);
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ??
+    (projectId ? `${projectId}.firebasestorage.app` : undefined);
 
   return admin.initializeApp({
     credential,
