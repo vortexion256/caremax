@@ -373,7 +373,101 @@ function resolveWhatsAppVoiceReplySettings(whatsapp: Record<string, unknown> | u
   };
 }
 
-async function synthesizeWhatsAppVoiceReplyAudio(text: string): Promise<Buffer | null> {
+type WhatsAppTtsAudio = {
+  buffer: Buffer;
+  extension: 'wav' | 'mp3' | 'ogg';
+  contentType: 'audio/wav' | 'audio/mpeg' | 'audio/ogg';
+};
+
+type WavConversionOptions = {
+  numChannels: number;
+  sampleRate: number;
+  bitsPerSample: number;
+};
+
+function parseTtsMimeType(mimeType: string): WavConversionOptions {
+  const [fileType, ...params] = mimeType.split(';').map((s) => s.trim());
+  const [, format] = fileType.split('/');
+
+  const options: Partial<WavConversionOptions> = {
+    numChannels: 1,
+    sampleRate: 24_000,
+    bitsPerSample: 16,
+  };
+
+  if (format && format.startsWith('L')) {
+    const bits = Number.parseInt(format.slice(1), 10);
+    if (Number.isFinite(bits)) options.bitsPerSample = bits;
+  }
+
+  for (const param of params) {
+    const [key, value] = param.split('=').map((s) => s.trim());
+    if (key === 'rate') {
+      const parsedRate = Number.parseInt(value, 10);
+      if (Number.isFinite(parsedRate)) options.sampleRate = parsedRate;
+    }
+  }
+
+  return options as WavConversionOptions;
+}
+
+function createWavHeader(dataLength: number, options: WavConversionOptions): Buffer {
+  const {
+    numChannels,
+    sampleRate,
+    bitsPerSample,
+  } = options;
+
+  const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+  const blockAlign = numChannels * bitsPerSample / 8;
+  const buffer = Buffer.alloc(44);
+
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataLength, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(numChannels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(byteRate, 28);
+  buffer.writeUInt16LE(blockAlign, 32);
+  buffer.writeUInt16LE(bitsPerSample, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataLength, 40);
+
+  return buffer;
+}
+
+function normalizeTtsAudio(dataBase64: string, mimeType: string | undefined): WhatsAppTtsAudio {
+  const sourceType = (mimeType ?? '').toLowerCase();
+
+  if (sourceType === 'audio/mpeg' || sourceType === 'audio/mp3') {
+    return {
+      buffer: Buffer.from(dataBase64, 'base64'),
+      extension: 'mp3',
+      contentType: 'audio/mpeg',
+    };
+  }
+
+  if (sourceType === 'audio/ogg') {
+    return {
+      buffer: Buffer.from(dataBase64, 'base64'),
+      extension: 'ogg',
+      contentType: 'audio/ogg',
+    };
+  }
+
+  const rawAudioBuffer = Buffer.from(dataBase64, 'base64');
+  const wavOptions = parseTtsMimeType(mimeType ?? 'audio/L16;rate=24000');
+  return {
+    buffer: Buffer.concat([createWavHeader(rawAudioBuffer.length, wavOptions), rawAudioBuffer]),
+    extension: 'wav',
+    contentType: 'audio/wav',
+  };
+}
+
+async function synthesizeWhatsAppVoiceReplyAudio(text: string): Promise<WhatsAppTtsAudio | null> {
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) return null;
 
@@ -419,8 +513,8 @@ async function synthesizeWhatsAppVoiceReplyAudio(text: string): Promise<Buffer |
         candidates?: Array<{
           content?: {
             parts?: Array<{
-              inlineData?: { data?: string };
-              inline_data?: { data?: string };
+              inlineData?: { data?: string; mimeType?: string };
+              inline_data?: { data?: string; mime_type?: string };
             }>;
           };
         }>;
@@ -429,8 +523,9 @@ async function synthesizeWhatsAppVoiceReplyAudio(text: string): Promise<Buffer |
       const audioPart = payload.candidates?.[0]?.content?.parts?.find((part) =>
         Boolean(part.inlineData?.data || part.inline_data?.data));
       const audioContent = audioPart?.inlineData?.data ?? audioPart?.inline_data?.data;
+      const audioMimeType = audioPart?.inlineData?.mimeType ?? audioPart?.inline_data?.mime_type;
       if (!audioContent) return null;
-      return Buffer.from(audioContent, 'base64');
+      return normalizeTtsAudio(audioContent, audioMimeType);
     } catch (error) {
       lastError = error;
       if (attempt < WHATSAPP_TTS_MAX_ATTEMPTS) {
@@ -446,11 +541,11 @@ async function buildWhatsAppVoiceReplyMediaUrl(tenantId: string, text: string): 
   if (!bucket) return null;
 
   const audioBuffer = await synthesizeWhatsAppVoiceReplyAudio(text);
-  if (!audioBuffer?.length) return null;
+  if (!audioBuffer?.buffer?.length) return null;
 
-  const path = `tenants/${tenantId}/whatsapp/voice-replies/${randomUUID()}.wav`;
+  const path = `tenants/${tenantId}/whatsapp/voice-replies/${randomUUID()}.${audioBuffer.extension}`;
   const fileRef = bucket.file(path);
-  await fileRef.save(audioBuffer, { metadata: { contentType: 'audio/wav' } });
+  await fileRef.save(audioBuffer.buffer, { metadata: { contentType: audioBuffer.contentType } });
   const [signedUrl] = await fileRef.getSignedUrl({ action: 'read', expires: Date.now() + WHATSAPP_VOICE_REPLY_SIGNED_URL_EXPIRY_MS });
   return signedUrl;
 }
