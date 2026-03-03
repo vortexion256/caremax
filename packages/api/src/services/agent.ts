@@ -309,11 +309,9 @@ export async function runAgent(
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY or GOOGLE_API_KEY not set');
 
-  const model = new ChatGoogleGenerativeAI({
-    model: config.model,
-    temperature: config.temperature,
-    apiKey,
-  });
+  const candidateModels = [config.model, ...AGENT_FALLBACK_MODELS]
+    .map((name) => name.trim())
+    .filter((name, index, arr) => Boolean(name) && arr.indexOf(name) === index);
 
   const avoidGeneric = config.agentName !== 'CareMax Assistant'
     ? ` Never say "CareMax Assistant" or "I don't have a name"—always say you are ${config.agentName}.`
@@ -581,7 +579,18 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   tools.push(createNoteTool, listNotesTool, updateNoteTool);
   if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
   if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
-  const modelWithTools = tools.length ? model.bindTools(tools as Parameters<typeof model.bindTools>[0]) : model;
+  const createBaseModel = (modelName: string) => new ChatGoogleGenerativeAI({
+    model: modelName,
+    temperature: config.temperature,
+    apiKey,
+  });
+  const createModelWithTools = (llm: ChatGoogleGenerativeAI) => (
+    tools.length ? llm.bindTools(tools as Parameters<typeof llm.bindTools>[0]) : llm
+  );
+
+  let activeModelIndex = 0;
+  let model = createBaseModel(candidateModels[activeModelIndex] ?? config.model);
+  let modelWithTools = createModelWithTools(model);
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
   
@@ -590,12 +599,29 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
 
   // Add timeout wrapper for LLM calls (2 minutes per call)
   const invokeWithTimeout = async (messages: BaseMessage[], timeoutMs = LLM_CALL_TIMEOUT_MS): Promise<BaseMessage> => {
-    const invokeStart = Date.now();
     const llmInput = getLlmInputSummary(messages);
-    return Promise.race([
-      modelWithTools.invoke(messages).finally(() => {
+    let lastError: unknown = null;
+
+    for (let idx = activeModelIndex; idx < candidateModels.length; idx += 1) {
+      const modelName = candidateModels[idx] ?? config.model;
+      if (idx !== activeModelIndex) {
+        activeModelIndex = idx;
+        model = createBaseModel(modelName);
+        modelWithTools = createModelWithTools(model);
+      }
+
+      const invokeStart = Date.now();
+      try {
+        const result = await Promise.race([
+          modelWithTools.invoke(messages),
+          new Promise<BaseMessage>((_, reject) => {
+            setTimeout(() => reject(new Error(`LLM API timeout after ${timeoutMs}ms`)), timeoutMs);
+          }),
+        ]);
+
         const durationMs = Date.now() - invokeStart;
         console.log('[Agent] LLM invoke completed', {
+          model: modelName,
           durationMs,
           messageCount: messages.length,
           timeoutMs,
@@ -608,17 +634,31 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
           durationMs,
           conversationId: options?.conversationId,
           metadata: {
+            model: modelName,
             messageCount: messages.length,
             timeoutMs,
             lastUserText: llmInput.lastUserText,
             promptPreview: llmInput.promptPreview,
           },
         });
-      }),
-      new Promise<BaseMessage>((_, reject) => {
-        setTimeout(() => reject(new Error(`LLM API timeout after ${timeoutMs}ms`)), timeoutMs);
-      }),
-    ]);
+
+        return result;
+      } catch (error) {
+        lastError = error;
+        const durationMs = Date.now() - invokeStart;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.warn('[Agent] LLM invoke failed', { model: modelName, durationMs, timeoutMs, error: errorMessage });
+
+        if (idx < candidateModels.length - 1) {
+          console.warn('[Agent] Falling back to next model', {
+            failedModel: modelName,
+            nextModel: candidateModels[idx + 1],
+          });
+        }
+      }
+    }
+
+    throw (lastError instanceof Error ? lastError : new Error(String(lastError ?? 'Unknown LLM invoke failure')));
   };
   
   // Accumulate tokens from all invocations (initial + tool call rounds)
