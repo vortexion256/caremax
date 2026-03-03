@@ -7,13 +7,14 @@ import {
   disconnectGoogle,
 } from '../services/google-sheets.js';
 import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/auth.js';
-import { db } from '../config/firebase.js';
+import { bucket, db } from '../config/firebase.js';
 import { activateTenantSubscription } from '../services/billing.js';
 import { verifyMarzPayTransaction } from '../services/marzpay.js';
 import { createTenantNotification } from '../services/tenant-notifications.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
 import { FieldValue } from 'firebase-admin/firestore';
+import { randomUUID } from 'crypto';
 
 /** Callback from Google OAuth - no auth; state = tenantId. Redirects to admin. */
 export const integrationsCallbackRouter: Router = Router();
@@ -149,6 +150,9 @@ const WHATSAPP_MAX_AUDIO_BYTES = 6 * 1024 * 1024;
 const WHATSAPP_TRANSCRIPTION_DOWNLOAD_TIMEOUT_MS = 35_000;
 const WHATSAPP_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 45_000;
 const WHATSAPP_AI_RESPONSE_TIMEOUT_MS = 45_000;
+const WHATSAPP_IMAGE_DOWNLOAD_TIMEOUT_MS = 20_000;
+const WHATSAPP_IMAGE_UPLOAD_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+const WHATSAPP_ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -167,6 +171,70 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: 
 
 function twilioBasicAuthHeader(accountSid: string, authToken: string): string {
   return `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`;
+}
+
+function sanitizeImageExtension(contentType: string | null, fallbackUrl: string): string {
+  const normalized = (contentType ?? '').toLowerCase();
+  if (normalized === 'image/jpeg') return 'jpg';
+  if (normalized === 'image/png') return 'png';
+  if (normalized === 'image/webp') return 'webp';
+  if (normalized === 'image/gif') return 'gif';
+  const parsed = new URL(fallbackUrl);
+  const maybeExt = parsed.pathname.split('.').pop()?.toLowerCase() ?? '';
+  return maybeExt && /^[a-z0-9]{1,6}$/.test(maybeExt) ? maybeExt : 'jpg';
+}
+
+async function persistWhatsAppImages(params: {
+  tenantId: string;
+  media: Array<{ url: string; contentType: string }>;
+  accountSid: string;
+  authToken: string;
+}): Promise<string[]> {
+  if (!bucket) return [];
+
+  const uploaded: string[] = [];
+  for (const item of params.media) {
+    try {
+      const res = await fetch(item.url, {
+        headers: { Authorization: twilioBasicAuthHeader(params.accountSid, params.authToken) },
+        signal: AbortSignal.timeout(WHATSAPP_IMAGE_DOWNLOAD_TIMEOUT_MS),
+      });
+      if (!res.ok) continue;
+
+      const contentType = res.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? item.contentType;
+      if (!WHATSAPP_ALLOWED_IMAGE_TYPES.has(contentType)) continue;
+
+      const imageBuffer = Buffer.from(await res.arrayBuffer());
+      if (!imageBuffer.length) continue;
+
+      const ext = sanitizeImageExtension(contentType, item.url);
+      const path = `tenants/${params.tenantId}/whatsapp/${randomUUID()}.${ext}`;
+      const fileRef = bucket.file(path);
+      await fileRef.save(imageBuffer, { metadata: { contentType } });
+      const [signedUrl] = await fileRef.getSignedUrl({ action: 'read', expires: Date.now() + WHATSAPP_IMAGE_UPLOAD_EXPIRY_MS });
+      uploaded.push(signedUrl);
+    } catch (error) {
+      console.warn('Failed to persist inbound WhatsApp image:', error);
+    }
+  }
+
+  return uploaded;
+}
+
+function extractWhatsAppMedia(payload: Request['body']): Array<{ url: string; contentType: string }> {
+  const numMedia = Number.parseInt(String(payload?.NumMedia ?? '0'), 10);
+  if (!Number.isFinite(numMedia) || numMedia <= 0) return [];
+
+  const media: Array<{ url: string; contentType: string }> = [];
+  for (let i = 0; i < numMedia; i += 1) {
+    const rawUrl = payload?.[`MediaUrl${i}`];
+    const rawType = payload?.[`MediaContentType${i}`];
+    const url = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+    const contentType = typeof rawType === 'string' ? rawType.trim().toLowerCase() : '';
+    if (!url || !contentType.startsWith('image/')) continue;
+    media.push({ url, contentType });
+  }
+  return media;
 }
 
 
@@ -340,6 +408,18 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     const incomingBody = typeof req.body?.Body === 'string' ? req.body.Body.trim() : '';
     const mediaUrl = typeof req.body?.MediaUrl0 === 'string' ? req.body.MediaUrl0.trim() : '';
     const mediaContentType = typeof req.body?.MediaContentType0 === 'string' ? req.body.MediaContentType0.trim() : '';
+    const inboundImageMedia = extractWhatsAppMedia(req.body);
+    const accountSid = typeof whatsapp.accountSid === 'string' ? whatsapp.accountSid.trim() : '';
+    const authToken = typeof whatsapp.authToken === 'string' ? whatsapp.authToken.trim() : '';
+
+    const imageUrls = inboundImageMedia.length > 0 && accountSid && authToken
+      ? await persistWhatsAppImages({
+          tenantId,
+          media: inboundImageMedia,
+          accountSid,
+          authToken,
+        })
+      : [];
 
     let body = incomingBody;
     if (!body && isLikelyWhatsAppVoiceNote(req.body) && mediaUrl && mediaContentType) {
@@ -349,9 +429,6 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         res.status(200).send(xmlResponse('That voice note is too long. Please keep audio messages under 2 minutes or split into shorter notes.'));
         return;
       }
-
-      const accountSid = typeof whatsapp.accountSid === 'string' ? whatsapp.accountSid.trim() : '';
-      const authToken = typeof whatsapp.authToken === 'string' ? whatsapp.authToken.trim() : '';
 
       if (accountSid && authToken) {
         const { transcript, rejectedForLength } = await transcribeWhatsAppAudio({
@@ -373,7 +450,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       }
     }
 
-    if (!body) {
+    if (!body && imageUrls.length === 0) {
       res.set('Content-Type', 'text/xml');
       res.status(200).send(xmlResponse('We could not read that message yet. Please send text or a clearer voice note.'));
       return;
@@ -405,7 +482,8 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       conversationId: conversationRef.id,
       tenantId,
       role: 'user',
-      content: body,
+      content: body || '(User sent an image)',
+      imageUrls,
       channel: 'whatsapp',
       createdAt: FieldValue.serverTimestamp(),
     });
