@@ -389,7 +389,8 @@ async function isLugandaText(text: string): Promise<boolean> {
   const likelyLugandaMarkers = [
     'nze', 'oli otya', 'gyebale', 'webale', 'nsaba', 'mwebale', 'ssi', 'obulumi', 'ndwadde',
     'nnyinza', 'lwaki', 'kale', 'ndi', 'mukwano', 'obulwadde', 'eddagala', 'omwana', 'omuntu',
-    'kubanga', 'naye', 'era', 'nnyo', 'wano', 'wano', 'manyi', 'musawo',
+    'kubanga', 'naye', 'era', 'nnyo', 'wano', 'manyi', 'musawo', 'otya', 'oli', 'bulungi',
+    'jangu', 'sawa', 'mazzi', 'emmere', 'nsonyiwa', 'sente', 'mukwano gwange', 'obujjanjabi',
   ];
 
   const markerHits = likelyLugandaMarkers.reduce((count, marker) => {
@@ -398,7 +399,17 @@ async function isLugandaText(text: string): Promise<boolean> {
     return markerRegex.test(normalized) ? count + 1 : count;
   }, 0);
 
-  if (markerHits >= 2 || (normalized.length >= 80 && markerHits >= 1)) return true;
+  const lugandaFunctionWords = [
+    'nga', 'nti', 'kati', 'kino', 'guno', 'bino', 'abo', 'bwe', 'okuba', 'bw', 'ku', 'mu',
+    'wa', 'ya', 'lya', 'oyo', 'oyo', 'buli', 'muno', 'ddala', 'naye', 'kubanga', 'era',
+  ];
+  const words = normalized.split(/[^a-z]+/).filter(Boolean);
+  const functionWordHits = words.reduce((count, word) => count + (lugandaFunctionWords.includes(word) ? 1 : 0), 0);
+  const lugandaWordRatio = words.length > 0 ? (markerHits + functionWordHits) / words.length : 0;
+
+  if (markerHits >= 2) return true;
+  if (markerHits >= 1 && normalized.length >= 40) return true;
+  if (words.length >= 6 && lugandaWordRatio >= 0.35) return true;
 
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) return false;
