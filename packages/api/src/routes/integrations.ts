@@ -366,18 +366,24 @@ async function generateVoiceMediaUrl(params: { tenantId: string; text: string })
   const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
   const path = `tenants/${params.tenantId}/whatsapp-voice-replies/${randomUUID()}.mp3`;
   const fileRef = bucket.file(path);
-  await fileRef.save(audioBuffer, {
-    metadata: {
-      contentType: 'audio/mpeg',
-    },
-  });
 
-  const [signedUrl] = await fileRef.getSignedUrl({
-    action: 'read',
-    expires: Date.now() + 24 * 60 * 60 * 1000,
-  });
+  try {
+    await fileRef.save(audioBuffer, {
+      metadata: {
+        contentType: 'audio/mpeg',
+      },
+    });
 
-  return signedUrl;
+    const [signedUrl] = await fileRef.getSignedUrl({
+      action: 'read',
+      expires: Date.now() + 24 * 60 * 60 * 1000,
+    });
+
+    return signedUrl;
+  } catch (error) {
+    console.warn('WhatsApp voice reply upload failed; falling back to direct TTS audio URL:', error);
+    return audioUrl;
+  }
 }
 
 integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req: Request, res: Response) => {

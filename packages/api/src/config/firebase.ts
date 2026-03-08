@@ -7,6 +7,33 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../../../../');
 
+function normalizeStorageBucket(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+
+  if (trimmed.startsWith('gs://')) {
+    const withoutScheme = trimmed.slice('gs://'.length);
+    return withoutScheme.split('/')[0] || undefined;
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.hostname === 'storage.googleapis.com') {
+        const [, maybeBucket] = parsed.pathname.split('/').filter(Boolean);
+        return maybeBucket || undefined;
+      }
+      return parsed.hostname;
+    } catch {
+      return trimmed;
+    }
+  }
+
+  return trimmed.split('/')[0] || undefined;
+}
+
+
 function initFirebase(): admin.app.App {
   if (admin.apps.length > 0) return admin.app() as admin.app.App;
 
@@ -56,8 +83,10 @@ function initFirebase(): admin.app.App {
     );
   }
 
+  const configuredStorageBucket = normalizeStorageBucket(process.env.FIREBASE_STORAGE_BUCKET);
   const storageBucket =
-    process.env.FIREBASE_STORAGE_BUCKET ??
+    configuredStorageBucket ??
+    (projectId ? `${projectId}.firebasestorage.app` : undefined) ??
     (projectId ? `${projectId}.appspot.com` : undefined);
 
   return admin.initializeApp({

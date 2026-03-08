@@ -37,7 +37,7 @@ Put your `.env` in the **repo root** (`e:\caremax\.env`). The API loads it from 
 - **API**: Set `GEMINI_API_KEY` (or `GOOGLE_API_KEY`). For Firebase, use either:
   - **Option A**: Download the service account JSON (Firebase Console → Project settings → Service accounts → Generate new private key). Save it as `service-account.json` in the repo root. In `.env` set `GOOGLE_APPLICATION_CREDENTIALS=./service-account.json`.
   - **Option B**: In `.env` set `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and `FIREBASE_PRIVATE_KEY` (copy these from the same service account JSON; keep the key in quotes and use `\n` for newlines).
-- Optionally set `FIREBASE_STORAGE_BUCKET`, `ALLOWED_ORIGINS`, `PORT`.
+- Optionally set `FIREBASE_STORAGE_BUCKET`, `ALLOWED_ORIGINS`, `PORT`. Use the bucket name only (for example `your_project_id.firebasestorage.app` or legacy `your_project_id.appspot.com`; `gs://...` is also accepted).
 - For Marz Pay subscription collections (tenant pays you), configure these env vars:
   - `MARZPAY_COLLECTIONS_URL=https://wallet.wearemarz.com/api/v1/collect-money`
   - `MARZPAY_API_KEY` and `MARZPAY_API_SECRET` (used to build Basic auth as `base64(key:secret)`)
