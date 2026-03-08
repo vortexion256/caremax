@@ -385,32 +385,6 @@ async function isLugandaText(text: string): Promise<boolean> {
   const trimmed = text.trim();
   if (!trimmed) return false;
 
-  const normalized = trimmed.toLowerCase();
-  const likelyLugandaMarkers = [
-    'nze', 'oli otya', 'gyebale', 'webale', 'nsaba', 'mwebale', 'ssi', 'obulumi', 'ndwadde',
-    'nnyinza', 'lwaki', 'kale', 'ndi', 'mukwano', 'obulwadde', 'eddagala', 'omwana', 'omuntu',
-    'kubanga', 'naye', 'era', 'nnyo', 'wano', 'manyi', 'musawo', 'otya', 'oli', 'bulungi',
-    'jangu', 'sawa', 'mazzi', 'emmere', 'nsonyiwa', 'sente', 'mukwano gwange', 'obujjanjabi',
-  ];
-
-  const markerHits = likelyLugandaMarkers.reduce((count, marker) => {
-    const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const markerRegex = new RegExp(`(^|[^a-z])${escapedMarker}([^a-z]|$)`, 'i');
-    return markerRegex.test(normalized) ? count + 1 : count;
-  }, 0);
-
-  const lugandaFunctionWords = [
-    'nga', 'nti', 'kati', 'kino', 'guno', 'bino', 'abo', 'bwe', 'okuba', 'bw', 'ku', 'mu',
-    'wa', 'ya', 'lya', 'oyo', 'oyo', 'buli', 'muno', 'ddala', 'naye', 'kubanga', 'era',
-  ];
-  const words = normalized.split(/[^a-z]+/).filter(Boolean);
-  const functionWordHits = words.reduce((count, word) => count + (lugandaFunctionWords.includes(word) ? 1 : 0), 0);
-  const lugandaWordRatio = words.length > 0 ? (markerHits + functionWordHits) / words.length : 0;
-
-  if (markerHits >= 2) return true;
-  if (markerHits >= 1 && normalized.length >= 40) return true;
-  if (words.length >= 6 && lugandaWordRatio >= 0.35) return true;
-
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) return false;
 
@@ -426,7 +400,10 @@ async function isLugandaText(text: string): Promise<boolean> {
             role: 'user',
             parts: [
               {
-                text: `Identify the language of this text. Reply with exactly one word: "luganda" or "other".\n\nText:\n${trimmed.slice(0, 1200)}`,
+                text: `Identify the language of this text. Reply with exactly one word: "luganda" or "other".
+
+Text:
+${trimmed.slice(0, 1200)}`,
               },
             ],
           },
@@ -723,9 +700,11 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
 
     const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
     const rawVoiceThreshold = agentConfigDoc.data()?.whatsappVoiceNoteCharThreshold;
+    const rawForceVoiceReplies = agentConfigDoc.data()?.whatsappForceVoiceReplies;
     const voiceThreshold = typeof rawVoiceThreshold === 'number' && Number.isFinite(rawVoiceThreshold)
       ? Math.max(0, Math.floor(rawVoiceThreshold))
       : 0;
+    const forceVoiceReplies = rawForceVoiceReplies === true;
 
     try {
       const agentResponse = await runAgentWithRetry(tenantId, history, {
@@ -756,7 +735,8 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       Body: responseText,
     });
     const exceedsVoiceThreshold = voiceThreshold > 0 && responseText.length >= voiceThreshold;
-    const shouldSendLugandaVoice = exceedsVoiceThreshold ? await isLugandaText(responseText) : false;
+    const shouldTryVoiceReply = forceVoiceReplies || exceedsVoiceThreshold;
+    const shouldSendLugandaVoice = shouldTryVoiceReply ? await isLugandaText(responseText) : false;
 
     if (shouldSendLugandaVoice) {
       try {

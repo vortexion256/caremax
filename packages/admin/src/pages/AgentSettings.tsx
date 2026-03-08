@@ -304,9 +304,25 @@ export default function AgentSettings() {
             style={{ ...inputStyle, maxWidth: 260 }}
           />
           <span style={helperStyle}>
-            Set to 0 to disable voice replies. If above 0, the agent sends a voice note only when a WhatsApp reply length reaches this value and the reply is detected as Luganda.
+            Set to 0 to disable threshold-based voice replies. If above 0, the agent sends a voice note when a WhatsApp reply length reaches this value and the reply is detected as Luganda.
           </span>
         </div>
+
+        <div style={{ marginTop: 16 }}>
+          <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={config?.whatsappForceVoiceReplies ?? false}
+              onChange={(e) => setConfig((c) => (c ? { ...c, whatsappForceVoiceReplies: e.target.checked } : c))}
+              style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#2563eb' }}
+            />
+            Force WhatsApp voice note replies for all text responses
+          </label>
+          <span style={helperStyle}>
+            When enabled, every WhatsApp text reply will also attempt a Luganda voice note (TTS), even below the character threshold.
+          </span>
+        </div>
+
 
         </div>
 
