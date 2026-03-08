@@ -34,6 +34,7 @@ const updateBody = z.object({
   consolidationPrompt: z.string().optional(),
   consolidationPromptEnabled: z.boolean().optional(),
   whatsappVoiceNoteCharThreshold: z.number().int().min(0).optional(),
+  whatsappForceVoiceReplies: z.boolean().optional(),
 });
 
 const fallbackModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
@@ -76,6 +77,7 @@ agentConfigRouter.get('/', async (req, res) => {
       temperature: 0.7,
       ragEnabled: false,
       whatsappVoiceNoteCharThreshold: 0,
+      whatsappForceVoiceReplies: false,
       availableModels,
     });
     return;

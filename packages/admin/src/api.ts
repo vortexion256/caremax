@@ -61,6 +61,8 @@ export type AgentConfig = {
   consolidationPromptEnabled?: boolean;
   /** If > 0, WhatsApp replies at or above this character length can be sent as Luganda voice notes. */
   whatsappVoiceNoteCharThreshold?: number;
+  /** If true, all WhatsApp text replies will also attempt Luganda TTS voice replies. */
+  whatsappForceVoiceReplies?: boolean;
   availableModels?: string[];
 };
 
