@@ -7,13 +7,14 @@ import {
   disconnectGoogle,
 } from '../services/google-sheets.js';
 import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/auth.js';
-import { db } from '../config/firebase.js';
+import { bucket, db } from '../config/firebase.js';
 import { activateTenantSubscription } from '../services/billing.js';
 import { verifyMarzPayTransaction } from '../services/marzpay.js';
 import { createTenantNotification } from '../services/tenant-notifications.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
 import { FieldValue } from 'firebase-admin/firestore';
+import { randomUUID } from 'crypto';
 
 /** Callback from Google OAuth - no auth; state = tenantId. Redirects to admin. */
 export const integrationsCallbackRouter: Router = Router();
@@ -149,6 +150,8 @@ const WHATSAPP_MAX_AUDIO_BYTES = 6 * 1024 * 1024;
 const WHATSAPP_TRANSCRIPTION_DOWNLOAD_TIMEOUT_MS = 35_000;
 const WHATSAPP_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 45_000;
 const WHATSAPP_AI_RESPONSE_TIMEOUT_MS = 45_000;
+const WHATSAPP_TTS_REQUEST_TIMEOUT_MS = 120_000;
+const WHATSAPP_TTS_AUDIO_DOWNLOAD_TIMEOUT_MS = 40_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -304,6 +307,79 @@ async function runAgentWithRetry(
   }
 }
 
+
+function parseExtraHeaders(raw: string): Record<string, string> {
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Object.entries(parsed).reduce<Record<string, string>>((acc, [key, value]) => {
+      if (typeof value === 'string' && value.trim()) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
+async function generateLugandaVoiceMediaUrl(params: { tenantId: string; text: string }): Promise<string | null> {
+  const ttsUrl = process.env.SUNBIRD_TTS_URL ?? process.env.TTS_URL;
+  const apiKey = process.env.SUNBIRD_TTS_API_KEY ?? process.env.SUNBIRD_API_KEY;
+  if (!ttsUrl) return null;
+
+  const speakerIdRaw = process.env.SUNBIRD_LUGANDA_SPEAKER_ID ?? '248';
+  const parsedSpeakerId = Number.parseInt(speakerIdRaw, 10);
+  const speakerId = Number.isFinite(parsedSpeakerId) ? parsedSpeakerId : 248;
+
+  const headerJson = process.env.SUNBIRD_TTS_HEADERS_JSON ?? '';
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...parseExtraHeaders(headerJson),
+  };
+  if (apiKey && !headers.Authorization) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  const ttsRes = await fetch(ttsUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ text: params.text, speaker_id: speakerId, temperature: 0.7 }),
+    signal: AbortSignal.timeout(WHATSAPP_TTS_REQUEST_TIMEOUT_MS),
+  });
+
+  if (!ttsRes.ok) {
+    const errText = await ttsRes.text().catch(() => '');
+    throw new Error(`Luganda TTS request failed (${ttsRes.status}): ${errText}`);
+  }
+
+  const ttsData = await ttsRes.json() as { output?: { audio_url?: string } };
+  const audioUrl = typeof ttsData?.output?.audio_url === 'string' ? ttsData.output.audio_url.trim() : '';
+  if (!audioUrl) return null;
+
+  if (!bucket) return audioUrl;
+
+  const audioRes = await fetch(audioUrl, { signal: AbortSignal.timeout(WHATSAPP_TTS_AUDIO_DOWNLOAD_TIMEOUT_MS) });
+  if (!audioRes.ok) {
+    throw new Error(`Failed to download generated Luganda audio (${audioRes.status})`);
+  }
+
+  const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
+  const path = `tenants/${params.tenantId}/whatsapp-voice-replies/${randomUUID()}.mp3`;
+  const fileRef = bucket.file(path);
+  await fileRef.save(audioBuffer, {
+    metadata: {
+      contentType: 'audio/mpeg',
+    },
+  });
+
+  const [signedUrl] = await fileRef.getSignedUrl({
+    action: 'read',
+    expires: Date.now() + 24 * 60 * 60 * 1000,
+  });
+
+  return signedUrl;
+}
+
 integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req: Request, res: Response) => {
   const tenantId = req.params.tenantId;
   const from = typeof req.body?.From === 'string' ? req.body.From.trim() : '';
@@ -342,6 +418,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     const mediaContentType = typeof req.body?.MediaContentType0 === 'string' ? req.body.MediaContentType0.trim() : '';
 
     let body = incomingBody;
+    let cameFromVoiceNote = false;
     if (!body && isLikelyWhatsAppVoiceNote(req.body) && mediaUrl && mediaContentType) {
       const mediaDurationSeconds = getWhatsAppAudioDurationSeconds(req.body);
       if (mediaDurationSeconds !== null && mediaDurationSeconds > WHATSAPP_MAX_VOICE_NOTE_DURATION_SECONDS) {
@@ -369,6 +446,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
 
         if (transcript) {
           body = transcript;
+          cameFromVoiceNote = true;
         }
       }
     }
@@ -407,6 +485,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       role: 'user',
       content: body,
       channel: 'whatsapp',
+      inputType: cameFromVoiceNote ? 'voice' : 'text',
       createdAt: FieldValue.serverTimestamp(),
     });
 
@@ -563,6 +642,16 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     let responseText = '';
     let requestHandoff = false;
 
+    const latestUserMessageDoc = await db
+      .collection('messages')
+      .where('conversationId', '==', conversationId)
+      .where('role', '==', 'user')
+      .orderBy('createdAt', 'desc')
+      .limit(1)
+      .get();
+    const latestUserMessageInputType = latestUserMessageDoc.docs[0]?.data()?.inputType;
+    const shouldSendLugandaVoice = latestUserMessageInputType === 'voice';
+
     try {
       const agentResponse = await runAgentWithRetry(tenantId, history, {
           userId: identity.scopedUserId,
@@ -591,6 +680,17 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       To: outboundTo,
       Body: responseText,
     });
+    if (shouldSendLugandaVoice) {
+      try {
+        const voiceUrl = await generateLugandaVoiceMediaUrl({ tenantId, text: responseText });
+        if (voiceUrl) {
+          payload.set('MediaUrl', voiceUrl);
+        }
+      } catch (error) {
+        console.warn('Failed to generate Luganda WhatsApp voice reply:', error);
+      }
+    }
+
     if (messagingServiceSid) {
       payload.set('MessagingServiceSid', messagingServiceSid);
     } else if (whatsappNumber) {
