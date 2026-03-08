@@ -152,7 +152,6 @@ const WHATSAPP_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 45_000;
 const WHATSAPP_AI_RESPONSE_TIMEOUT_MS = 45_000;
 const WHATSAPP_TTS_REQUEST_TIMEOUT_MS = 120_000;
 const WHATSAPP_TTS_AUDIO_DOWNLOAD_TIMEOUT_MS = 40_000;
-const WHATSAPP_LANGUAGE_DETECTION_TIMEOUT_MS = 12_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -323,7 +322,7 @@ function parseExtraHeaders(raw: string): Record<string, string> {
   }
 }
 
-async function generateLugandaVoiceMediaUrl(params: { tenantId: string; text: string }): Promise<string | null> {
+async function generateVoiceMediaUrl(params: { tenantId: string; text: string }): Promise<string | null> {
   const ttsUrl = process.env.SUNBIRD_TTS_URL ?? process.env.TTS_URL;
   const apiKey = process.env.SUNBIRD_TTS_API_KEY ?? process.env.SUNBIRD_API_KEY;
   if (!ttsUrl) return null;
@@ -350,7 +349,7 @@ async function generateLugandaVoiceMediaUrl(params: { tenantId: string; text: st
 
   if (!ttsRes.ok) {
     const errText = await ttsRes.text().catch(() => '');
-    throw new Error(`Luganda TTS request failed (${ttsRes.status}): ${errText}`);
+    throw new Error(`WhatsApp TTS request failed (${ttsRes.status}): ${errText}`);
   }
 
   const ttsData = await ttsRes.json() as { output?: { audio_url?: string } };
@@ -361,7 +360,7 @@ async function generateLugandaVoiceMediaUrl(params: { tenantId: string; text: st
 
   const audioRes = await fetch(audioUrl, { signal: AbortSignal.timeout(WHATSAPP_TTS_AUDIO_DOWNLOAD_TIMEOUT_MS) });
   if (!audioRes.ok) {
-    throw new Error(`Failed to download generated Luganda audio (${audioRes.status})`);
+    throw new Error(`Failed to download generated WhatsApp voice reply audio (${audioRes.status})`);
   }
 
   const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
@@ -379,61 +378,6 @@ async function generateLugandaVoiceMediaUrl(params: { tenantId: string; text: st
   });
 
   return signedUrl;
-}
-
-async function isLugandaText(text: string): Promise<boolean> {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-  if (!apiKey) return false;
-
-  try {
-    const languageRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text: `Identify the language of this text. Reply with exactly one word: "luganda" or "other".
-
-Text:
-${trimmed.slice(0, 1200)}`,
-              },
-            ],
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(WHATSAPP_LANGUAGE_DETECTION_TIMEOUT_MS),
-    });
-
-    if (!languageRes.ok) return false;
-
-    const payload = await languageRes.json() as {
-      candidates?: Array<{
-        content?: {
-          parts?: Array<{ text?: string }>;
-        };
-      }>;
-    };
-
-    const languageRaw = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join(' ').trim().toLowerCase() ?? '';
-    const language = languageRaw.replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!language) return false;
-    if (language === 'luganda') return true;
-
-    const words = language.split(' ');
-    if (words.includes('luganda') && !words.includes('other')) return true;
-    return false;
-  } catch (error) {
-    console.warn('Luganda language detection failed:', error);
-    return false;
-  }
 }
 
 integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req: Request, res: Response) => {
@@ -736,16 +680,15 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     });
     const exceedsVoiceThreshold = voiceThreshold > 0 && responseText.length >= voiceThreshold;
     const shouldTryVoiceReply = forceVoiceReplies || exceedsVoiceThreshold;
-    const shouldSendLugandaVoice = shouldTryVoiceReply ? await isLugandaText(responseText) : false;
 
-    if (shouldSendLugandaVoice) {
+    if (shouldTryVoiceReply) {
       try {
-        const voiceUrl = await generateLugandaVoiceMediaUrl({ tenantId, text: responseText });
+        const voiceUrl = await generateVoiceMediaUrl({ tenantId, text: responseText });
         if (voiceUrl) {
           payload.set('MediaUrl', voiceUrl);
         }
       } catch (error) {
-        console.warn('Failed to generate Luganda WhatsApp voice reply:', error);
+        console.warn('Failed to generate WhatsApp voice reply:', error);
       }
     }
 
