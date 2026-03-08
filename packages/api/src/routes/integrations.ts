@@ -385,15 +385,20 @@ async function isLugandaText(text: string): Promise<boolean> {
   const trimmed = text.trim();
   if (!trimmed) return false;
 
+  const normalized = trimmed.toLowerCase();
   const likelyLugandaMarkers = [
     'nze', 'oli otya', 'gyebale', 'webale', 'nsaba', 'mwebale', 'ssi', 'obulumi', 'ndwadde',
-    'nnyinza', 'wangi', 'lwaki', 'kale', 'ndi', 'nze', 'mukwano', 'obulwadde', 'eddagala',
+    'nnyinza', 'lwaki', 'kale', 'ndi', 'mukwano', 'obulwadde', 'eddagala', 'omwana', 'omuntu',
+    'kubanga', 'naye', 'era', 'nnyo', 'wano', 'wano', 'manyi', 'musawo',
   ];
-  const normalized = ` ${trimmed.toLowerCase()} `;
-  const markerHits = likelyLugandaMarkers.reduce((count, marker) => (
-    normalized.includes(` ${marker} `) ? count + 1 : count
-  ), 0);
-  if (markerHits >= 2) return true;
+
+  const markerHits = likelyLugandaMarkers.reduce((count, marker) => {
+    const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const markerRegex = new RegExp(`(^|[^a-z])${escapedMarker}([^a-z]|$)`, 'i');
+    return markerRegex.test(normalized) ? count + 1 : count;
+  }, 0);
+
+  if (markerHits >= 2 || (normalized.length >= 80 && markerHits >= 1)) return true;
 
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) return false;
@@ -429,8 +434,14 @@ async function isLugandaText(text: string): Promise<boolean> {
       }>;
     };
 
-    const language = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join(' ').trim().toLowerCase();
-    return language === 'luganda';
+    const languageRaw = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join(' ').trim().toLowerCase() ?? '';
+    const language = languageRaw.replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!language) return false;
+    if (language === 'luganda') return true;
+
+    const words = language.split(' ');
+    if (words.includes('luganda') && !words.includes('other')) return true;
+    return false;
   } catch (error) {
     console.warn('Luganda language detection failed:', error);
     return false;
