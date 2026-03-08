@@ -38,6 +38,7 @@ export default function AgentSettings() {
           temperature: config.temperature,
           ragEnabled: config.ragEnabled,
           whatsappVoiceNoteCharThreshold: config.whatsappVoiceNoteCharThreshold ?? 0,
+          whatsappForceVoiceReplies: config.whatsappForceVoiceReplies ?? false,
         }),
       });
       setConfig(updated);
