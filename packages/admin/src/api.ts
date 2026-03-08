@@ -59,6 +59,8 @@ export type AgentConfig = {
   consolidationPrompt?: string;
   /** Whether the custom consolidation prompt should override defaults */
   consolidationPromptEnabled?: boolean;
+  /** If > 0, WhatsApp replies at or above this character length can be sent as Luganda voice notes. */
+  whatsappVoiceNoteCharThreshold?: number;
   availableModels?: string[];
 };
 

@@ -152,6 +152,7 @@ const WHATSAPP_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 45_000;
 const WHATSAPP_AI_RESPONSE_TIMEOUT_MS = 45_000;
 const WHATSAPP_TTS_REQUEST_TIMEOUT_MS = 120_000;
 const WHATSAPP_TTS_AUDIO_DOWNLOAD_TIMEOUT_MS = 40_000;
+const WHATSAPP_LANGUAGE_DETECTION_TIMEOUT_MS = 12_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -378,6 +379,62 @@ async function generateLugandaVoiceMediaUrl(params: { tenantId: string; text: st
   });
 
   return signedUrl;
+}
+
+async function isLugandaText(text: string): Promise<boolean> {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+
+  const likelyLugandaMarkers = [
+    'nze', 'oli otya', 'gyebale', 'webale', 'nsaba', 'mwebale', 'ssi', 'obulumi', 'ndwadde',
+    'nnyinza', 'wangi', 'lwaki', 'kale', 'ndi', 'nze', 'mukwano', 'obulwadde', 'eddagala',
+  ];
+  const normalized = ` ${trimmed.toLowerCase()} `;
+  const markerHits = likelyLugandaMarkers.reduce((count, marker) => (
+    normalized.includes(` ${marker} `) ? count + 1 : count
+  ), 0);
+  if (markerHits >= 2) return true;
+
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) return false;
+
+  try {
+    const languageRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: `Identify the language of this text. Reply with exactly one word: "luganda" or "other".\n\nText:\n${trimmed.slice(0, 1200)}`,
+              },
+            ],
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(WHATSAPP_LANGUAGE_DETECTION_TIMEOUT_MS),
+    });
+
+    if (!languageRes.ok) return false;
+
+    const payload = await languageRes.json() as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{ text?: string }>;
+        };
+      }>;
+    };
+
+    const language = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join(' ').trim().toLowerCase();
+    return language === 'luganda';
+  } catch (error) {
+    console.warn('Luganda language detection failed:', error);
+    return false;
+  }
 }
 
 integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req: Request, res: Response) => {
@@ -642,15 +699,11 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     let responseText = '';
     let requestHandoff = false;
 
-    const latestUserMessageDoc = await db
-      .collection('messages')
-      .where('conversationId', '==', conversationId)
-      .where('role', '==', 'user')
-      .orderBy('createdAt', 'desc')
-      .limit(1)
-      .get();
-    const latestUserMessageInputType = latestUserMessageDoc.docs[0]?.data()?.inputType;
-    const shouldSendLugandaVoice = latestUserMessageInputType === 'voice';
+    const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
+    const rawVoiceThreshold = agentConfigDoc.data()?.whatsappVoiceNoteCharThreshold;
+    const voiceThreshold = typeof rawVoiceThreshold === 'number' && Number.isFinite(rawVoiceThreshold)
+      ? Math.max(0, Math.floor(rawVoiceThreshold))
+      : 0;
 
     try {
       const agentResponse = await runAgentWithRetry(tenantId, history, {
@@ -680,6 +733,9 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       To: outboundTo,
       Body: responseText,
     });
+    const exceedsVoiceThreshold = voiceThreshold > 0 && responseText.length >= voiceThreshold;
+    const shouldSendLugandaVoice = exceedsVoiceThreshold ? await isLugandaText(responseText) : false;
+
     if (shouldSendLugandaVoice) {
       try {
         const voiceUrl = await generateLugandaVoiceMediaUrl({ tenantId, text: responseText });

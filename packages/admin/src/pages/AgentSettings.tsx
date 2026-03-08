@@ -37,6 +37,7 @@ export default function AgentSettings() {
           model: config.model,
           temperature: config.temperature,
           ragEnabled: config.ragEnabled,
+          whatsappVoiceNoteCharThreshold: config.whatsappVoiceNoteCharThreshold ?? 0,
         }),
       });
       setConfig(updated);
@@ -286,6 +287,25 @@ export default function AgentSettings() {
             <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b' }}>Enable Knowledge Base (RAG)</div>
             <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>Allow the agent to use uploaded documents for answering.</div>
           </div>
+        </div>
+
+        <div style={{ marginTop: 24 }}>
+          <label style={labelStyle}>WhatsApp Voice Note Threshold (characters)</label>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={config?.whatsappVoiceNoteCharThreshold ?? 0}
+            onChange={(e) => {
+              const parsed = Number.parseInt(e.target.value, 10);
+              const threshold = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+              setConfig((c) => (c ? { ...c, whatsappVoiceNoteCharThreshold: threshold } : c));
+            }}
+            style={{ ...inputStyle, maxWidth: 260 }}
+          />
+          <span style={helperStyle}>
+            Set to 0 to disable voice replies. If above 0, the agent sends a voice note only when a WhatsApp reply length reaches this value and the reply is detected as Luganda.
+          </span>
         </div>
 
         </div>
