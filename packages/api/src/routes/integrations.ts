@@ -323,7 +323,16 @@ function parseExtraHeaders(raw: string): Record<string, string> {
   }
 }
 
-async function generateVoiceMediaUrl(params: { tenantId: string; text: string }): Promise<string | null> {
+type WhatsAppTtsProvider = 'sunbird' | 'gemini-2.5-flash-preview-tts';
+
+async function generateVoiceMediaUrl(params: { tenantId: string; text: string; provider: WhatsAppTtsProvider }): Promise<string | null> {
+  if (params.provider === 'gemini-2.5-flash-preview-tts') {
+    return generateVoiceMediaUrlWithGemini(params);
+  }
+  return generateVoiceMediaUrlWithSunbird(params);
+}
+
+async function generateVoiceMediaUrlWithSunbird(params: { tenantId: string; text: string }): Promise<string | null> {
   const ttsUrl = process.env.SUNBIRD_TTS_URL ?? process.env.TTS_URL;
   const apiKey = process.env.SUNBIRD_TTS_API_KEY ?? process.env.SUNBIRD_API_KEY;
   if (!ttsUrl) return null;
@@ -385,6 +394,128 @@ async function generateVoiceMediaUrl(params: { tenantId: string; text: string })
     console.warn('WhatsApp voice reply upload failed; falling back to direct TTS audio URL:', error);
     return audioUrl;
   }
+}
+
+async function generateVoiceMediaUrlWithGemini(params: { tenantId: string; text: string }): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey || !bucket) return null;
+
+  const ttsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      generationConfig: {
+        responseModalities: ['audio'],
+        temperature: 1,
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: process.env.GEMINI_TTS_VOICE_NAME ?? 'Zephyr',
+            },
+          },
+        },
+      },
+      contents: [{ role: 'user', parts: [{ text: params.text }] }],
+    }),
+    signal: AbortSignal.timeout(WHATSAPP_TTS_REQUEST_TIMEOUT_MS),
+  });
+
+  if (!ttsRes.ok) {
+    const errText = await ttsRes.text().catch(() => '');
+    throw new Error(`Gemini TTS request failed (${ttsRes.status}): ${errText}`);
+  }
+
+  const ttsData = await ttsRes.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> } }>;
+  };
+
+  const inlineData = ttsData.candidates?.[0]?.content?.parts?.find((part) => part.inlineData)?.inlineData;
+  const audioBase64 = inlineData?.data?.trim() ?? '';
+  if (!audioBase64) return null;
+
+  const rawMimeType = inlineData?.mimeType?.trim() || 'audio/wav';
+  const isWavMimeType = /audio\/wav/i.test(rawMimeType);
+  const contentType = isWavMimeType ? 'audio/wav' : 'audio/wav';
+  const audioBuffer = isWavMimeType
+    ? Buffer.from(audioBase64, 'base64')
+    : convertToWav(audioBase64, rawMimeType);
+
+  const path = `tenants/${params.tenantId}/whatsapp-voice-replies/${randomUUID()}.wav`;
+  const fileRef = bucket.file(path);
+  await fileRef.save(audioBuffer, { metadata: { contentType } });
+
+  const [signedUrl] = await fileRef.getSignedUrl({
+    action: 'read',
+    expires: Date.now() + 24 * 60 * 60 * 1000,
+  });
+
+  return signedUrl;
+}
+
+interface WavConversionOptions {
+  numChannels: number;
+  sampleRate: number;
+  bitsPerSample: number;
+}
+
+function convertToWav(rawData: string, mimeType: string): Buffer {
+  const options = parseMimeType(mimeType);
+  const audioBuffer = Buffer.from(rawData, 'base64');
+  const wavHeader = createWavHeader(audioBuffer.length, options);
+  return Buffer.concat([wavHeader, audioBuffer]);
+}
+
+function parseMimeType(mimeType: string): WavConversionOptions {
+  const [fileType = '', ...params] = mimeType.split(';').map((segment) => segment.trim());
+  const [, format] = fileType.split('/');
+
+  const options: WavConversionOptions = {
+    numChannels: 1,
+    sampleRate: 24_000,
+    bitsPerSample: 16,
+  };
+
+  if (format && format.startsWith('L')) {
+    const bits = Number.parseInt(format.slice(1), 10);
+    if (Number.isFinite(bits)) {
+      options.bitsPerSample = bits;
+    }
+  }
+
+  for (const param of params) {
+    const [key, value] = param.split('=').map((segment) => segment.trim());
+    if (key === 'rate') {
+      const rate = Number.parseInt(value, 10);
+      if (Number.isFinite(rate)) {
+        options.sampleRate = rate;
+      }
+    }
+  }
+
+  return options;
+}
+
+function createWavHeader(dataLength: number, options: WavConversionOptions): Buffer {
+  const { numChannels, sampleRate, bitsPerSample } = options;
+  const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+  const blockAlign = numChannels * bitsPerSample / 8;
+  const buffer = Buffer.alloc(44);
+
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataLength, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(numChannels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(byteRate, 28);
+  buffer.writeUInt16LE(blockAlign, 32);
+  buffer.writeUInt16LE(bitsPerSample, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataLength, 40);
+
+  return buffer;
 }
 
 function isLugandaLanguageTag(tag: string): boolean {
@@ -702,10 +833,12 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
     const rawVoiceThreshold = agentConfigDoc.data()?.whatsappVoiceNoteCharThreshold;
     const rawForceVoiceReplies = agentConfigDoc.data()?.whatsappForceVoiceReplies;
+    const rawTtsProvider = agentConfigDoc.data()?.whatsappTtsProvider;
     const voiceThreshold = typeof rawVoiceThreshold === 'number' && Number.isFinite(rawVoiceThreshold)
       ? Math.max(0, Math.floor(rawVoiceThreshold))
       : 0;
     const forceVoiceReplies = rawForceVoiceReplies === true;
+    const ttsProvider: WhatsAppTtsProvider = rawTtsProvider === 'gemini-2.5-flash-preview-tts' ? rawTtsProvider : 'sunbird';
 
     try {
       const agentResponse = await runAgentWithRetry(tenantId, history, {
@@ -742,7 +875,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
 
     if (shouldTryVoiceReply) {
       try {
-        const voiceUrl = await generateVoiceMediaUrl({ tenantId, text: responseText });
+        const voiceUrl = await generateVoiceMediaUrl({ tenantId, text: responseText, provider: ttsProvider });
         if (voiceUrl) {
           payload.set('MediaUrl', voiceUrl);
         }

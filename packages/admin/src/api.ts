@@ -63,6 +63,8 @@ export type AgentConfig = {
   whatsappVoiceNoteCharThreshold?: number;
   /** If true, all WhatsApp text replies will also attempt TTS voice replies. */
   whatsappForceVoiceReplies?: boolean;
+  /** Which TTS provider should be used for WhatsApp voice replies. */
+  whatsappTtsProvider?: 'sunbird' | 'gemini-2.5-flash-preview-tts';
   availableModels?: string[];
 };
 
