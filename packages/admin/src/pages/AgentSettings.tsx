@@ -318,6 +318,7 @@ export default function AgentSettings() {
             style={{ ...inputStyle, maxWidth: 320 }}
           >
             <option value="sunbird">Sunbird</option>
+            <option value="google-cloud-tts">Google Cloud TTS</option>
             <option value="gemini-2.5-flash-preview-tts">Gemini 2.5 Flash Preview TTS</option>
           </select>
           <span style={helperStyle}>
