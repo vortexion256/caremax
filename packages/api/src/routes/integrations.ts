@@ -406,6 +406,7 @@ async function generateVoiceMediaUrlWithGemini(params: { tenantId: string; text:
     body: JSON.stringify({
       generationConfig: {
         responseModalities: ['audio'],
+        responseMimeType: 'audio/mpeg',
         temperature: 1,
         speechConfig: {
           voiceConfig: {
@@ -433,16 +434,12 @@ async function generateVoiceMediaUrlWithGemini(params: { tenantId: string; text:
   const audioBase64 = inlineData?.data?.trim() ?? '';
   if (!audioBase64) return null;
 
-  const rawMimeType = inlineData?.mimeType?.trim() || 'audio/wav';
-  const isWavMimeType = /audio\/wav/i.test(rawMimeType);
-  const contentType = isWavMimeType ? 'audio/wav' : 'audio/wav';
-  const audioBuffer = isWavMimeType
-    ? Buffer.from(audioBase64, 'base64')
-    : convertToWav(audioBase64, rawMimeType);
+  const rawMimeType = inlineData?.mimeType?.trim() || 'audio/mpeg';
+  const audio = normalizeGeminiAudioPayload(audioBase64, rawMimeType);
 
-  const path = `tenants/${params.tenantId}/whatsapp-voice-replies/${randomUUID()}.wav`;
+  const path = `tenants/${params.tenantId}/whatsapp-voice-replies/${randomUUID()}.${audio.extension}`;
   const fileRef = bucket.file(path);
-  await fileRef.save(audioBuffer, { metadata: { contentType } });
+  await fileRef.save(audio.buffer, { metadata: { contentType: audio.contentType } });
 
   const [signedUrl] = await fileRef.getSignedUrl({
     action: 'read',
@@ -458,16 +455,67 @@ interface WavConversionOptions {
   bitsPerSample: number;
 }
 
-function convertToWav(rawData: string, mimeType: string): Buffer {
-  const options = parseMimeType(mimeType);
+interface GeminiAudioPayload {
+  buffer: Buffer;
+  contentType: string;
+  extension: 'wav' | 'mp3' | 'ogg';
+}
+
+function normalizeGeminiAudioPayload(audioBase64: string, mimeType: string): GeminiAudioPayload {
+  const normalizedMimeType = normalizeMimeType(mimeType);
+
+  if (isPcmMimeType(normalizedMimeType)) {
+    console.warn('Gemini TTS returned PCM even though MP3 was requested. Converting PCM to WAV fallback.');
+    return {
+      buffer: convertPcmBase64ToWav(audioBase64, normalizedMimeType),
+      contentType: 'audio/wav',
+      extension: 'wav',
+    };
+  }
+
+  if (isWavMimeType(normalizedMimeType)) {
+    console.warn('Gemini TTS returned WAV even though MP3 was requested. Using WAV fallback.');
+    return {
+      buffer: Buffer.from(audioBase64, 'base64'),
+      contentType: 'audio/wav',
+      extension: 'wav',
+    };
+  }
+
+  if (isMp3MimeType(normalizedMimeType)) {
+    return {
+      buffer: Buffer.from(audioBase64, 'base64'),
+      contentType: 'audio/mpeg',
+      extension: 'mp3',
+    };
+  }
+
+  if (isOggMimeType(normalizedMimeType)) {
+    return {
+      buffer: Buffer.from(audioBase64, 'base64'),
+      contentType: 'audio/ogg',
+      extension: 'ogg',
+    };
+  }
+
+  console.warn(`Unsupported Gemini TTS mime type: ${mimeType}. Attempting PCM-to-WAV fallback.`);
+  return {
+    buffer: convertPcmBase64ToWav(audioBase64, normalizedMimeType),
+    contentType: 'audio/wav',
+    extension: 'wav',
+  };
+}
+
+function convertPcmBase64ToWav(rawData: string, mimeType: string): Buffer {
+  const options = parsePcmMimeType(mimeType);
   const audioBuffer = Buffer.from(rawData, 'base64');
   const wavHeader = createWavHeader(audioBuffer.length, options);
   return Buffer.concat([wavHeader, audioBuffer]);
 }
 
-function parseMimeType(mimeType: string): WavConversionOptions {
+function parsePcmMimeType(mimeType: string): WavConversionOptions {
   const [fileType = '', ...params] = mimeType.split(';').map((segment) => segment.trim());
-  const [, format] = fileType.split('/');
+  const [, format = ''] = fileType.split('/');
 
   const options: WavConversionOptions = {
     numChannels: 1,
@@ -475,7 +523,7 @@ function parseMimeType(mimeType: string): WavConversionOptions {
     bitsPerSample: 16,
   };
 
-  if (format && format.startsWith('L')) {
+  if (format.toUpperCase().startsWith('L')) {
     const bits = Number.parseInt(format.slice(1), 10);
     if (Number.isFinite(bits)) {
       options.bitsPerSample = bits;
@@ -483,16 +531,46 @@ function parseMimeType(mimeType: string): WavConversionOptions {
   }
 
   for (const param of params) {
-    const [key, value] = param.split('=').map((segment) => segment.trim());
+    const [key, value] = param.split('=').map((segment) => segment.trim().toLowerCase());
     if (key === 'rate') {
       const rate = Number.parseInt(value, 10);
       if (Number.isFinite(rate)) {
         options.sampleRate = rate;
       }
     }
+    if (key === 'channels') {
+      const channels = Number.parseInt(value, 10);
+      if (Number.isFinite(channels) && channels > 0) {
+        options.numChannels = channels;
+      }
+    }
   }
 
   return options;
+}
+
+function normalizeMimeType(mimeType: string): string {
+  return mimeType.trim().toLowerCase();
+}
+
+function isWavMimeType(mimeType: string): boolean {
+  return mimeType.startsWith('audio/wav') || mimeType.startsWith('audio/x-wav') || mimeType.startsWith('audio/wave');
+}
+
+function isPcmMimeType(mimeType: string): boolean {
+  return mimeType.startsWith('audio/l16')
+    || mimeType.startsWith('audio/l24')
+    || mimeType.startsWith('audio/l32')
+    || mimeType.startsWith('audio/pcm')
+    || mimeType.startsWith('audio/raw');
+}
+
+function isMp3MimeType(mimeType: string): boolean {
+  return mimeType.startsWith('audio/mpeg') || mimeType.startsWith('audio/mp3');
+}
+
+function isOggMimeType(mimeType: string): boolean {
+  return mimeType.startsWith('audio/ogg');
 }
 
 function createWavHeader(dataLength: number, options: WavConversionOptions): Buffer {
@@ -892,15 +970,28 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       throw new Error('Twilio outbound message requires either messagingServiceSid or from number');
     }
 
-    const twilioRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`, {
+    const sendTwilioMessage = async (body: URLSearchParams) => fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`, {
       method: 'POST',
       headers: {
         Authorization: twilioBasicAuthHeader(accountSid, authToken),
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: payload,
+      body,
       signal: AbortSignal.timeout(12_000),
     });
+
+    let twilioRes = await sendTwilioMessage(payload);
+
+    if (!twilioRes.ok && payload.has('MediaUrl')) {
+      const mediaErrorText = await twilioRes.text().catch(() => '');
+      console.warn('Twilio outbound send with voice media failed. Retrying as text-only message.', {
+        status: twilioRes.status,
+        response: mediaErrorText,
+      });
+
+      payload.delete('MediaUrl');
+      twilioRes = await sendTwilioMessage(payload);
+    }
 
     if (!twilioRes.ok) {
       const errorText = await twilioRes.text();
