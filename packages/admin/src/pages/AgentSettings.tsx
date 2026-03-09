@@ -40,6 +40,7 @@ export default function AgentSettings() {
           whatsappVoiceNoteCharThreshold: config.whatsappVoiceNoteCharThreshold ?? 0,
           whatsappForceVoiceReplies: config.whatsappForceVoiceReplies ?? false,
           whatsappTtsProvider: config.whatsappTtsProvider ?? 'sunbird',
+          whatsappSunbirdTemperature: config.whatsappSunbirdTemperature ?? 0.7,
         }),
       });
       setConfig(updated);
@@ -323,6 +324,26 @@ export default function AgentSettings() {
           </select>
           <span style={helperStyle}>
             Choose which text-to-speech engine is used when WhatsApp voice notes are generated.
+          </span>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <label style={labelStyle}>Sunbird TTS Temperature</label>
+          <input
+            type="number"
+            min={0}
+            max={2}
+            step={0.1}
+            value={config?.whatsappSunbirdTemperature ?? 0.7}
+            onChange={(e) => {
+              const parsed = Number.parseFloat(e.target.value);
+              const nextTemperature = Number.isFinite(parsed) ? parsed : 0.7;
+              setConfig((c) => (c ? { ...c, whatsappSunbirdTemperature: Math.min(2, Math.max(0, nextTemperature)) } : c));
+            }}
+            style={{ ...inputStyle, maxWidth: 260 }}
+          />
+          <span style={helperStyle}>
+            Used only when Sunbird is selected as the WhatsApp TTS provider.
           </span>
         </div>
 

@@ -596,14 +596,14 @@ function inferAudioExtensionFromUrl(url: string): string {
   return 'mp3';
 }
 
-async function generateVoiceMediaUrl(params: { tenantId: string; text: string; provider: WhatsAppTtsProvider }): Promise<string | null> {
+async function generateVoiceMediaUrl(params: { tenantId: string; text: string; provider: WhatsAppTtsProvider; sunbirdTemperature: number }): Promise<string | null> {
   if (params.provider === 'google-cloud-tts' || params.provider === 'gemini-2.5-flash-preview-tts') {
     return generateVoiceMediaUrlWithGoogleCloud(params);
   }
   return generateVoiceMediaUrlWithSunbird(params);
 }
 
-async function generateVoiceMediaUrlWithSunbird(params: { tenantId: string; text: string }): Promise<string | null> {
+async function generateVoiceMediaUrlWithSunbird(params: { tenantId: string; text: string; sunbirdTemperature: number }): Promise<string | null> {
   const ttsUrl = process.env.SUNBIRD_TTS_URL ?? process.env.TTS_URL;
   const apiKey = process.env.SUNBIRD_TTS_API_KEY ?? process.env.SUNBIRD_API_KEY;
   if (!ttsUrl) return null;
@@ -627,7 +627,7 @@ async function generateVoiceMediaUrlWithSunbird(params: { tenantId: string; text
   const ttsRes = await fetch(ttsUrl, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ text: cleanedText, speaker_id: speakerId, temperature: 0.7 }),
+    body: JSON.stringify({ text: cleanedText, speaker_id: speakerId, temperature: params.sunbirdTemperature }),
     signal: AbortSignal.timeout(WHATSAPP_TTS_REQUEST_TIMEOUT_MS),
   });
 
@@ -1070,6 +1070,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     const rawVoiceThreshold = agentConfigDoc.data()?.whatsappVoiceNoteCharThreshold;
     const rawForceVoiceReplies = agentConfigDoc.data()?.whatsappForceVoiceReplies;
     const rawTtsProvider = agentConfigDoc.data()?.whatsappTtsProvider;
+    const rawSunbirdTemperature = agentConfigDoc.data()?.whatsappSunbirdTemperature;
     const voiceThreshold = typeof rawVoiceThreshold === 'number' && Number.isFinite(rawVoiceThreshold)
       ? Math.max(0, Math.floor(rawVoiceThreshold))
       : 0;
@@ -1077,6 +1078,9 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     const ttsProvider: WhatsAppTtsProvider = rawTtsProvider === 'gemini-2.5-flash-preview-tts' || rawTtsProvider === 'google-cloud-tts'
       ? rawTtsProvider
       : 'sunbird';
+    const sunbirdTemperature = typeof rawSunbirdTemperature === 'number' && Number.isFinite(rawSunbirdTemperature)
+      ? Math.min(2, Math.max(0, rawSunbirdTemperature))
+      : 0.7;
 
     try {
       const agentResponse = await runAgentWithRetry(tenantId, history, {
@@ -1117,7 +1121,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
 
     if (shouldTryVoiceReply) {
       try {
-        const voiceUrl = await generateVoiceMediaUrl({ tenantId, text: responseText, provider: resolvedTtsProvider });
+        const voiceUrl = await generateVoiceMediaUrl({ tenantId, text: responseText, provider: resolvedTtsProvider, sunbirdTemperature });
         if (voiceUrl) {
           payload.set('MediaUrl', voiceUrl);
         }

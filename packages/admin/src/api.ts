@@ -65,6 +65,8 @@ export type AgentConfig = {
   whatsappForceVoiceReplies?: boolean;
   /** Which TTS provider should be used for WhatsApp voice replies. */
   whatsappTtsProvider?: 'sunbird' | 'google-cloud-tts' | 'gemini-2.5-flash-preview-tts';
+  /** Sunbird-only temperature used for WhatsApp TTS generation. */
+  whatsappSunbirdTemperature?: number;
   availableModels?: string[];
 };
 
