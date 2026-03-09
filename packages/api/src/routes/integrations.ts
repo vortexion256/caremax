@@ -186,6 +186,7 @@ const WHATSAPP_AI_RESPONSE_TIMEOUT_MS = 45_000;
 const WHATSAPP_TTS_REQUEST_TIMEOUT_MS = 120_000;
 const WHATSAPP_TTS_AUDIO_DOWNLOAD_TIMEOUT_MS = 40_000;
 const WHATSAPP_LUGANDA_TTS_CLEAN_TIMEOUT_MS = 20_000;
+const WHATSAPP_ENGLISH_TTS_CLEAN_TIMEOUT_MS = 20_000;
 const WHATSAPP_VOICE_NOTE_SAMPLE_RATE = 16_000;
 const WHATSAPP_VOICE_NOTE_BITRATE = '16k';
 
@@ -255,6 +256,61 @@ ${normalized}`,
     return finalText || normalized;
   } catch (error) {
     console.warn('Failed to clean Luganda text for Sunbird TTS via AI:', error);
+    return normalized;
+  }
+}
+
+async function cleanEnglishTextForGoogleCloudTts(text: string): Promise<string> {
+  const normalized = normalizeTextForSunbirdTts(text);
+  if (!normalized) return '';
+
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) return normalized;
+
+  try {
+    const cleanRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [{
+            text: `You are cleaning English text for speech synthesis.
+Return only clean spoken English prose for TTS.
+Rules:
+- Keep the original meaning.
+- Remove markdown formatting (including asterisks), URLs, usernames, hashtags, code snippets, and symbols that are read badly by TTS.
+- Rewrite abbreviations or shorthand into natural spoken English where possible.
+- Keep punctuation minimal and speech-friendly.
+- Do not add explanations, labels, or quotes.
+
+Text:
+${normalized}`,
+          }],
+        }],
+      }),
+      signal: AbortSignal.timeout(WHATSAPP_ENGLISH_TTS_CLEAN_TIMEOUT_MS),
+    });
+
+    if (!cleanRes.ok) return normalized;
+
+    const payload = await cleanRes.json() as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{ text?: string }>;
+        };
+      }>;
+    };
+
+    const cleaned = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join(' ').trim();
+    if (!cleaned) return normalized;
+
+    const finalText = normalizeTextForSunbirdTts(cleaned);
+    return finalText || normalized;
+  } catch (error) {
+    console.warn('Failed to clean English text for Google Cloud TTS via AI:', error);
     return normalized;
   }
 }
@@ -603,6 +659,9 @@ async function generateVoiceMediaUrlWithGoogleCloud(params: { tenantId: string; 
     : accessTokenResponse?.token;
   if (!accessToken) return null;
 
+  const cleanedText = await cleanEnglishTextForGoogleCloudTts(params.text);
+  if (!cleanedText) return null;
+
   const ttsRes = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize', {
     method: 'POST',
     headers: {
@@ -611,7 +670,7 @@ async function generateVoiceMediaUrlWithGoogleCloud(params: { tenantId: string; 
     },
     body: JSON.stringify({
       input: {
-        text: params.text,
+        text: cleanedText,
       },
       voice: {
         languageCode: process.env.GOOGLE_CLOUD_TTS_LANGUAGE_CODE ?? 'en-US',
