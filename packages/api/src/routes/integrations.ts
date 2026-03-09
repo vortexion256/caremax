@@ -178,6 +178,77 @@ const WHATSAPP_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 45_000;
 const WHATSAPP_AI_RESPONSE_TIMEOUT_MS = 45_000;
 const WHATSAPP_TTS_REQUEST_TIMEOUT_MS = 120_000;
 const WHATSAPP_TTS_AUDIO_DOWNLOAD_TIMEOUT_MS = 40_000;
+const WHATSAPP_LUGANDA_TTS_CLEAN_TIMEOUT_MS = 20_000;
+
+function normalizeTextForSunbirdTts(text: string): string {
+  const normalized = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\[[^\]]*\]\(([^\)]*)\)/g, ' ')
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/[@#][\p{L}\p{N}_-]+/gu, ' ')
+    .replace(/[\u{1F300}-\u{1FAFF}]/gu, ' ')
+    .replace(/[{}\[\]<>*_~^|\\/=+]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return normalized;
+}
+
+async function cleanLugandaTextForSunbirdTts(text: string): Promise<string> {
+  const normalized = normalizeTextForSunbirdTts(text);
+  if (!normalized) return '';
+
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) return normalized;
+
+  try {
+    const cleanRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [{
+            text: `You are cleaning Luganda text for speech synthesis.
+Return only clean Luganda prose for TTS.
+Rules:
+- Keep meaning, keep Luganda wording natural and grammatical.
+- Remove markdown, URLs, usernames, hashtags, code snippets, and symbols that are read badly by TTS.
+- Expand or rewrite abbreviations into natural spoken Luganda where possible.
+- Keep sentence punctuation minimal and speech-friendly.
+- Do not add explanations, labels, or quotes.
+
+Text:
+${normalized}`,
+          }],
+        }],
+      }),
+      signal: AbortSignal.timeout(WHATSAPP_LUGANDA_TTS_CLEAN_TIMEOUT_MS),
+    });
+
+    if (!cleanRes.ok) return normalized;
+
+    const payload = await cleanRes.json() as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{ text?: string }>;
+        };
+      }>;
+    };
+
+    const cleaned = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join(' ').trim();
+    if (!cleaned) return normalized;
+
+    const finalText = normalizeTextForSunbirdTts(cleaned);
+    return finalText || normalized;
+  } catch (error) {
+    console.warn('Failed to clean Luganda text for Sunbird TTS via AI:', error);
+    return normalized;
+  }
+}
 const WHATSAPP_LANGUAGE_DETECT_TIMEOUT_MS = 12_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
@@ -376,10 +447,13 @@ async function generateVoiceMediaUrlWithSunbird(params: { tenantId: string; text
     headers.Authorization = `Bearer ${apiKey}`;
   }
 
+  const cleanedText = await cleanLugandaTextForSunbirdTts(params.text);
+  if (!cleanedText) return null;
+
   const ttsRes = await fetch(ttsUrl, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ text: params.text, speaker_id: speakerId, temperature: 0.7 }),
+    body: JSON.stringify({ text: cleanedText, speaker_id: speakerId, temperature: 0.7 }),
     signal: AbortSignal.timeout(WHATSAPP_TTS_REQUEST_TIMEOUT_MS),
   });
 
