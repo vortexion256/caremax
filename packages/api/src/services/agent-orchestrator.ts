@@ -145,7 +145,7 @@ export class ToolExecutor {
     doctorName: string;
     appointmentTime: string;
     notes?: string;
-  }, options?: { userId?: string }): Promise<BookAppointmentResult> {
+  }, options?: { userId?: string; externalUserId?: string }): Promise<BookAppointmentResult> {
     if (!this.bookingsSheetEntry) {
       return {
         success: false,
@@ -215,6 +215,7 @@ export class ToolExecutor {
         try {
           await createNote(this.tenantId, 'SYSTEM', `Booking UPDATED: ${params.patientName} (${params.phone}) with Dr. ${params.doctorName} on ${dateStr} at ${params.appointmentTime}. Notes: ${params.notes ?? 'none'}`, {
             userId: options?.userId,
+            externalUserId: options?.externalUserId,
             patientName: params.patientName,
             category: 'bookings'
           });
@@ -256,6 +257,7 @@ export class ToolExecutor {
         try {
           await createNote(this.tenantId, 'SYSTEM', `NEW Booking: ${params.patientName} (${params.phone}) with Dr. ${params.doctorName} on ${dateStr} at ${params.appointmentTime}. Notes: ${params.notes ?? 'none'}`, {
             userId: options?.userId,
+            externalUserId: options?.externalUserId,
             patientName: params.patientName,
             category: 'bookings'
           });
@@ -295,7 +297,7 @@ export class ToolExecutor {
   async executeGetAppointment(params: {
     phone: string;
     date?: string;
-  }): Promise<GetAppointmentResult> {
+  }, options?: { userId?: string; externalUserId?: string }): Promise<GetAppointmentResult> {
     if (!this.bookingsSheetEntry) {
       return {
         success: false,
@@ -392,9 +394,11 @@ export class ToolExecutor {
 
       // 2. If not found in sheet, check Agent Notebook (notes)
       try {
-        const notes = await listAgentNotes(this.tenantId, { patientName: params.phone }); // Using phone as a fallback identifier in notes if needed, or just search by patientName if we had it
-        // Better: search for notes containing the phone number
-        const allNotes = await listAgentNotes(this.tenantId, { limit: 50 });
+        const allNotes = await listAgentNotes(this.tenantId, {
+          ...(options?.userId ? { userId: options.userId } : {}),
+          ...(options?.externalUserId ? { externalUserId: options.externalUserId } : {}),
+          limit: 50,
+        });
         const bookingNote = allNotes.find((n: AgentNote) => n.content.includes(phoneNorm) && (n.content.includes('Booking') || n.content.includes('Appointment')));
         
         if (bookingNote) {
@@ -542,11 +546,11 @@ export class StateVerifier {
     phone: string;
     date: string;
     expectedAppointmentId?: string;
-  }): Promise<{ verified: boolean; appointment?: GetAppointmentResult['data'] }> {
+  }, options?: { userId?: string; externalUserId?: string }): Promise<{ verified: boolean; appointment?: GetAppointmentResult['data'] }> {
     const result = await this.toolExecutor.executeGetAppointment({
       phone: params.phone,
       date: params.date,
-    });
+    }, options);
 
     if (!result.success) {
       return { verified: false };
@@ -660,7 +664,7 @@ export class AgentOrchestrator {
             doctorName: toolCall.args.doctorName,
             appointmentTime: toolCall.args.appointmentTime,
             notes: typeof toolCall.args.notes === 'string' ? toolCall.args.notes : undefined,
-          }, { userId });
+          }, { userId, externalUserId });
 
           // Record integration activity for dashboard visualization
           if (result.success) {
@@ -674,7 +678,7 @@ export class AgentOrchestrator {
               phone: toolCall.args.phone as string,
               date: toolCall.args.date as string,
               expectedAppointmentId: bookingData.data?.appointmentId,
-            });
+            }, { userId, externalUserId });
 
             // Only mark as successful if verification passes
             if (!verification.verified) {
@@ -718,7 +722,7 @@ export class AgentOrchestrator {
           result = await this.toolExecutor.executeGetAppointment({
             phone: toolCall.args.phone,
             date: typeof toolCall.args.date === 'string' ? toolCall.args.date : undefined,
-          });
+          }, { userId, externalUserId });
           // Record integration activity for dashboard visualization
           if (result.success) {
             void recordActivity(this.tenantId, 'integrations');
