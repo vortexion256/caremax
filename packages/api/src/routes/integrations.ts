@@ -185,8 +185,8 @@ const WHATSAPP_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 45_000;
 const WHATSAPP_AI_RESPONSE_TIMEOUT_MS = 45_000;
 const WHATSAPP_TTS_REQUEST_TIMEOUT_MS = 120_000;
 const WHATSAPP_TTS_AUDIO_DOWNLOAD_TIMEOUT_MS = 40_000;
-const WHATSAPP_LUGANDA_TTS_CLEAN_TIMEOUT_MS = 20_000;
-const WHATSAPP_ENGLISH_TTS_CLEAN_TIMEOUT_MS = 20_000;
+const WHATSAPP_LUGANDA_TTS_CLEAN_TIMEOUT_MS = Number(process.env.WHATSAPP_LUGANDA_TTS_CLEAN_TIMEOUT_MS ?? 35_000);
+const WHATSAPP_ENGLISH_TTS_CLEAN_TIMEOUT_MS = Number(process.env.WHATSAPP_ENGLISH_TTS_CLEAN_TIMEOUT_MS ?? 20_000);
 const WHATSAPP_VOICE_NOTE_SAMPLE_RATE = 16_000;
 const WHATSAPP_VOICE_NOTE_BITRATE = '16k';
 
@@ -203,6 +203,10 @@ function normalizeTextForSunbirdTts(text: string): string {
     .trim();
 
   return normalized;
+}
+
+function isAbortTimeoutError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'TimeoutError';
 }
 
 async function cleanLugandaTextForSunbirdTts(text: string): Promise<string> {
@@ -255,6 +259,11 @@ ${normalized}`,
     const finalText = normalizeTextForSunbirdTts(cleaned);
     return finalText || normalized;
   } catch (error) {
+    if (isAbortTimeoutError(error)) {
+      console.info('Luganda TTS text cleaning timed out; using normalized text fallback');
+      return normalized;
+    }
+
     console.warn('Failed to clean Luganda text for Sunbird TTS via AI:', error);
     return normalized;
   }
@@ -310,6 +319,11 @@ ${normalized}`,
     const finalText = normalizeTextForSunbirdTts(cleaned);
     return finalText || normalized;
   } catch (error) {
+    if (isAbortTimeoutError(error)) {
+      console.info('English TTS text cleaning timed out; using normalized text fallback');
+      return normalized;
+    }
+
     console.warn('Failed to clean English text for Google Cloud TTS via AI:', error);
     return normalized;
   }
