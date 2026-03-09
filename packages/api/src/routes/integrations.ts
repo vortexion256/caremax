@@ -438,17 +438,57 @@ async function convertAudioToWhatsAppVoiceNote(audioBuffer: Buffer, inputExt: st
 
   try {
     await fs.writeFile(sourcePath, audioBuffer);
-    await execFile('ffmpeg', [
-      '-y',
-      '-i', sourcePath,
-      '-ac', '1',
-      '-ar', String(WHATSAPP_VOICE_NOTE_SAMPLE_RATE),
-      '-c:a', 'libopus',
-      '-b:a', WHATSAPP_VOICE_NOTE_BITRATE,
-      '-vbr', 'on',
-      '-application', 'voip',
-      outputPath,
-    ]);
+
+    // Prefer bundled ffmpeg (if present) for serverless compatibility; fallback to system ffmpeg.
+    const dynamicImport = new Function('moduleName', 'return import(moduleName);') as (moduleName: string) => Promise<any>;
+    let usedFluentFfmpeg = false;
+
+    try {
+      const [ffmpegModule, ffmpegInstallerModule] = await Promise.all([
+        dynamicImport('fluent-ffmpeg'),
+        dynamicImport('@ffmpeg-installer/ffmpeg'),
+      ]);
+
+      const ffmpeg = ffmpegModule.default ?? ffmpegModule;
+      const ffmpegInstaller = ffmpegInstallerModule.default ?? ffmpegInstallerModule;
+      const installerPath = typeof ffmpegInstaller?.path === 'string' ? ffmpegInstaller.path : '';
+
+      if (installerPath && typeof ffmpeg?.setFfmpegPath === 'function') {
+        ffmpeg.setFfmpegPath(installerPath);
+      }
+
+      if (typeof ffmpeg === 'function') {
+        await new Promise<void>((resolve, reject) => {
+          ffmpeg(sourcePath)
+            .audioChannels(1)
+            .audioFrequency(WHATSAPP_VOICE_NOTE_SAMPLE_RATE)
+            .audioCodec('libopus')
+            .audioBitrate(WHATSAPP_VOICE_NOTE_BITRATE)
+            .outputOptions(['-vbr on', '-application voip'])
+            .save(outputPath)
+            .on('end', () => resolve())
+            .on('error', (error: unknown) => reject(error));
+        });
+        usedFluentFfmpeg = true;
+      }
+    } catch {
+      usedFluentFfmpeg = false;
+    }
+
+    if (!usedFluentFfmpeg) {
+      await execFile('ffmpeg', [
+        '-y',
+        '-i', sourcePath,
+        '-ac', '1',
+        '-ar', String(WHATSAPP_VOICE_NOTE_SAMPLE_RATE),
+        '-c:a', 'libopus',
+        '-b:a', WHATSAPP_VOICE_NOTE_BITRATE,
+        '-vbr', 'on',
+        '-application', 'voip',
+        outputPath,
+      ]);
+    }
+
     return await fs.readFile(outputPath);
   } catch (error) {
     console.warn('Failed to transcode WhatsApp voice reply audio to Opus/Ogg:', error);
