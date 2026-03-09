@@ -461,6 +461,11 @@ async function convertAudioToWhatsAppVoiceNote(audioBuffer: Buffer, inputExt: st
   }
 }
 
+function isOggLikeAudioExtension(ext: string): boolean {
+  const normalized = ext.trim().toLowerCase();
+  return normalized === 'ogg' || normalized === 'opus';
+}
+
 function inferAudioExtensionFromUrl(url: string): string {
   const clean = url.split('?')[0]?.toLowerCase() ?? '';
   if (clean.endsWith('.wav')) return 'wav';
@@ -521,7 +526,10 @@ async function generateVoiceMediaUrlWithSunbird(params: { tenantId: string; text
   }
 
   const sourceAudioBuffer = Buffer.from(await audioRes.arrayBuffer());
-  const voiceNoteBuffer = await convertAudioToWhatsAppVoiceNote(sourceAudioBuffer, inferAudioExtensionFromUrl(audioUrl));
+  const sourceExt = inferAudioExtensionFromUrl(audioUrl);
+  const voiceNoteBuffer = isOggLikeAudioExtension(sourceExt)
+    ? sourceAudioBuffer
+    : await convertAudioToWhatsAppVoiceNote(sourceAudioBuffer, sourceExt);
   const audioBuffer = voiceNoteBuffer ?? sourceAudioBuffer;
   const path = `tenants/${params.tenantId}/whatsapp-voice-replies/${randomUUID()}.${voiceNoteBuffer ? 'ogg' : 'mp3'}`;
   const fileRef = bucket.file(path);
@@ -570,7 +578,7 @@ async function generateVoiceMediaUrlWithGoogleCloud(params: { tenantId: string; 
         name: process.env.GOOGLE_CLOUD_TTS_VOICE_NAME ?? 'en-US-Neural2-F',
       },
       audioConfig: {
-        audioEncoding: process.env.GOOGLE_CLOUD_TTS_AUDIO_ENCODING ?? 'MP3',
+        audioEncoding: process.env.GOOGLE_CLOUD_TTS_AUDIO_ENCODING ?? 'OGG_OPUS',
       },
     }),
     signal: AbortSignal.timeout(WHATSAPP_TTS_REQUEST_TIMEOUT_MS),
@@ -586,8 +594,13 @@ async function generateVoiceMediaUrlWithGoogleCloud(params: { tenantId: string; 
   if (!audioBase64) return null;
 
   const sourceAudioBuffer = Buffer.from(audioBase64, 'base64');
-  const inputExt = (process.env.GOOGLE_CLOUD_TTS_AUDIO_ENCODING ?? 'MP3').trim().toLowerCase() === 'linear16' ? 'wav' : 'mp3';
-  const voiceNoteBuffer = await convertAudioToWhatsAppVoiceNote(sourceAudioBuffer, inputExt);
+  const requestedEncoding = (process.env.GOOGLE_CLOUD_TTS_AUDIO_ENCODING ?? 'OGG_OPUS').trim().toLowerCase();
+  const inputExt = requestedEncoding === 'linear16'
+    ? 'wav'
+    : (requestedEncoding === 'ogg_opus' ? 'ogg' : 'mp3');
+  const voiceNoteBuffer = isOggLikeAudioExtension(inputExt)
+    ? sourceAudioBuffer
+    : await convertAudioToWhatsAppVoiceNote(sourceAudioBuffer, inputExt);
   const audioBuffer = voiceNoteBuffer ?? sourceAudioBuffer;
   const path = `tenants/${params.tenantId}/whatsapp-voice-replies/${randomUUID()}.${voiceNoteBuffer ? 'ogg' : 'mp3'}`;
   const fileRef = bucket.file(path);
