@@ -39,6 +39,7 @@ export default function AgentSettings() {
           ragEnabled: config.ragEnabled,
           whatsappVoiceNoteCharThreshold: config.whatsappVoiceNoteCharThreshold ?? 0,
           whatsappForceVoiceReplies: config.whatsappForceVoiceReplies ?? false,
+          whatsappTtsProvider: config.whatsappTtsProvider ?? 'sunbird',
         }),
       });
       setConfig(updated);
@@ -306,6 +307,21 @@ export default function AgentSettings() {
           />
           <span style={helperStyle}>
             Set to 0 to disable threshold-based voice replies. If above 0, the agent sends a voice note when a WhatsApp reply length reaches this value.
+          </span>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <label style={labelStyle}>WhatsApp TTS Provider</label>
+          <select
+            value={config?.whatsappTtsProvider ?? 'sunbird'}
+            onChange={(e) => setConfig((c) => (c ? { ...c, whatsappTtsProvider: e.target.value as AgentConfig['whatsappTtsProvider'] } : c))}
+            style={{ ...inputStyle, maxWidth: 320 }}
+          >
+            <option value="sunbird">Sunbird</option>
+            <option value="gemini-2.5-flash-preview-tts">Gemini 2.5 Flash Preview TTS</option>
+          </select>
+          <span style={helperStyle}>
+            Choose which text-to-speech engine is used when WhatsApp voice notes are generated.
           </span>
         </div>
 
