@@ -15,6 +15,32 @@ import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
+import { google } from 'googleapis';
+
+let googleCloudTtsAccessTokenClient: { getAccessToken: () => Promise<string | { token?: string | null } | null> } | null | undefined;
+
+async function getGoogleCloudTtsAccessTokenClient(): Promise<{ getAccessToken: () => Promise<string | { token?: string | null } | null> } | null> {
+  if (googleCloudTtsAccessTokenClient !== undefined) return googleCloudTtsAccessTokenClient;
+
+  const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+  if (!credentialsJson) {
+    googleCloudTtsAccessTokenClient = null;
+    return googleCloudTtsAccessTokenClient;
+  }
+
+  try {
+    const auth = new google.auth.GoogleAuth({
+      credentials: JSON.parse(credentialsJson),
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    });
+    googleCloudTtsAccessTokenClient = await auth.getClient();
+  } catch (error) {
+    console.warn('Failed to initialize Google Cloud TTS auth client from GOOGLE_APPLICATION_CREDENTIALS_JSON:', error);
+    googleCloudTtsAccessTokenClient = null;
+  }
+
+  return googleCloudTtsAccessTokenClient;
+}
 
 /** Callback from Google OAuth - no auth; state = tenantId. Redirects to admin. */
 export const integrationsCallbackRouter: Router = Router();
@@ -397,12 +423,21 @@ async function generateVoiceMediaUrlWithSunbird(params: { tenantId: string; text
 }
 
 async function generateVoiceMediaUrlWithGoogleCloud(params: { tenantId: string; text: string }): Promise<string | null> {
-  const apiKey = process.env.TTS_API ?? process.env.GOOGLE_CLOUD_TTS_API_KEY ?? process.env.GOOGLE_API_KEY;
-  if (!apiKey || !bucket) return null;
+  const authClient = await getGoogleCloudTtsAccessTokenClient();
+  if (!authClient || !bucket) return null;
 
-  const ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(apiKey)}`, {
+  const accessTokenResponse = await authClient.getAccessToken();
+  const accessToken = typeof accessTokenResponse === 'string'
+    ? accessTokenResponse
+    : accessTokenResponse?.token;
+  if (!accessToken) return null;
+
+  const ttsRes = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify({
       input: {
         text: params.text,
