@@ -323,11 +323,11 @@ function parseExtraHeaders(raw: string): Record<string, string> {
   }
 }
 
-type WhatsAppTtsProvider = 'sunbird' | 'gemini-2.5-flash-preview-tts';
+type WhatsAppTtsProvider = 'sunbird' | 'google-cloud-tts' | 'gemini-2.5-flash-preview-tts';
 
 async function generateVoiceMediaUrl(params: { tenantId: string; text: string; provider: WhatsAppTtsProvider }): Promise<string | null> {
-  if (params.provider === 'gemini-2.5-flash-preview-tts') {
-    return generateVoiceMediaUrlWithGemini(params);
+  if (params.provider === 'google-cloud-tts' || params.provider === 'gemini-2.5-flash-preview-tts') {
+    return generateVoiceMediaUrlWithGoogleCloud(params);
   }
   return generateVoiceMediaUrlWithSunbird(params);
 }
@@ -396,49 +396,41 @@ async function generateVoiceMediaUrlWithSunbird(params: { tenantId: string; text
   }
 }
 
-async function generateVoiceMediaUrlWithGemini(params: { tenantId: string; text: string }): Promise<string | null> {
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+async function generateVoiceMediaUrlWithGoogleCloud(params: { tenantId: string; text: string }): Promise<string | null> {
+  const apiKey = process.env.TTS_API ?? process.env.GOOGLE_CLOUD_TTS_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey || !bucket) return null;
 
-  const ttsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`, {
+  const ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(apiKey)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      generationConfig: {
-        responseModalities: ['audio'],
-        temperature: 1,
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: process.env.GEMINI_TTS_VOICE_NAME ?? 'Zephyr',
-            },
-          },
-        },
+      input: {
+        text: params.text,
       },
-      contents: [{ role: 'user', parts: [{ text: params.text }] }],
+      voice: {
+        languageCode: process.env.GOOGLE_CLOUD_TTS_LANGUAGE_CODE ?? 'en-US',
+        name: process.env.GOOGLE_CLOUD_TTS_VOICE_NAME ?? 'en-US-Neural2-F',
+      },
+      audioConfig: {
+        audioEncoding: process.env.GOOGLE_CLOUD_TTS_AUDIO_ENCODING ?? 'MP3',
+      },
     }),
     signal: AbortSignal.timeout(WHATSAPP_TTS_REQUEST_TIMEOUT_MS),
   });
 
   if (!ttsRes.ok) {
     const errText = await ttsRes.text().catch(() => '');
-    throw new Error(`Gemini TTS request failed (${ttsRes.status}): ${errText}`);
+    throw new Error(`Google Cloud TTS request failed (${ttsRes.status}): ${errText}`);
   }
 
-  const ttsData = await ttsRes.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> } }>;
-  };
-
-  const inlineData = ttsData.candidates?.[0]?.content?.parts?.find((part) => part.inlineData)?.inlineData;
-  const audioBase64 = inlineData?.data?.trim() ?? '';
+  const ttsData = await ttsRes.json() as { audioContent?: string };
+  const audioBase64 = ttsData.audioContent?.trim() ?? '';
   if (!audioBase64) return null;
 
-  const rawMimeType = inlineData?.mimeType?.trim() || 'audio/mpeg';
-  const audio = normalizeGeminiAudioPayload(audioBase64, rawMimeType);
-
-  const path = `tenants/${params.tenantId}/whatsapp-voice-replies/${randomUUID()}.${audio.extension}`;
+  const audioBuffer = Buffer.from(audioBase64, 'base64');
+  const path = `tenants/${params.tenantId}/whatsapp-voice-replies/${randomUUID()}.mp3`;
   const fileRef = bucket.file(path);
-  await fileRef.save(audio.buffer, { metadata: { contentType: audio.contentType } });
+  await fileRef.save(audioBuffer, { metadata: { contentType: 'audio/mpeg' } });
 
   const [signedUrl] = await fileRef.getSignedUrl({
     action: 'read',
@@ -446,153 +438,6 @@ async function generateVoiceMediaUrlWithGemini(params: { tenantId: string; text:
   });
 
   return signedUrl;
-}
-
-interface WavConversionOptions {
-  numChannels: number;
-  sampleRate: number;
-  bitsPerSample: number;
-}
-
-interface GeminiAudioPayload {
-  buffer: Buffer;
-  contentType: string;
-  extension: 'wav' | 'mp3' | 'ogg';
-}
-
-function normalizeGeminiAudioPayload(audioBase64: string, mimeType: string): GeminiAudioPayload {
-  const normalizedMimeType = normalizeMimeType(mimeType);
-
-  if (isPcmMimeType(normalizedMimeType)) {
-    console.warn('Gemini TTS returned PCM even though MP3 was requested. Converting PCM to WAV fallback.');
-    return {
-      buffer: convertPcmBase64ToWav(audioBase64, normalizedMimeType),
-      contentType: 'audio/wav',
-      extension: 'wav',
-    };
-  }
-
-  if (isWavMimeType(normalizedMimeType)) {
-    console.warn('Gemini TTS returned WAV even though MP3 was requested. Using WAV fallback.');
-    return {
-      buffer: Buffer.from(audioBase64, 'base64'),
-      contentType: 'audio/wav',
-      extension: 'wav',
-    };
-  }
-
-  if (isMp3MimeType(normalizedMimeType)) {
-    return {
-      buffer: Buffer.from(audioBase64, 'base64'),
-      contentType: 'audio/mpeg',
-      extension: 'mp3',
-    };
-  }
-
-  if (isOggMimeType(normalizedMimeType)) {
-    return {
-      buffer: Buffer.from(audioBase64, 'base64'),
-      contentType: 'audio/ogg',
-      extension: 'ogg',
-    };
-  }
-
-  console.warn(`Unsupported Gemini TTS mime type: ${mimeType}. Attempting PCM-to-WAV fallback.`);
-  return {
-    buffer: convertPcmBase64ToWav(audioBase64, normalizedMimeType),
-    contentType: 'audio/wav',
-    extension: 'wav',
-  };
-}
-
-function convertPcmBase64ToWav(rawData: string, mimeType: string): Buffer {
-  const options = parsePcmMimeType(mimeType);
-  const audioBuffer = Buffer.from(rawData, 'base64');
-  const wavHeader = createWavHeader(audioBuffer.length, options);
-  return Buffer.concat([wavHeader, audioBuffer]);
-}
-
-function parsePcmMimeType(mimeType: string): WavConversionOptions {
-  const [fileType = '', ...params] = mimeType.split(';').map((segment) => segment.trim());
-  const [, format = ''] = fileType.split('/');
-
-  const options: WavConversionOptions = {
-    numChannels: 1,
-    sampleRate: 24_000,
-    bitsPerSample: 16,
-  };
-
-  if (format.toUpperCase().startsWith('L')) {
-    const bits = Number.parseInt(format.slice(1), 10);
-    if (Number.isFinite(bits)) {
-      options.bitsPerSample = bits;
-    }
-  }
-
-  for (const param of params) {
-    const [key, value] = param.split('=').map((segment) => segment.trim().toLowerCase());
-    if (key === 'rate') {
-      const rate = Number.parseInt(value, 10);
-      if (Number.isFinite(rate)) {
-        options.sampleRate = rate;
-      }
-    }
-    if (key === 'channels') {
-      const channels = Number.parseInt(value, 10);
-      if (Number.isFinite(channels) && channels > 0) {
-        options.numChannels = channels;
-      }
-    }
-  }
-
-  return options;
-}
-
-function normalizeMimeType(mimeType: string): string {
-  return mimeType.trim().toLowerCase();
-}
-
-function isWavMimeType(mimeType: string): boolean {
-  return mimeType.startsWith('audio/wav') || mimeType.startsWith('audio/x-wav') || mimeType.startsWith('audio/wave');
-}
-
-function isPcmMimeType(mimeType: string): boolean {
-  return mimeType.startsWith('audio/l16')
-    || mimeType.startsWith('audio/l24')
-    || mimeType.startsWith('audio/l32')
-    || mimeType.startsWith('audio/pcm')
-    || mimeType.startsWith('audio/raw');
-}
-
-function isMp3MimeType(mimeType: string): boolean {
-  return mimeType.startsWith('audio/mpeg') || mimeType.startsWith('audio/mp3');
-}
-
-function isOggMimeType(mimeType: string): boolean {
-  return mimeType.startsWith('audio/ogg');
-}
-
-function createWavHeader(dataLength: number, options: WavConversionOptions): Buffer {
-  const { numChannels, sampleRate, bitsPerSample } = options;
-  const byteRate = sampleRate * numChannels * bitsPerSample / 8;
-  const blockAlign = numChannels * bitsPerSample / 8;
-  const buffer = Buffer.alloc(44);
-
-  buffer.write('RIFF', 0);
-  buffer.writeUInt32LE(36 + dataLength, 4);
-  buffer.write('WAVE', 8);
-  buffer.write('fmt ', 12);
-  buffer.writeUInt32LE(16, 16);
-  buffer.writeUInt16LE(1, 20);
-  buffer.writeUInt16LE(numChannels, 22);
-  buffer.writeUInt32LE(sampleRate, 24);
-  buffer.writeUInt32LE(byteRate, 28);
-  buffer.writeUInt16LE(blockAlign, 32);
-  buffer.writeUInt16LE(bitsPerSample, 34);
-  buffer.write('data', 36);
-  buffer.writeUInt32LE(dataLength, 40);
-
-  return buffer;
 }
 
 function isLugandaLanguageTag(tag: string): boolean {
@@ -915,7 +760,9 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       ? Math.max(0, Math.floor(rawVoiceThreshold))
       : 0;
     const forceVoiceReplies = rawForceVoiceReplies === true;
-    const ttsProvider: WhatsAppTtsProvider = rawTtsProvider === 'gemini-2.5-flash-preview-tts' ? rawTtsProvider : 'sunbird';
+    const ttsProvider: WhatsAppTtsProvider = rawTtsProvider === 'gemini-2.5-flash-preview-tts' || rawTtsProvider === 'google-cloud-tts'
+      ? rawTtsProvider
+      : 'sunbird';
 
     try {
       const agentResponse = await runAgentWithRetry(tenantId, history, {

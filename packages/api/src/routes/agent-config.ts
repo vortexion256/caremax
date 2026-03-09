@@ -35,7 +35,7 @@ const updateBody = z.object({
   consolidationPromptEnabled: z.boolean().optional(),
   whatsappVoiceNoteCharThreshold: z.number().int().min(0).optional(),
   whatsappForceVoiceReplies: z.boolean().optional(),
-  whatsappTtsProvider: z.enum(['sunbird', 'gemini-2.5-flash-preview-tts']).optional(),
+  whatsappTtsProvider: z.enum(['sunbird', 'google-cloud-tts', 'gemini-2.5-flash-preview-tts']).optional(),
 });
 
 const fallbackModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
