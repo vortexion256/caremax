@@ -406,7 +406,6 @@ async function generateVoiceMediaUrlWithGemini(params: { tenantId: string; text:
     body: JSON.stringify({
       generationConfig: {
         responseModalities: ['audio'],
-        responseMimeType: 'audio/mpeg',
         temperature: 1,
         speechConfig: {
           voiceConfig: {
