@@ -152,6 +152,7 @@ const WHATSAPP_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 45_000;
 const WHATSAPP_AI_RESPONSE_TIMEOUT_MS = 45_000;
 const WHATSAPP_TTS_REQUEST_TIMEOUT_MS = 120_000;
 const WHATSAPP_TTS_AUDIO_DOWNLOAD_TIMEOUT_MS = 40_000;
+const WHATSAPP_LANGUAGE_DETECT_TIMEOUT_MS = 12_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -383,6 +384,56 @@ async function generateVoiceMediaUrl(params: { tenantId: string; text: string })
   } catch (error) {
     console.warn('WhatsApp voice reply upload failed; falling back to direct TTS audio URL:', error);
     return audioUrl;
+  }
+}
+
+function isLugandaLanguageTag(tag: string): boolean {
+  const normalized = tag.trim().toLowerCase();
+  return normalized === 'lg' || normalized === 'luganda';
+}
+
+async function detectResponseLanguageWithAi(text: string): Promise<string | null> {
+  const input = text.trim();
+  if (!input) return null;
+
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const detectRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [{
+            text: `Detect the language of this text and return ONLY the ISO 639-1 code in lowercase (for Luganda return \\"lg\\").\n\nText:\n${input}`,
+          }],
+        }],
+      }),
+      signal: AbortSignal.timeout(WHATSAPP_LANGUAGE_DETECT_TIMEOUT_MS),
+    });
+
+    if (!detectRes.ok) return null;
+
+    const payload = await detectRes.json() as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{ text?: string }>;
+        };
+      }>;
+    };
+
+    const raw = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join(' ').trim().toLowerCase();
+    if (!raw) return null;
+
+    const cleaned = raw.replace(/[^a-z\-]/g, ' ').trim().split(/\s+/)[0] ?? '';
+    return cleaned || null;
+  } catch (error) {
+    console.warn('Failed to detect WhatsApp response language via AI:', error);
+    return null;
   }
 }
 
@@ -684,8 +735,10 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       To: outboundTo,
       Body: responseText,
     });
+    const responseLanguage = await detectResponseLanguageWithAi(responseText);
+    const isLugandaReply = responseLanguage ? isLugandaLanguageTag(responseLanguage) : false;
     const exceedsVoiceThreshold = voiceThreshold > 0 && responseText.length >= voiceThreshold;
-    const shouldTryVoiceReply = forceVoiceReplies || exceedsVoiceThreshold;
+    const shouldTryVoiceReply = isLugandaReply || forceVoiceReplies || exceedsVoiceThreshold;
 
     if (shouldTryVoiceReply) {
       try {
