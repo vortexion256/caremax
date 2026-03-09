@@ -480,6 +480,21 @@ function isLugandaLanguageTag(tag: string): boolean {
   return normalized === 'lg' || normalized === 'luganda';
 }
 
+function isEnglishLanguageTag(tag: string): boolean {
+  const normalized = tag.trim().toLowerCase();
+  return normalized === 'en' || normalized === 'eng' || normalized === 'english';
+}
+
+function resolveLanguageAwareTtsProvider(params: {
+  configuredProvider: WhatsAppTtsProvider;
+  responseLanguage: string | null;
+}): WhatsAppTtsProvider {
+  if (!params.responseLanguage) return params.configuredProvider;
+  if (isLugandaLanguageTag(params.responseLanguage)) return 'sunbird';
+  if (isEnglishLanguageTag(params.responseLanguage)) return 'google-cloud-tts';
+  return params.configuredProvider;
+}
+
 async function detectResponseLanguageWithAi(text: string): Promise<string | null> {
   const input = text.trim();
   if (!input) return null;
@@ -829,12 +844,16 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     });
     const responseLanguage = await detectResponseLanguageWithAi(responseText);
     const isLugandaReply = responseLanguage ? isLugandaLanguageTag(responseLanguage) : false;
+    const resolvedTtsProvider = resolveLanguageAwareTtsProvider({
+      configuredProvider: ttsProvider,
+      responseLanguage,
+    });
     const exceedsVoiceThreshold = voiceThreshold > 0 && responseText.length >= voiceThreshold;
     const shouldTryVoiceReply = isLugandaReply || forceVoiceReplies || exceedsVoiceThreshold;
 
     if (shouldTryVoiceReply) {
       try {
-        const voiceUrl = await generateVoiceMediaUrl({ tenantId, text: responseText, provider: ttsProvider });
+        const voiceUrl = await generateVoiceMediaUrl({ tenantId, text: responseText, provider: resolvedTtsProvider });
         if (voiceUrl) {
           payload.set('MediaUrl', voiceUrl);
         }
