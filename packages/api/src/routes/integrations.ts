@@ -439,8 +439,10 @@ async function convertAudioToWhatsAppVoiceNote(audioBuffer: Buffer, inputExt: st
   try {
     await fs.writeFile(sourcePath, audioBuffer);
 
-    // Prefer bundled ffmpeg (if present) for serverless compatibility; fallback to system ffmpeg.
+    // Prefer bundled ffmpeg (if present) for serverless compatibility; fallback to configured/system ffmpeg.
     const dynamicImport = new Function('moduleName', 'return import(moduleName);') as (moduleName: string) => Promise<any>;
+    const configuredFfmpegPath = process.env.FFMPEG_PATH?.trim();
+    const ffmpegBinary = configuredFfmpegPath || 'ffmpeg';
     let usedFluentFfmpeg = false;
 
     try {
@@ -476,17 +478,27 @@ async function convertAudioToWhatsAppVoiceNote(audioBuffer: Buffer, inputExt: st
     }
 
     if (!usedFluentFfmpeg) {
-      await execFile('ffmpeg', [
-        '-y',
-        '-i', sourcePath,
-        '-ac', '1',
-        '-ar', String(WHATSAPP_VOICE_NOTE_SAMPLE_RATE),
-        '-c:a', 'libopus',
-        '-b:a', WHATSAPP_VOICE_NOTE_BITRATE,
-        '-vbr', 'on',
-        '-application', 'voip',
-        outputPath,
-      ]);
+      try {
+        await execFile(ffmpegBinary, [
+          '-y',
+          '-i', sourcePath,
+          '-ac', '1',
+          '-ar', String(WHATSAPP_VOICE_NOTE_SAMPLE_RATE),
+          '-c:a', 'libopus',
+          '-b:a', WHATSAPP_VOICE_NOTE_BITRATE,
+          '-vbr', 'on',
+          '-application', 'voip',
+          outputPath,
+        ]);
+      } catch (error) {
+        const maybeSpawnError = error as { code?: string };
+        if (maybeSpawnError?.code === 'ENOENT') {
+          const location = configuredFfmpegPath ? `at configured path: ${configuredFfmpegPath}` : 'on PATH';
+          console.warn(`Skipping WhatsApp voice-note transcoding because ffmpeg is unavailable (${location}).`);
+          return null;
+        }
+        throw error;
+      }
     }
 
     return await fs.readFile(outputPath);
