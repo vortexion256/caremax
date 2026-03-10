@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { useTenant } from './TenantContext';
-import { auth } from './firebase';
+import { auth, firestore } from './firebase';
 import { useIsMobile } from './hooks/useIsMobile';
 
 type NavItem = { path: string; label: string };
@@ -12,6 +13,26 @@ export default function Layout() {
   const { tenantId, name, email, isPlatformAdmin } = useTenant();
   const { isMobile } = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [handoffCount, setHandoffCount] = useState(0);
+
+  useEffect(() => {
+    if (!tenantId) {
+      setHandoffCount(0);
+      return;
+    }
+
+    const handoffQuery = query(
+      collection(firestore, 'conversations'),
+      where('tenantId', '==', tenantId),
+      where('status', '==', 'handoff_requested')
+    );
+
+    const unsub = onSnapshot(handoffQuery, (snap) => {
+      setHandoffCount(snap.size);
+    });
+
+    return () => unsub();
+  }, [tenantId]);
 
   const primaryNav: NavItem[] = [
     { path: '/', label: 'Dashboard' },
@@ -60,6 +81,7 @@ export default function Layout() {
 
   const renderNavLink = ({ path, label }: NavItem, isSubItem = false) => {
     const active = location.pathname === path;
+    const showHandoffBadge = path === '/handoffs' && handoffCount > 0;
     return (
       <Link
         key={path}
@@ -77,7 +99,31 @@ export default function Layout() {
           boxShadow: active ? '0 1px 2px rgba(37, 99, 235, 0.12)' : 'none'
         }}
       >
-        {label}
+        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span>{label}</span>
+          {showHandoffBadge && (
+            <span
+              style={{
+                background: '#ef4444',
+                color: '#fff',
+                borderRadius: 999,
+                minWidth: 20,
+                height: 20,
+                padding: '0 6px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 11,
+                fontWeight: 700,
+                lineHeight: 1,
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+              }}
+              aria-label={`${handoffCount} pending handoffs`}
+            >
+              {handoffCount}
+            </span>
+          )}
+        </span>
       </Link>
     );
   };
