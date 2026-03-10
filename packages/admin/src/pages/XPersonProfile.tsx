@@ -24,6 +24,24 @@ export default function XPersonProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSlowLoad, setIsSlowLoad] = useState(false);
+  const [expandedProfileId, setExpandedProfileId] = useState<string | null>(null);
+
+  const formatDuration = (seconds?: number) => {
+    if (typeof seconds !== 'number' || Number.isNaN(seconds)) return '—';
+    if (seconds < 60) return `${seconds}s`;
+    const mins = Math.floor(seconds / 60);
+    const remSeconds = seconds % 60;
+    return remSeconds === 0 ? `${mins}m` : `${mins}m ${remSeconds}s`;
+  };
+
+  const formatUpdatedAt = (timestamp?: number | null) => {
+    if (!timestamp) return '—';
+    try {
+      return new Date(timestamp).toLocaleString();
+    } catch {
+      return '—';
+    }
+  };
 
   useEffect(() => {
     if (!tenantId) {
@@ -71,27 +89,63 @@ export default function XPersonProfilePage() {
 
       <div style={{ display: 'grid', gap: 12 }}>
         {profiles.map((profile) => (
-          <article key={profile.profileId} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-              <strong>{profile.name || profile.profileId}</strong>
-              <span style={{ fontSize: 12, color: '#64748b' }}>{profile.channel ?? 'unknown'}</span>
-            </div>
-            <div style={{ color: '#334155', fontSize: 14, marginTop: 8 }}>
-              <div>Phone: {profile.phone || '—'}</div>
-              <div>Location: {profile.location || '—'}</div>
-              <div>External ID: {profile.externalUserId || '—'}</div>
-              <div>User/Device ID: {profile.userId || '—'}</div>
-              <div>Conversation: {profile.lastConversationId || '—'}</div>
-              <div>Last conversation duration: {typeof profile.conversationDurationLastConversationSeconds === 'number' ? `${profile.conversationDurationLastConversationSeconds}s` : '—'}</div>
-              {profile.attributes && Object.keys(profile.attributes).length > 0 && (
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ fontWeight: 600 }}>Custom fields</div>
-                  {Object.entries(profile.attributes).map(([key, value]) => (
-                    <div key={key}>{key}: {value}</div>
-                  ))}
+          <article key={profile.profileId} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
+            <button
+              type="button"
+              onClick={() => setExpandedProfileId((current) => (current === profile.profileId ? null : profile.profileId))}
+              style={{
+                width: '100%',
+                border: 'none',
+                background: 'transparent',
+                textAlign: 'left',
+                padding: 16,
+                cursor: 'pointer',
+                display: 'grid',
+                gap: 10,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                <strong style={{ fontSize: 16, color: '#0f172a' }}>{profile.name || 'Unnamed profile'}</strong>
+                <span style={{ fontSize: 12, color: '#64748b' }}>{profile.channel ?? 'unknown'}</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+                <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>Phone</div>
+                  <div style={{ color: '#0f172a' }}>{profile.phone || '—'}</div>
                 </div>
-              )}
-            </div>
+                <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>Duration</div>
+                  <div style={{ color: '#0f172a' }}>{formatDuration(profile.conversationDurationLastConversationSeconds)}</div>
+                </div>
+                <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>Location</div>
+                  <div style={{ color: '#0f172a' }}>{profile.location || '—'}</div>
+                </div>
+                <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>Status</div>
+                  <div style={{ color: '#0f172a' }}>{expandedProfileId === profile.profileId ? 'Hide details' : 'View details'}</div>
+                </div>
+              </div>
+            </button>
+
+            {expandedProfileId === profile.profileId && (
+              <div style={{ borderTop: '1px solid #e2e8f0', padding: 16, color: '#334155', fontSize: 14, display: 'grid', gap: 6 }}>
+                <div>Profile ID: {profile.profileId}</div>
+                <div>External ID: {profile.externalUserId || '—'}</div>
+                <div>User/Device ID: {profile.userId || '—'}</div>
+                <div>Conversation: {profile.lastConversationId || '—'}</div>
+                <div>Last conversation duration: {formatDuration(profile.conversationDurationLastConversationSeconds)}</div>
+                <div>Updated: {formatUpdatedAt(profile.updatedAt)}</div>
+                {profile.attributes && Object.keys(profile.attributes).length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontWeight: 600 }}>Custom fields</div>
+                    {Object.entries(profile.attributes).map(([key, value]) => (
+                      <div key={key}>{key}: {value}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </article>
         ))}
       </div>
