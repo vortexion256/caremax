@@ -8,6 +8,7 @@ import { getTenantBillingStatus, WIDGET_BILLING_ERROR } from '../services/billin
 import type { ConversationStatus } from '../types/index.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { resolveConversationIdentity } from '../services/user-identity.js';
+import { extractDefaultProfileFields, upsertXPersonProfile } from '../services/xperson-profile.js';
 
 export const conversationRouter: Router = Router({ mergeParams: true });
 
@@ -269,6 +270,24 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
     imageUrls: imageUrls ?? [],
     createdAt: FieldValue.serverTimestamp(),
   });
+
+
+  try {
+    const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
+    if (agentConfigDoc.data()?.xPersonProfileEnabled === true) {
+      const profileDetails = extractDefaultProfileFields(content);
+      await upsertXPersonProfile({
+        tenantId,
+        userId: typeof convData?.userId === 'string' ? convData.userId : undefined,
+        externalUserId: typeof convData?.externalUserId === 'string' ? convData.externalUserId : undefined,
+        channel: channel === 'whatsapp' ? 'whatsapp' : 'widget',
+        conversationId,
+        details: profileDetails,
+      });
+    }
+  } catch (profileError) {
+    console.warn('[Conversations] Failed to upsert XPersonProfile from incoming message:', profileError);
+  }
 
   const status = (conv.data()?.status as string) ?? 'open';
   const humanActive = status === 'human_joined';

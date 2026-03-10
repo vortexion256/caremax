@@ -77,6 +77,10 @@ export default function AgentSettings() {
           whatsappForceVoiceReplies: Boolean(config.whatsappForceVoiceReplies),
           whatsappTtsProvider: safeProvider,
           whatsappSunbirdTemperature: safeSunbirdTemperature,
+          xPersonProfileEnabled: Boolean(config.xPersonProfileEnabled),
+          xPersonProfileCustomFields: Array.isArray(config.xPersonProfileCustomFields)
+            ? config.xPersonProfileCustomFields.filter((f): f is string => typeof f === 'string' && f.trim().length > 0).map((f) => f.trim())
+            : [],
         }),
       });
       setConfig(updated);
@@ -400,6 +404,45 @@ export default function AgentSettings() {
 
 
         </div>
+
+        <div style={{ padding: 24, background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+          <h3 style={{ margin: '0 0 20px 0', fontSize: 18, color: '#0f172a', borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>Tools</h3>
+          <div style={{ marginTop: 4 }}>
+            <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={config?.xPersonProfileEnabled ?? false}
+                onChange={(e) => setConfig((c) => (c ? { ...c, xPersonProfileEnabled: e.target.checked } : c))}
+                style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#2563eb' }}
+              />
+              Enable Persons (Pipo) / XPersonProfile tool
+            </label>
+            <span style={helperStyle}>
+              Off by default. When enabled, the agent can autonomously profile users from widget and WhatsApp conversations using identity details such as phone, external ID, and device/user ID.
+            </span>
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <label style={labelStyle}>XPersonProfile custom fields (one per line)</label>
+            <textarea
+              rows={4}
+              value={(config?.xPersonProfileCustomFields ?? []).join('\n')}
+              onChange={(e) => {
+                const fields = e.target.value
+                  .split('\n')
+                  .map((f) => f.trim())
+                  .filter(Boolean);
+                setConfig((c) => (c ? { ...c, xPersonProfileCustomFields: fields } : c));
+              }}
+              style={{ ...inputStyle, fontFamily: 'inherit', resize: 'vertical' }}
+              placeholder={'age\npreferred_language\ninsurance_provider'}
+            />
+            <span style={helperStyle}>
+              Default fields are always captured: name, phone, and location. Add tenant-specific fields here for autonomous profile updates.
+            </span>
+          </div>
+        </div>
+
 
         <button
           type="submit"

@@ -10,6 +10,7 @@ import { createRecord, createModificationRequest, getRecord, listRecords } from 
 import { isGoogleConnected, fetchSheetData } from './google-sheets.js';
 import { recordDiagnosticLog } from './diagnostic-logs.js';
 import { createNote, listNotes as listAgentNotes, updateNoteContent, getNote } from './agent-notes.js';
+import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
@@ -107,6 +108,8 @@ type AgentConfig = {
   learningOnlyPromptEnabled: boolean;
   consolidationPrompt?: string;
   consolidationPromptEnabled: boolean;
+  xPersonProfileEnabled: boolean;
+  xPersonProfileCustomFields: string[];
 };
 
 type AgentConfigCacheEntry = {
@@ -187,6 +190,10 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
       learningOnlyPromptEnabled: data?.learningOnlyPromptEnabled === true,
       consolidationPrompt: data?.consolidationPrompt?.trim() || undefined,
       consolidationPromptEnabled: data?.consolidationPromptEnabled === true,
+      xPersonProfileEnabled: data?.xPersonProfileEnabled === true,
+      xPersonProfileCustomFields: Array.isArray(data?.xPersonProfileCustomFields)
+        ? data.xPersonProfileCustomFields.filter((f: unknown): f is string => typeof f === 'string' && f.trim().length > 0).map((f: string) => f.trim())
+        : [],
     };
     if (AGENT_CONFIG_CACHE_TTL_MS > 0) {
       agentConfigCache.set(tenantId, { value: resolvedConfig, expiresAt: Date.now() + AGENT_CONFIG_CACHE_TTL_MS });
@@ -208,6 +215,8 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
       model: defaultModel,
       temperature: 0.7,
       ragEnabled: false,
+      xPersonProfileEnabled: false,
+      xPersonProfileCustomFields: [],
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true }).catch(() => {});
   }
@@ -224,6 +233,10 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
     learningOnlyPromptEnabled: data?.learningOnlyPromptEnabled === true,
     consolidationPrompt: data?.consolidationPrompt?.trim() || undefined,
     consolidationPromptEnabled: data?.consolidationPromptEnabled === true,
+    xPersonProfileEnabled: data?.xPersonProfileEnabled === true,
+    xPersonProfileCustomFields: Array.isArray(data?.xPersonProfileCustomFields)
+      ? data.xPersonProfileCustomFields.filter((f: unknown): f is string => typeof f === 'string' && f.trim().length > 0).map((f: string) => f.trim())
+      : [],
   };
   if (AGENT_CONFIG_CACHE_TTL_MS > 0) {
     agentConfigCache.set(tenantId, { value: resolvedConfig, expiresAt: Date.now() + AGENT_CONFIG_CACHE_TTL_MS });
@@ -377,7 +390,32 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     }
   }
 
-  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}`;
+
+
+  let xPersonProfileContext = '';
+  if (config.xPersonProfileEnabled) {
+    try {
+      const currentProfile = await getXPersonProfile({
+        tenantId,
+        userId: options?.userId,
+        externalUserId: options?.externalUserId,
+      });
+      xPersonProfileContext = `
+
+XPersonProfile (Persons/Pipo) is ENABLED for this tenant.
+- Tool name: xperson_profile
+- Always use this tool autonomously when user identity/profile details are needed.
+- Default fields to maintain: name, phone, location.
+- If user shares new details, call xperson_profile with operation="upsert" in the same turn.
+- If you need to check known user details, call xperson_profile with operation="get" before asking repeated questions.
+${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${config.xPersonProfileCustomFields.join(', ')}\n` : ''}Current profile snapshot: ${currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.'}`;
+    } catch (e) {
+      console.warn('[Agent] Failed to load XPersonProfile context:', e);
+    }
+  }
+
+
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}`;
   if (config.ragEnabled) {
     const lastUser = history.filter((m) => m.role === 'user').pop();
     // Add timeout for RAG context retrieval (5 seconds)
@@ -608,11 +646,42 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     },
   });
 
+
+  const xPersonProfileTool = new DynamicStructuredTool({
+    name: 'xperson_profile',
+    description: 'Get or upsert the current user profile (Persons/Pipo) using identity from conversation context.',
+    schema: z.object({
+      operation: z.enum(['get', 'upsert']),
+      details: z.object({
+        name: z.string().optional(),
+        phone: z.string().optional(),
+        location: z.string().optional(),
+      }).optional(),
+      attributes: z.record(z.string()).optional(),
+    }),
+    func: async ({ operation, details, attributes }) => {
+      if (operation === 'get') {
+        const profile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId });
+        return profile ? JSON.stringify(profile) : 'No profile found for this user identity yet.';
+      }
+      const result = await upsertXPersonProfile({
+        tenantId,
+        userId: options?.userId,
+        externalUserId: options?.externalUserId,
+        conversationId: options?.conversationId,
+        details,
+        attributes,
+      });
+      return `XPersonProfile upserted successfully (profileId=${result.profileId}, created=${result.created}).`;
+    },
+  });
+
   const tools: unknown[] = [];
   // Always include notebook tools - essential for tracking analytics, insights, and patterns
   tools.push(createNoteTool, listNotesTool, updateNoteTool);
   if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
   if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
+  if (config.xPersonProfileEnabled) tools.push(xPersonProfileTool);
   const modelWithTools = tools.length ? model.bindTools(tools as Parameters<typeof model.bindTools>[0]) : model;
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
@@ -774,6 +843,25 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
         } catch (e) {
           console.error('update_note error:', e);
           content = e instanceof Error ? e.message : 'Failed to update note.';
+        }
+      } else if (tc.name === 'xperson_profile' && config.xPersonProfileEnabled) {
+        try {
+          content = await xPersonProfileTool.invoke({
+            operation: tc.args?.operation === 'upsert' ? 'upsert' : 'get',
+            details: tc.args && typeof tc.args.details === 'object' && tc.args.details !== null
+              ? {
+                name: typeof (tc.args.details as Record<string, unknown>).name === 'string' ? (tc.args.details as Record<string, unknown>).name as string : undefined,
+                phone: typeof (tc.args.details as Record<string, unknown>).phone === 'string' ? (tc.args.details as Record<string, unknown>).phone as string : undefined,
+                location: typeof (tc.args.details as Record<string, unknown>).location === 'string' ? (tc.args.details as Record<string, unknown>).location as string : undefined,
+              }
+              : undefined,
+            attributes: tc.args && typeof tc.args.attributes === 'object' && tc.args.attributes !== null
+              ? Object.fromEntries(Object.entries(tc.args.attributes as Record<string, unknown>).filter(([, v]) => typeof v === 'string')) as Record<string, string>
+              : undefined,
+          });
+        } catch (e) {
+          console.error('xperson_profile error:', e);
+          content = e instanceof Error ? e.message : 'Failed to access XPersonProfile.';
         }
       } else {
         content = 'Invalid arguments.';

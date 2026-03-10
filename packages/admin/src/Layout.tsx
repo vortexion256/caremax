@@ -96,6 +96,7 @@ export default function Layout() {
         { path: '/agent-brain', label: 'Auto Brain' },
         { path: '/integrations', label: 'Integrations' },
         { path: '/whatsapp', label: 'WhatsApp Agent' },
+        { path: '/xperson-profile', label: 'XPersonProfile' },
         { path: '/embed', label: 'Embed Widget' },
         ...(isPlatformAdmin ? [{ path: '/advanced-prompts', label: 'Advanced Prompts' }] : []),
       ],

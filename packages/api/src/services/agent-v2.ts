@@ -31,6 +31,7 @@ import { buildAgentContext, formatContextForPrompt, trimConversationHistory } fr
 import { extractIntent, ExtractedIntent } from './agent-intent.js';
 import { decomposeQuestion, DecomposedQuestion } from './agent-decomposer.js';
 import { extractTokenUsage, recordUsage, type UsageMetadata } from './token-usage.js';
+import { extractDefaultProfileFields } from './xperson-profile.js';
 import {
   decideIfNeedsPlanning,
   createExecutionPlan,
@@ -187,6 +188,9 @@ export async function runAgentV2(
         }
       }
       availableTools.push('create_note');
+      if (config.xPersonProfileEnabled) {
+        availableTools.push('xperson_profile');
+      }
 
       executionPlan = await createExecutionPlan(
         model,
@@ -297,6 +301,18 @@ export async function runAgentV2(
       systemContent += `3) Only use record_learned_knowledge for NEW information\n\n`;
     }
 
+    if (config.xPersonProfileEnabled) {
+      systemContent += `XPersonProfile tool is enabled:
+`;
+      systemContent += `- Use xperson_profile to query or upsert user profile data for this conversation identity.\n`;
+      systemContent += `- Always keep name, phone, and location updated when new details are provided.\n`;
+      if (config.xPersonProfileCustomFields.length > 0) {
+        systemContent += `- Custom fields configured by tenant: ${config.xPersonProfileCustomFields.join(', ')}\n\n`;
+      } else {
+        systemContent += `\n`;
+      }
+    }
+
     // Add Google Sheets instructions
     let sheetsEnabled = false;
     if (googleSheetsList.length > 0) {
@@ -385,6 +401,31 @@ export async function runAgentV2(
         func: async () => 'Delete request submitted.',
       });
       tools.push(requestDeleteTool);
+    }
+
+
+    if (config.xPersonProfileEnabled) {
+      const xPersonProfileTool = new DynamicStructuredTool({
+        name: 'xperson_profile',
+        description: 'Read or upsert profile data for the current user identity (Persons / Pipo / XPersonProfile).',
+        schema: z.object({
+          operation: z.enum(['get', 'upsert']),
+          details: z.object({
+            name: z.string().optional(),
+            phone: z.string().optional(),
+            location: z.string().optional(),
+          }).optional(),
+          attributes: z.record(z.string()).optional(),
+        }),
+        func: async (args) => {
+          if (args.operation === 'upsert' && args.details) {
+            const extracted = extractDefaultProfileFields(`${args.details.name ?? ''} ${args.details.phone ?? ''} ${args.details.location ?? ''}`.trim());
+            return `XPersonProfile upsert requested (${Object.keys(extracted).join(', ') || 'no default fields'}).`;
+          }
+          return 'XPersonProfile lookup requested.';
+        },
+      });
+      tools.push(xPersonProfileTool);
     }
 
     // Google Sheets tools
