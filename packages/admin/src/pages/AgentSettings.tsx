@@ -24,23 +24,41 @@ export default function AgentSettings() {
     setError(null);
     setSuccess(false);
     try {
+      const safeTemperature = typeof config.temperature === 'number' && Number.isFinite(config.temperature)
+        ? Math.min(2, Math.max(0, config.temperature))
+        : 0.7;
+      const safeVoiceThreshold = typeof config.whatsappVoiceNoteCharThreshold === 'number' && Number.isFinite(config.whatsappVoiceNoteCharThreshold)
+        ? Math.max(0, Math.trunc(config.whatsappVoiceNoteCharThreshold))
+        : 0;
+      const safeSunbirdTemperature = typeof config.whatsappSunbirdTemperature === 'number' && Number.isFinite(config.whatsappSunbirdTemperature)
+        ? Math.min(2, Math.max(0, config.whatsappSunbirdTemperature))
+        : 0.7;
+      const safeProvider =
+        config.whatsappTtsProvider === 'google-cloud-tts' ||
+        config.whatsappTtsProvider === 'gemini-2.5-flash-preview-tts' ||
+        config.whatsappTtsProvider === 'sunbird'
+          ? config.whatsappTtsProvider
+          : 'sunbird';
+
       const updated = await api<AgentConfig>(`/tenants/${tenantId}/agent-config`, {
         method: 'PUT',
         body: JSON.stringify({
-          agentName: config.agentName,
-          chatTitle: config.chatTitle ?? '',
-          welcomeText: config.welcomeText ?? '',
-          suggestedQuestions: config.suggestedQuestions ?? [],
-          widgetColor: config.widgetColor ?? '#2563eb',
-          systemPrompt: config.systemPrompt,
-          thinkingInstructions: config.thinkingInstructions,
-          model: config.model,
-          temperature: config.temperature,
-          ragEnabled: config.ragEnabled,
-          whatsappVoiceNoteCharThreshold: config.whatsappVoiceNoteCharThreshold ?? 0,
-          whatsappForceVoiceReplies: config.whatsappForceVoiceReplies ?? false,
-          whatsappTtsProvider: config.whatsappTtsProvider ?? 'sunbird',
-          whatsappSunbirdTemperature: config.whatsappSunbirdTemperature ?? 0.7,
+          agentName: typeof config.agentName === 'string' ? config.agentName : '',
+          chatTitle: typeof config.chatTitle === 'string' ? config.chatTitle : '',
+          welcomeText: typeof config.welcomeText === 'string' ? config.welcomeText : '',
+          suggestedQuestions: Array.isArray(config.suggestedQuestions)
+            ? config.suggestedQuestions.filter((q): q is string => typeof q === 'string')
+            : [],
+          widgetColor: typeof config.widgetColor === 'string' ? config.widgetColor : '#2563eb',
+          systemPrompt: typeof config.systemPrompt === 'string' ? config.systemPrompt : '',
+          thinkingInstructions: typeof config.thinkingInstructions === 'string' ? config.thinkingInstructions : '',
+          model: typeof config.model === 'string' ? config.model : undefined,
+          temperature: safeTemperature,
+          ragEnabled: Boolean(config.ragEnabled),
+          whatsappVoiceNoteCharThreshold: safeVoiceThreshold,
+          whatsappForceVoiceReplies: Boolean(config.whatsappForceVoiceReplies),
+          whatsappTtsProvider: safeProvider,
+          whatsappSunbirdTemperature: safeSunbirdTemperature,
         }),
       });
       setConfig(updated);
