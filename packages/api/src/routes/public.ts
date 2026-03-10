@@ -36,6 +36,21 @@ publicRouter.get('/content', async (_req, res) => {
 publicRouter.get('/billing/plans', async (_req, res) => {
   try {
     const snap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
+    let snap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
+
+    if (snap.empty) {
+      const defaults = [
+        { id: 'free', name: 'Free Trial', priceUgx: 0, priceUsd: 0, billingCycle: 'monthly', trialDays: 30, active: true, description: 'Trial only (not available for re-subscribe)' },
+        { id: 'starter', name: 'Starter Pack', priceUgx: 38000, priceUsd: 10, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Starter plan' },
+        { id: 'advanced', name: 'Advanced Pack', priceUgx: 76000, priceUsd: 20, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Advanced plan' },
+      ];
+      const batch = db.batch();
+      for (const plan of defaults) {
+        batch.set(db.collection('billing_plans').doc(plan.id), { ...plan, updatedAt: new Date() });
+      }
+      await batch.commit();
+      snap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
+    }
 
     const plans = snap.docs
       .map((doc) => {
