@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { api } from '../api';
+import AppDialog from '../components/AppDialog';
 
 type Payment = {
   paymentId: string;
@@ -27,6 +28,7 @@ export default function PlatformPayments() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
+  const [pendingDeletePaymentId, setPendingDeletePaymentId] = useState<string | null>(null);
 
   useEffect(() => {
     api<{ payments: Payment[] }>('/platform/billing/payments')
@@ -82,9 +84,6 @@ export default function PlatformPayments() {
   }, [statusFilter, tenantFilter, searchTerm, pageSize]);
 
   async function deletePayment(paymentId: string) {
-    const confirmed = window.confirm('Delete this transaction? This action cannot be undone.');
-    if (!confirmed) return;
-
     try {
       setDeletingPaymentId(paymentId);
       await api(`/platform/billing/payments/${paymentId}`, { method: 'DELETE' });
@@ -102,6 +101,20 @@ export default function PlatformPayments() {
 
   return (
     <div>
+      <AppDialog
+        open={Boolean(pendingDeletePaymentId)}
+        title="Delete transaction"
+        description="This action cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        onCancel={() => setPendingDeletePaymentId(null)}
+        onConfirm={async () => {
+          if (!pendingDeletePaymentId) return;
+          await deletePayment(pendingDeletePaymentId);
+          setPendingDeletePaymentId(null);
+        }}
+      />
       <h1 style={{ marginTop: 0 }}>Payment Transactions</h1>
       <p style={{ color: '#64748b' }}>Monitor Marz Pay payment attempts and completed subscription purchases.</p>
 
@@ -195,7 +208,7 @@ export default function PlatformPayments() {
                 <td style={{ ...dataCellStyle, fontFamily: 'monospace', fontSize: 12 }}>{p.txRef}</td>
                 <td align="right" style={dataCellStyle}>
                   <button
-                    onClick={() => void deletePayment(p.paymentId)}
+                    onClick={() => setPendingDeletePaymentId(p.paymentId)}
                     disabled={deletingPaymentId === p.paymentId}
                     style={{
                       padding: '5px 10px',

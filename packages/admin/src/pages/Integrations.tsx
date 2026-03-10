@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api, type AgentConfig } from '../api';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
+import AppDialog from '../components/AppDialog';
 
 export default function Integrations() {
   const { tenantId } = useTenant();
@@ -14,6 +15,7 @@ export default function Integrations() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -55,7 +57,6 @@ export default function Integrations() {
   };
 
   const disconnectGoogle = async () => {
-    if (!confirm('Disconnect Google? The agent will no longer be able to query your sheet.')) return;
     setError(null);
     try {
       await api(`/tenants/${tenantId}/integrations/google/disconnect`, { method: 'POST' });
@@ -126,6 +127,19 @@ export default function Integrations() {
 
   return (
     <div style={{ padding: isMobile ? '16px 0' : 0 }}>
+      <AppDialog
+        open={confirmDisconnect}
+        title="Disconnect Google"
+        description="The agent will no longer be able to query your sheet."
+        confirmLabel="Disconnect"
+        cancelLabel="Cancel"
+        danger
+        onCancel={() => setConfirmDisconnect(false)}
+        onConfirm={async () => {
+          await disconnectGoogle();
+          setConfirmDisconnect(false);
+        }}
+      />
       <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Integrations</h1>
       <p style={{ color: '#64748b', marginBottom: 32, maxWidth: 600 }}>
         Connect external services to expand your agent's capabilities.
@@ -175,7 +189,7 @@ export default function Integrations() {
               </span>
               <button
                 type="button"
-                onClick={disconnectGoogle}
+                onClick={() => setConfirmDisconnect(true)}
                 style={{ 
                   padding: '8px 14px', 
                   fontSize: 13, 

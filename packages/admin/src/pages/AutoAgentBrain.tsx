@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import { api, type AgentRecord, type AgentBrainModificationRequest } from '../api';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
+import AppDialog from '../components/AppDialog';
 
 export default function AutoAgentBrain() {
   const { tenantId } = useTenant();
@@ -20,6 +21,7 @@ export default function AutoAgentBrain() {
   const [actioningRequestId, setActioningRequestId] = useState<string | null>(null);
   const [consolidating, setConsolidating] = useState(false);
   const [selectedIdentity, setSelectedIdentity] = useState<'all' | 'shared' | string>('all');
+  const [pendingDeleteRecordId, setPendingDeleteRecordId] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -96,7 +98,6 @@ export default function AutoAgentBrain() {
   };
 
   const remove = async (recordId: string) => {
-    if (!confirm('Delete this record? It will be removed from the agent\'s knowledge base.')) return;
     setDeletingId(recordId);
     setError(null);
     try {
@@ -154,6 +155,20 @@ export default function AutoAgentBrain() {
 
   return (
     <div style={{ padding: isMobile ? '16px 0' : 0 }}>
+      <AppDialog
+        open={Boolean(pendingDeleteRecordId)}
+        title="Delete record"
+        description="It will be removed from the agent's knowledge base."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        onCancel={() => setPendingDeleteRecordId(null)}
+        onConfirm={async () => {
+          if (!pendingDeleteRecordId) return;
+          await remove(pendingDeleteRecordId);
+          setPendingDeleteRecordId(null);
+        }}
+      />
       <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Auto Agent Brain</h1>
       {error && <div style={{ padding: 12, background: '#fef2f2', color: '#991b1b', borderRadius: 8, marginBottom: 24, fontSize: 14 }}>{error}</div>}
 
@@ -235,7 +250,7 @@ export default function AutoAgentBrain() {
                       </div>
                       <div style={{ display: 'flex', gap: 8, borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>
                         <button type="button" onClick={() => setEditingId(r.recordId)}>Edit</button>
-                        <button type="button" onClick={() => remove(r.recordId)} disabled={deletingId === r.recordId}>Delete</button>
+                        <button type="button" onClick={() => setPendingDeleteRecordId(r.recordId)} disabled={deletingId === r.recordId}>Delete</button>
                       </div>
                     </div>
                   ))}
