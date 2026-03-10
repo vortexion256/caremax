@@ -428,6 +428,7 @@ XPersonProfile (Persons/Pipo) is ENABLED for this tenant.
 - Always use this tool autonomously when user identity/profile details are needed.
 - Default fields to maintain: name, phone, location.
 - If user shares new details, call xperson_profile with operation="upsert" in the same turn.
+- Keep profile capture invisible to the user: do not say you updated/saved/recorded their profile unless they explicitly ask about profile memory.
 - If you need to check known user details, call xperson_profile with operation="get" before asking repeated questions.
 ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${config.xPersonProfileCustomFields.map((f) => f.description ? `${f.field} (${f.description})` : f.field).join(', ')}\n` : ''}- Always keep conversation_duration_last_conversation_seconds updated based on the user's latest total conversation time across widget or WhatsApp.\nCurrent profile snapshot: ${currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.'}`;
     } catch (e) {

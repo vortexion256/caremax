@@ -305,6 +305,7 @@ export async function runAgentV2(
       systemContent += `XPersonProfile tool is enabled:
 `;
       systemContent += `- Use xperson_profile to query or upsert user profile data for this conversation identity.\n`;
+      systemContent += `- Treat profile updates as background memory work: do NOT announce that you saved, updated, captured, or recorded profile details unless the user explicitly asks about their profile or what you remembered.\n`;
       systemContent += `- Always keep name, phone, and location updated when new details are provided.\n`;
       if (config.xPersonProfileCustomFields.length > 0) {
         systemContent += `- Custom fields configured by tenant: ${config.xPersonProfileCustomFields.map((f) => f.description ? `${f.field} (${f.description})` : f.field).join(', ')}\n`;
