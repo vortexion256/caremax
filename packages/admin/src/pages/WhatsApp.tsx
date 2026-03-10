@@ -104,7 +104,8 @@ export default function WhatsAppIntegration() {
     return <div style={{ color: '#64748b' }}>Loading WhatsApp integration...</div>;
   }
 
-  const webhookUrl = `${window.location.origin.replace('5173', '3001')}/integrations/twilio/whatsapp/webhook/${tenantId}`;
+  const apiBaseUrl = (import.meta.env.VITE_API_URL ?? window.location.origin.replace('5173', '3001')).replace(/\/+$/, '');
+  const webhookUrl = `${apiBaseUrl}/integrations/twilio/whatsapp/webhook/${tenantId}`;
 
   return (
     <div style={{ display: 'grid', gap: 20 }}>
