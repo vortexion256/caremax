@@ -35,6 +35,7 @@ publicRouter.get('/content', async (_req, res) => {
 
 publicRouter.get('/billing/plans', async (_req, res) => {
   try {
+    const snap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
     let snap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
 
     if (snap.empty) {
