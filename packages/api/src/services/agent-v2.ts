@@ -307,9 +307,10 @@ export async function runAgentV2(
       systemContent += `- Use xperson_profile to query or upsert user profile data for this conversation identity.\n`;
       systemContent += `- Always keep name, phone, and location updated when new details are provided.\n`;
       if (config.xPersonProfileCustomFields.length > 0) {
-        systemContent += `- Custom fields configured by tenant: ${config.xPersonProfileCustomFields.join(', ')}\n\n`;
+        systemContent += `- Custom fields configured by tenant: ${config.xPersonProfileCustomFields.map((f) => f.description ? `${f.field} (${f.description})` : f.field).join(', ')}\n`;
+        systemContent += `- Always keep conversation_duration_last_conversation_seconds updated from the user's latest conversation duration across widget or WhatsApp.\n\n`;
       } else {
-        systemContent += `\n`;
+        systemContent += `- Always keep conversation_duration_last_conversation_seconds updated from the user's latest conversation duration across widget or WhatsApp.\n\n`;
       }
     }
 

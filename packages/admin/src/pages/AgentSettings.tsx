@@ -13,7 +13,30 @@ export default function AgentSettings() {
 
   useEffect(() => {
     api<AgentConfig>(`/tenants/${tenantId}/agent-config`)
-      .then(setConfig)
+      .then((incoming) => {
+        const legacyFields = (incoming as { xPersonProfileCustomFields?: unknown }).xPersonProfileCustomFields;
+        const normalizedFields = Array.isArray(legacyFields)
+          ? legacyFields
+              .map((field) => {
+                if (typeof field === 'string') {
+                  const trimmed = field.trim();
+                  return trimmed ? { field: trimmed } : null;
+                }
+                if (!field || typeof field !== 'object') return null;
+                const fieldName = (field as { field?: unknown }).field;
+                if (typeof fieldName !== 'string' || fieldName.trim().length === 0) return null;
+                const description = (field as { description?: unknown }).description;
+                return {
+                  field: fieldName.trim(),
+                  ...(typeof description === 'string' && description.trim().length > 0
+                    ? { description: description.trim() }
+                    : {}),
+                };
+              })
+              .filter((field): field is { field: string; description?: string } => field !== null)
+          : [];
+        setConfig({ ...incoming, xPersonProfileCustomFields: normalizedFields });
+      })
       .catch((e) => setError(e.message));
   }, [tenantId]);
 
@@ -79,7 +102,14 @@ export default function AgentSettings() {
           whatsappSunbirdTemperature: safeSunbirdTemperature,
           xPersonProfileEnabled: Boolean(config.xPersonProfileEnabled),
           xPersonProfileCustomFields: Array.isArray(config.xPersonProfileCustomFields)
-            ? config.xPersonProfileCustomFields.filter((f): f is string => typeof f === 'string' && f.trim().length > 0).map((f) => f.trim())
+            ? config.xPersonProfileCustomFields
+                .filter((field) => field && typeof field.field === 'string' && field.field.trim().length > 0)
+                .map((field) => ({
+                  field: field.field.trim(),
+                  ...(typeof field.description === 'string' && field.description.trim().length > 0
+                    ? { description: field.description.trim() }
+                    : {}),
+                }))
             : [],
         }),
       });
@@ -423,22 +453,71 @@ export default function AgentSettings() {
           </div>
 
           <div style={{ marginTop: 16 }}>
-            <label style={labelStyle}>XPersonProfile custom fields (one per line)</label>
-            <textarea
-              rows={4}
-              value={(config?.xPersonProfileCustomFields ?? []).join('\n')}
-              onChange={(e) => {
-                const fields = e.target.value
-                  .split('\n')
-                  .map((f) => f.trim())
-                  .filter(Boolean);
-                setConfig((c) => (c ? { ...c, xPersonProfileCustomFields: fields } : c));
-              }}
-              style={{ ...inputStyle, fontFamily: 'inherit', resize: 'vertical' }}
-              placeholder={'age\npreferred_language\ninsurance_provider'}
-            />
+            <label style={labelStyle}>XPersonProfile custom fields</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {(config?.xPersonProfileCustomFields ?? []).map((field, i) => (
+                <div key={`${field.field}-${i}`} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr auto', gap: 8 }}>
+                  <input
+                    value={field.field}
+                    onChange={(e) => {
+                      const updatedFields = [...(config?.xPersonProfileCustomFields ?? [])];
+                      updatedFields[i] = { ...updatedFields[i], field: e.target.value };
+                      setConfig((c) => (c ? { ...c, xPersonProfileCustomFields: updatedFields } : c));
+                    }}
+                    style={inputStyle}
+                    placeholder="Field name (e.g. insurance_provider)"
+                  />
+                  <input
+                    value={field.description ?? ''}
+                    onChange={(e) => {
+                      const updatedFields = [...(config?.xPersonProfileCustomFields ?? [])];
+                      updatedFields[i] = { ...updatedFields[i], description: e.target.value };
+                      setConfig((c) => (c ? { ...c, xPersonProfileCustomFields: updatedFields } : c));
+                    }}
+                    style={inputStyle}
+                    placeholder="Description for agent guidance"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updatedFields = (config?.xPersonProfileCustomFields ?? []).filter((_, idx) => idx !== i);
+                      setConfig((c) => (c ? { ...c, xPersonProfileCustomFields: updatedFields } : c));
+                    }}
+                    style={{
+                      padding: '0 12px',
+                      backgroundColor: '#fee2e2',
+                      color: '#ef4444',
+                      border: 'none',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  const updatedFields = [...(config?.xPersonProfileCustomFields ?? []), { field: '', description: '' }];
+                  setConfig((c) => (c ? { ...c, xPersonProfileCustomFields: updatedFields } : c));
+                }}
+                style={{
+                  width: 'fit-content',
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: '#f8fafc',
+                  cursor: 'pointer',
+                  color: '#334155',
+                }}
+              >
+                + Add custom field
+              </button>
+            </div>
             <span style={helperStyle}>
-              Default fields are always captured: name, phone, and location. Add tenant-specific fields here for autonomous profile updates.
+              Default fields are always captured: name, phone, location, and conversation_duration_last_conversation (total time spent in the user&apos;s most recent conversation across widget or WhatsApp).
+              Add tenant-specific fields with descriptions to guide the agent during profile updates.
             </span>
           </div>
         </div>
