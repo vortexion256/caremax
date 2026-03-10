@@ -23,7 +23,7 @@ const updateBody = z.object({
   systemPrompt: z.string().optional(),
   thinkingInstructions: z.string().optional(),
   model: z.string().optional(),
-  temperature: z.number().min(0).max(2).optional(),
+  temperature: z.coerce.number().min(0).max(2).optional(),
   ragEnabled: z.boolean().optional(),
   googleSheetsEnabled: z.boolean().optional(),
   googleSheetsSpreadsheetId: z.string().optional(),
@@ -33,10 +33,10 @@ const updateBody = z.object({
   learningOnlyPromptEnabled: z.boolean().optional(),
   consolidationPrompt: z.string().optional(),
   consolidationPromptEnabled: z.boolean().optional(),
-  whatsappVoiceNoteCharThreshold: z.number().int().min(0).optional(),
+  whatsappVoiceNoteCharThreshold: z.coerce.number().int().min(0).optional(),
   whatsappForceVoiceReplies: z.boolean().optional(),
   whatsappTtsProvider: z.enum(['sunbird', 'google-cloud-tts', 'gemini-2.5-flash-preview-tts']).optional(),
-  whatsappSunbirdTemperature: z.number().min(0).max(2).optional(),
+  whatsappSunbirdTemperature: z.coerce.number().min(0).max(2).optional(),
 });
 
 const fallbackModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
