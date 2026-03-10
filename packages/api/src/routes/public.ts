@@ -35,9 +35,10 @@ publicRouter.get('/content', async (_req, res) => {
 
 publicRouter.get('/billing/plans', async (_req, res) => {
   try {
-    let snap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
+    const initialSnap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
+    let plansSnap = initialSnap;
 
-    if (snap.empty) {
+    if (plansSnap.empty) {
       const defaults = [
         { id: 'free', name: 'Free Trial', priceUgx: 0, priceUsd: 0, billingCycle: 'monthly', trialDays: 30, active: true, description: 'Trial only (not available for re-subscribe)' },
         { id: 'starter', name: 'Starter Pack', priceUgx: 38000, priceUsd: 10, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Starter plan' },
@@ -48,10 +49,10 @@ publicRouter.get('/billing/plans', async (_req, res) => {
         batch.set(db.collection('billing_plans').doc(plan.id), { ...plan, updatedAt: new Date() });
       }
       await batch.commit();
-      snap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
+      plansSnap = await db.collection('billing_plans').orderBy('priceUsd', 'asc').get();
     }
 
-    const plans = snap.docs
+    const plans = plansSnap.docs
       .map((doc) => {
         const data = doc.data();
         const priceUgx = typeof data.priceUgx === 'number'
