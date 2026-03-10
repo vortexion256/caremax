@@ -22,12 +22,29 @@ export default function XPersonProfilePage() {
   const [profiles, setProfiles] = useState<XPersonProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isSlowLoad, setIsSlowLoad] = useState(false);
 
   useEffect(() => {
+    if (!tenantId) {
+      setLoading(false);
+      setProfiles([]);
+      setError('Tenant context is not ready yet. Please refresh or switch tenants.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setIsSlowLoad(false);
+
+    const slowLoadTimer = window.setTimeout(() => setIsSlowLoad(true), 6000);
+
     api<{ profiles: XPersonProfile[] }>(`/tenants/${tenantId}/xperson-profile?limit=200`)
       .then((res) => setProfiles(res.profiles ?? []))
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load XPersonProfile records'))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        window.clearTimeout(slowLoadTimer);
+        setLoading(false);
+      });
   }, [tenantId]);
 
   return (
@@ -38,7 +55,12 @@ export default function XPersonProfilePage() {
       </p>
 
       {error && <div style={{ padding: 12, borderRadius: 8, background: '#fef2f2', color: '#991b1b', marginBottom: 16 }}>{error}</div>}
-      {loading ? <div style={{ color: '#64748b' }}>Loading XPersonProfile data...</div> : null}
+      {loading ? (
+        <div style={{ color: '#64748b', display: 'grid', gap: 8 }}>
+          <div>Loading XPersonProfile data...</div>
+          {isSlowLoad ? <div style={{ fontSize: 13 }}>Still working — if no records exist yet, an empty state will appear shortly.</div> : null}
+        </div>
+      ) : null}
 
       {!loading && profiles.length === 0 ? (
         <div style={{ padding: 24, border: '1px dashed #cbd5e1', borderRadius: 10, background: '#f8fafc', color: '#64748b' }}>
