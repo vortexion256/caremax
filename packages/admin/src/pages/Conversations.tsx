@@ -9,6 +9,7 @@ import AppDialog from '../components/AppDialog';
 import AppNotification from '../components/AppNotification';
 
 const PAGE_SIZE = 10;
+const ACTIVE_WINDOW_MS = 60 * 1000;
 
 type ConversationItem = {
   conversationId: string;
@@ -34,6 +35,17 @@ export default function Conversations() {
   const [hasMore, setHasMore] = useState(true);
   const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 10000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -104,6 +116,11 @@ export default function Conversations() {
     if (filter === 'ai_human') return !!conv.hasHumanParticipant;
     return true;
   });
+
+  const isConversationActive = (conv: ConversationItem) => {
+    if (!conv.updatedAt) return false;
+    return nowMs - conv.updatedAt <= ACTIVE_WINDOW_MS;
+  };
 
   const loadMore = () => {
     if (!tenantId || !lastDoc || loadingMore || !hasMore) return;
@@ -278,11 +295,14 @@ export default function Conversations() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {filteredList.map((conv) => (
-            <div
+          {filteredList.map((conv) => {
+            const isActive = isConversationActive(conv);
+
+            return (
+              <div
               key={conv.conversationId}
               style={{
-                border: '1px solid #e2e8f0',
+                border: isActive ? '2px solid #16a34a' : '1px solid #e2e8f0',
                 borderRadius: 12,
                 padding: 20,
                 background: 'white',
@@ -297,6 +317,7 @@ export default function Conversations() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
                   {getStatusBadge(conv)}
                   {getChannelBadge(conv)}
+                  {isActive && <span className="conversation-active-badge">ACTIVE</span>}
                   <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>#{conv.conversationId.slice(0, 8)}</span>
                 </div>
                 <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 500, marginBottom: 4 }}>
@@ -344,8 +365,9 @@ export default function Conversations() {
                   Delete
                 </button>
               </div>
-            </div>
-          ))}
+              </div>
+            );
+          })}
           
           {hasMore && (
             <button
