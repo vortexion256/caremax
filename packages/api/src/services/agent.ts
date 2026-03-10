@@ -94,6 +94,37 @@ async function recordActivity(tenantId: string, type: string): Promise<void> {
 
 export type GoogleSheetEntry = { spreadsheetId: string; range?: string; useWhen: string };
 
+
+type AgentConfig = {
+  agentName: string;
+  systemPrompt: string;
+  thinkingInstructions: string;
+  model: string;
+  temperature: number;
+  ragEnabled: boolean;
+  googleSheets: GoogleSheetEntry[];
+  learningOnlyPrompt?: string;
+  learningOnlyPromptEnabled: boolean;
+  consolidationPrompt?: string;
+  consolidationPromptEnabled: boolean;
+};
+
+type AgentConfigCacheEntry = {
+  value: AgentConfig;
+  expiresAt: number;
+};
+
+const AGENT_CONFIG_CACHE_TTL_MS = Math.max(0, Number(process.env.AGENT_CONFIG_CACHE_TTL_MS ?? '60000') || 60000);
+const agentConfigCache = new Map<string, AgentConfigCacheEntry>();
+
+export function invalidateAgentConfigCache(tenantId?: string): void {
+  if (tenantId) {
+    agentConfigCache.delete(tenantId);
+    return;
+  }
+  agentConfigCache.clear();
+}
+
 async function getDefaultAgentModel(): Promise<string> {
   const fallbackModel = AGENT_FALLBACK_MODELS[0];
 
@@ -131,19 +162,12 @@ function normalizeGoogleSheets(data: Record<string, unknown> | undefined): Googl
   return [];
 }
 
-export async function getAgentConfig(tenantId: string): Promise<{
-  agentName: string;
-  systemPrompt: string;
-  thinkingInstructions: string;
-  model: string;
-  temperature: number;
-  ragEnabled: boolean;
-  googleSheets: GoogleSheetEntry[];
-  learningOnlyPrompt?: string;
-  learningOnlyPromptEnabled: boolean;
-  consolidationPrompt?: string;
-  consolidationPromptEnabled: boolean;
-}> {
+export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
+  const cached = agentConfigCache.get(tenantId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
   const defaultModel = await getDefaultAgentModel();
   const configRef = db.collection('agent_config').doc(tenantId);
   const configDoc = await configRef.get();
@@ -151,7 +175,7 @@ export async function getAgentConfig(tenantId: string): Promise<{
 
   if (configDoc.exists && data?.agentName) {
     const prompt = (data.systemPrompt?.trim() ?? '') || defaultPromptForName(data.agentName);
-    return {
+    const resolvedConfig: AgentConfig = {
       agentName: data.agentName,
       systemPrompt: prompt,
       thinkingInstructions: data?.thinkingInstructions ?? 'Be concise, empathetic, and safety-conscious.',
@@ -164,6 +188,10 @@ export async function getAgentConfig(tenantId: string): Promise<{
       consolidationPrompt: data?.consolidationPrompt?.trim() || undefined,
       consolidationPromptEnabled: data?.consolidationPromptEnabled === true,
     };
+    if (AGENT_CONFIG_CACHE_TTL_MS > 0) {
+      agentConfigCache.set(tenantId, { value: resolvedConfig, expiresAt: Date.now() + AGENT_CONFIG_CACHE_TTL_MS });
+    }
+    return resolvedConfig;
   }
 
   const tenantDoc = await db.collection('tenants').doc(tenantId).get();
@@ -184,7 +212,7 @@ export async function getAgentConfig(tenantId: string): Promise<{
     }, { merge: true }).catch(() => {});
   }
 
-  return {
+  const resolvedConfig: AgentConfig = {
     agentName,
     systemPrompt,
     thinkingInstructions: data?.thinkingInstructions ?? 'Be concise, empathetic, and safety-conscious.',
@@ -197,6 +225,10 @@ export async function getAgentConfig(tenantId: string): Promise<{
     consolidationPrompt: data?.consolidationPrompt?.trim() || undefined,
     consolidationPromptEnabled: data?.consolidationPromptEnabled === true,
   };
+  if (AGENT_CONFIG_CACHE_TTL_MS > 0) {
+    agentConfigCache.set(tenantId, { value: resolvedConfig, expiresAt: Date.now() + AGENT_CONFIG_CACHE_TTL_MS });
+  }
+  return resolvedConfig;
 }
 
 /** MIME types Gemini supports (avif, etc. are not). */

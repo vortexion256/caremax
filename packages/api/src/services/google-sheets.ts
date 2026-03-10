@@ -4,6 +4,23 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { recordDiagnosticLog } from './diagnostic-logs.js';
 
 const TOKENS_COLLECTION = 'tenant_google_tokens';
+
+
+type GoogleConnectionCacheEntry = {
+  connected: boolean;
+  expiresAt: number;
+};
+
+const GOOGLE_CONNECTION_CACHE_TTL_MS = Math.max(0, Number(process.env.GOOGLE_CONNECTION_CACHE_TTL_MS ?? '60000') || 60000);
+const googleConnectionCache = new Map<string, GoogleConnectionCacheEntry>();
+
+export function invalidateGoogleConnectionCache(tenantId?: string): void {
+  if (tenantId) {
+    googleConnectionCache.delete(tenantId);
+    return;
+  }
+  googleConnectionCache.clear();
+}
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.readonly',
@@ -53,6 +70,7 @@ export async function exchangeCodeForTokens(tenantId: string, code: string): Pro
     expiresAt: tokens.expiry_date ?? null,
     updatedAt: FieldValue.serverTimestamp(),
   });
+  invalidateGoogleConnectionCache(tenantId);
 }
 
 /** Get stored tokens for tenant; refresh access token if expired. */
@@ -86,13 +104,23 @@ async function getValidTokens(tenantId: string): Promise<{ accessToken: string; 
 
 /** Check if tenant has Google connected. */
 export async function isGoogleConnected(tenantId: string): Promise<boolean> {
+  const cached = googleConnectionCache.get(tenantId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.connected;
+  }
+
   const doc = await db.collection(TOKENS_COLLECTION).doc(tenantId).get();
-  return doc.exists && !!(doc.data()?.refreshToken);
+  const connected = doc.exists && !!(doc.data()?.refreshToken);
+  if (GOOGLE_CONNECTION_CACHE_TTL_MS > 0) {
+    googleConnectionCache.set(tenantId, { connected, expiresAt: Date.now() + GOOGLE_CONNECTION_CACHE_TTL_MS });
+  }
+  return connected;
 }
 
 /** Disconnect Google for tenant. */
 export async function disconnectGoogle(tenantId: string): Promise<void> {
   await db.collection(TOKENS_COLLECTION).doc(tenantId).delete();
+  invalidateGoogleConnectionCache(tenantId);
 }
 
 /**
