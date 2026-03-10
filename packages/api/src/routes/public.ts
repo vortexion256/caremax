@@ -42,8 +42,6 @@ publicRouter.get('/billing/plans', async (_req, res) => {
         { id: 'free', name: 'Free Trial', priceUgx: 0, priceUsd: 0, billingCycle: 'monthly', trialDays: 30, active: true, description: 'Trial only (not available for re-subscribe)' },
         { id: 'starter', name: 'Starter Pack', priceUgx: 38000, priceUsd: 10, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Starter plan' },
         { id: 'advanced', name: 'Advanced Pack', priceUgx: 76000, priceUsd: 20, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Advanced plan' },
-        { id: 'super', name: 'Super Pack', priceUgx: 228000, priceUsd: 60, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Super plan' },
-        { id: 'enterprise', name: 'Enterprise', priceUgx: 380000, priceUsd: 100, billingCycle: 'monthly', trialDays: 0, active: true, description: 'Enterprise plan' },
       ];
       const batch = db.batch();
       for (const plan of defaults) {
