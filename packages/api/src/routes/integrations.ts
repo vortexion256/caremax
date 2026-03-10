@@ -13,6 +13,7 @@ import { verifyMarzPayTransaction } from '../services/marzpay.js';
 import { createTenantNotification } from '../services/tenant-notifications.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
+import { extractDefaultProfileFields, upsertXPersonProfile } from '../services/xperson-profile.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
 import { google } from 'googleapis';
@@ -902,6 +903,23 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         updatedAt: FieldValue.serverTimestamp(),
       })
       : existingConversationSnap.docs[0].ref;
+
+
+    try {
+      const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
+      if (agentConfigDoc.data()?.xPersonProfileEnabled === true) {
+        await upsertXPersonProfile({
+          tenantId,
+          userId: identity.scopedUserId,
+          externalUserId: identity.externalUserId,
+          channel: 'whatsapp',
+          conversationId: conversationRef.id,
+          details: extractDefaultProfileFields(body),
+        });
+      }
+    } catch (profileError) {
+      console.warn('[Integrations] Failed to upsert XPersonProfile from WhatsApp webhook:', profileError);
+    }
 
     await db.collection('messages').add({
       conversationId: conversationRef.id,

@@ -67,6 +67,8 @@ export type AgentConfig = {
   whatsappTtsProvider?: 'sunbird' | 'google-cloud-tts' | 'gemini-2.5-flash-preview-tts';
   /** Sunbird-only temperature used for WhatsApp TTS generation. */
   whatsappSunbirdTemperature?: number;
+  xPersonProfileEnabled?: boolean;
+  xPersonProfileCustomFields?: string[];
   availableModels?: string[];
 };
 

@@ -34,6 +34,7 @@ import VisualDiagram from './pages/VisualDiagram';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
 import Contact from './pages/Contact';
+import XPersonProfilePage from './pages/XPersonProfile';
 
 type MeResponse = {
   uid: string;
@@ -214,6 +215,7 @@ export default function App() {
           <Route path="embed" element={<Embed />} />
           <Route path="account" element={<TenantAccount />} />
           <Route path="billing" element={<TenantBilling />} />
+          <Route path="xperson-profile" element={<XPersonProfilePage />} />
         </Route>
         <Route path="/platform" element={<PlatformLayout />}>
           <Route index element={<PlatformDashboard />} />

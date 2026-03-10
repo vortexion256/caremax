@@ -20,6 +20,7 @@ import { createRecord, createModificationRequest, getRecord, listRecords } from 
 import { isGoogleConnected, fetchSheetData, appendSheetRow, getSheetRows, updateSheetRow } from './google-sheets.js';
 import { createNote, listNotes as listAgentNotes, AgentNote } from './agent-notes.js';
 import { db } from '../config/firebase.js';
+import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
 // Record agent activity for dashboard visualization
@@ -497,6 +498,56 @@ export class ToolExecutor {
     }
   }
 
+
+  async executeXPersonProfile(params: {
+    operation: 'get' | 'upsert';
+    userId?: string;
+    externalUserId?: string;
+    channel?: 'widget' | 'whatsapp' | 'unknown';
+    conversationId?: string;
+    details?: { name?: string; phone?: string; location?: string };
+    attributes?: Record<string, string>;
+  }): Promise<ToolResult> {
+    try {
+      if (params.operation === 'get') {
+        const profile = await getXPersonProfile({
+          tenantId: this.tenantId,
+          userId: params.userId,
+          externalUserId: params.externalUserId,
+        });
+        return {
+          success: true,
+          data: profile,
+          action: 'read',
+          timestamp: new Date(),
+          verified: true,
+        };
+      }
+
+      const result = await upsertXPersonProfile({
+        tenantId: this.tenantId,
+        userId: params.userId,
+        externalUserId: params.externalUserId,
+        channel: params.channel,
+        conversationId: params.conversationId,
+        details: params.details,
+        attributes: params.attributes,
+      });
+      return {
+        success: true,
+        data: result,
+        action: 'write',
+        timestamp: new Date(),
+        verified: true,
+      };
+    } catch (e) {
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : 'Failed to execute XPersonProfile operation',
+      };
+    }
+  }
+
   async executeCreateNote(params: {
     content: string;
     patientName?: string;
@@ -875,6 +926,36 @@ export class AgentOrchestrator {
           result = {
             success: false,
             error: 'Invalid arguments for request_delete_record',
+          };
+        }
+        break;
+
+
+      case 'xperson_profile':
+        if (toolCall.args.operation === 'get' || toolCall.args.operation === 'upsert') {
+          result = await this.toolExecutor.executeXPersonProfile({
+            operation: toolCall.args.operation,
+            userId,
+            externalUserId,
+            channel: typeof toolCall.args.channel === 'string' && ['widget', 'whatsapp', 'unknown'].includes(toolCall.args.channel)
+              ? (toolCall.args.channel as 'widget' | 'whatsapp' | 'unknown')
+              : undefined,
+            conversationId,
+            details: typeof toolCall.args.details === 'object' && toolCall.args.details !== null
+              ? {
+                name: typeof (toolCall.args.details as Record<string, unknown>).name === 'string' ? (toolCall.args.details as Record<string, unknown>).name as string : undefined,
+                phone: typeof (toolCall.args.details as Record<string, unknown>).phone === 'string' ? (toolCall.args.details as Record<string, unknown>).phone as string : undefined,
+                location: typeof (toolCall.args.details as Record<string, unknown>).location === 'string' ? (toolCall.args.details as Record<string, unknown>).location as string : undefined,
+              }
+              : undefined,
+            attributes: typeof toolCall.args.attributes === 'object' && toolCall.args.attributes !== null
+              ? Object.fromEntries(Object.entries(toolCall.args.attributes as Record<string, unknown>).filter(([, v]) => typeof v === 'string')) as Record<string, string>
+              : undefined,
+          });
+        } else {
+          result = {
+            success: false,
+            error: 'Invalid arguments for xperson_profile',
           };
         }
         break;
