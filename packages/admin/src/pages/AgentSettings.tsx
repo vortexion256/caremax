@@ -24,14 +24,32 @@ export default function AgentSettings() {
     setError(null);
     setSuccess(false);
     try {
-      const safeTemperature = typeof config.temperature === 'number' && Number.isFinite(config.temperature)
-        ? Math.min(2, Math.max(0, config.temperature))
+      const allowedModels = Array.isArray(config.availableModels)
+        ? config.availableModels.filter((modelId): modelId is string => typeof modelId === 'string' && modelId.trim().length > 0)
+        : [];
+      const safeModel = typeof config.model === 'string' && allowedModels.includes(config.model)
+        ? config.model
+        : allowedModels[0];
+      const normalizedTemperature =
+        typeof config.temperature === 'number' || typeof config.temperature === 'string'
+          ? Number(config.temperature)
+          : Number.NaN;
+      const safeTemperature = Number.isFinite(normalizedTemperature)
+        ? Math.min(2, Math.max(0, normalizedTemperature))
         : 0.7;
-      const safeVoiceThreshold = typeof config.whatsappVoiceNoteCharThreshold === 'number' && Number.isFinite(config.whatsappVoiceNoteCharThreshold)
-        ? Math.max(0, Math.trunc(config.whatsappVoiceNoteCharThreshold))
+      const normalizedVoiceThreshold =
+        typeof config.whatsappVoiceNoteCharThreshold === 'number' || typeof config.whatsappVoiceNoteCharThreshold === 'string'
+          ? Number(config.whatsappVoiceNoteCharThreshold)
+          : Number.NaN;
+      const safeVoiceThreshold = Number.isFinite(normalizedVoiceThreshold)
+        ? Math.max(0, Math.trunc(normalizedVoiceThreshold))
         : 0;
-      const safeSunbirdTemperature = typeof config.whatsappSunbirdTemperature === 'number' && Number.isFinite(config.whatsappSunbirdTemperature)
-        ? Math.min(2, Math.max(0, config.whatsappSunbirdTemperature))
+      const normalizedSunbirdTemperature =
+        typeof config.whatsappSunbirdTemperature === 'number' || typeof config.whatsappSunbirdTemperature === 'string'
+          ? Number(config.whatsappSunbirdTemperature)
+          : Number.NaN;
+      const safeSunbirdTemperature = Number.isFinite(normalizedSunbirdTemperature)
+        ? Math.min(2, Math.max(0, normalizedSunbirdTemperature))
         : 0.7;
       const safeProvider =
         config.whatsappTtsProvider === 'google-cloud-tts' ||
@@ -52,7 +70,7 @@ export default function AgentSettings() {
           widgetColor: typeof config.widgetColor === 'string' ? config.widgetColor : '#2563eb',
           systemPrompt: typeof config.systemPrompt === 'string' ? config.systemPrompt : '',
           thinkingInstructions: typeof config.thinkingInstructions === 'string' ? config.thinkingInstructions : '',
-          model: typeof config.model === 'string' ? config.model : undefined,
+          model: safeModel,
           temperature: safeTemperature,
           ragEnabled: Boolean(config.ragEnabled),
           whatsappVoiceNoteCharThreshold: safeVoiceThreshold,
