@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api, type RagDoc, type RagDocDetail } from '../api';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
+import AppDialog from '../components/AppDialog';
 
 export default function RAG() {
   const { tenantId } = useTenant();
@@ -18,6 +19,7 @@ export default function RAG() {
   const [editLoading, setEditLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [documentPendingDelete, setDocumentPendingDelete] = useState<string | null>(null);
 
   const load = () => {
     api<{ documents: RagDoc[] }>(`/tenants/${tenantId}/rag/documents`)
@@ -64,7 +66,6 @@ export default function RAG() {
   };
 
   const remove = async (documentId: string) => {
-    if (!confirm('Delete this document? This cannot be undone.')) return;
     setDeletingId(documentId);
     setError(null);
     try {
@@ -106,6 +107,20 @@ export default function RAG() {
 
   return (
     <div style={{ padding: isMobile ? '16px 0' : 0 }}>
+      <AppDialog
+        open={Boolean(documentPendingDelete)}
+        title="Delete document"
+        description="This cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        onCancel={() => setDocumentPendingDelete(null)}
+        onConfirm={async () => {
+          if (!documentPendingDelete) return;
+          await remove(documentPendingDelete);
+          setDocumentPendingDelete(null);
+        }}
+      />
       <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Knowledge Base</h1>
       <p style={{ color: '#64748b', marginBottom: isMobile ? 24 : 32, maxWidth: 600, fontSize: isMobile ? 14 : 16 }}>
         Upload text documents to provide your agent with specific knowledge.
@@ -229,7 +244,7 @@ export default function RAG() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => remove(d.documentId)}
+                      onClick={() => setDocumentPendingDelete(d.documentId)}
                       disabled={deletingId === d.documentId}
                       style={{ 
                         padding: '6px 12px', 

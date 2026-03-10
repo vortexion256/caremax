@@ -5,6 +5,7 @@ import { firestore } from '../firebase';
 import { api, type HandoffItem } from '../api';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
+import AppNotification from '../components/AppNotification';
 
 export default function HandoffQueue() {
   const { tenantId } = useTenant();
@@ -13,6 +14,7 @@ export default function HandoffQueue() {
   const [list, setList] = useState<HandoffItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<string | null>(null);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -57,7 +59,7 @@ export default function HandoffQueue() {
       );
       navigate(`/handoffs/${conversationId}`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to join');
+      setNotification(e instanceof Error ? e.message : 'Failed to join');
     }
   };
 
@@ -65,6 +67,7 @@ export default function HandoffQueue() {
 
   return (
     <div style={{ padding: isMobile ? '16px 0' : 0 }}>
+      {notification && <AppNotification message={notification} type="error" onClose={() => setNotification(null)} />}
       <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Handoff Queue</h1>
       <p style={{ color: '#64748b', marginBottom: 32, maxWidth: 800 }}>
         Conversations waiting for a human agent. Active requests are prioritized.

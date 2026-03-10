@@ -5,6 +5,8 @@ import { firestore } from '../firebase';
 import { api } from '../api';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
+import AppDialog from '../components/AppDialog';
+import AppNotification from '../components/AppNotification';
 
 const PAGE_SIZE = 10;
 
@@ -30,6 +32,8 @@ export default function Conversations() {
   const [filter, setFilter] = useState<'all' | 'ai_only' | 'ai_human'>('all');
   const [lastDoc, setLastDoc] = useState<DocumentSnapshot | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
+  const [notification, setNotification] = useState<string | null>(null);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -207,12 +211,11 @@ export default function Conversations() {
   };
 
   const deleteConversation = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this conversation? This will remove all messages and cannot be undone.')) return;
     try {
       await api(`/tenants/${tenantId}/conversations/${id}`, { method: 'DELETE' });
       setList((prev) => prev.filter((c) => c.conversationId !== id));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete conversation');
+      setNotification(err instanceof Error ? err.message : 'Failed to delete conversation');
     }
   };
 
@@ -220,6 +223,21 @@ export default function Conversations() {
 
   return (
     <div style={{ padding: isMobile ? '16px 0' : 0 }}>
+      {notification && <AppNotification message={notification} type="error" onClose={() => setNotification(null)} />}
+      <AppDialog
+        open={Boolean(pendingDeleteConversationId)}
+        title="Delete conversation"
+        description="This will remove all messages and cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        onCancel={() => setPendingDeleteConversationId(null)}
+        onConfirm={async () => {
+          if (!pendingDeleteConversationId) return;
+          await deleteConversation(pendingDeleteConversationId);
+          setPendingDeleteConversationId(null);
+        }}
+      />
       <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Conversations</h1>
       <p style={{ color: '#64748b', marginBottom: 32, maxWidth: 800 }}>
         Monitor all user interactions and oversee AI performance.
@@ -309,7 +327,7 @@ export default function Conversations() {
                   View
                 </Link>
                 <button
-                  onClick={() => deleteConversation(conv.conversationId)}
+                  onClick={() => setPendingDeleteConversationId(conv.conversationId)}
                   style={{
                     padding: '8px 16px',
                     background: '#fff',

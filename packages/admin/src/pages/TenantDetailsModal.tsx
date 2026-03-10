@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import AppDialog from '../components/AppDialog';
 
 type TenantDetails = {
   tenantId: string;
@@ -83,6 +84,8 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
   const [logsLoading, setLogsLoading] = useState(false);
   const [logSourceFilter, setLogSourceFilter] = useState('');
   const [logStatusFilter, setLogStatusFilter] = useState('');
+  const [limitPrompt, setLimitPrompt] = useState<'tokens' | 'spend' | null>(null);
+  const [limitValue, setLimitValue] = useState('0');
 
   useEffect(() => {
     setLoading(true);
@@ -174,6 +177,34 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        <AppDialog
+          open={Boolean(limitPrompt)}
+          title={limitPrompt === 'spend' ? 'Set max spend per user (UGX)' : 'Set max tokens per user'}
+          confirmLabel="Save"
+          cancelLabel="Cancel"
+          onCancel={() => setLimitPrompt(null)}
+          onConfirm={async () => {
+            const parsed = Number(limitValue);
+            const safeValue = Number.isFinite(parsed) ? parsed : 0;
+            if (limitPrompt === 'tokens') {
+              await saveTenantSettings({ maxTokensPerUser: safeValue });
+            } else if (limitPrompt === 'spend') {
+              await saveTenantSettings({ maxSpendUgxPerUser: safeValue });
+            }
+            setLimitPrompt(null);
+          }}
+        >
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, color: '#334155' }}>
+            Value
+            <input
+              type="number"
+              value={limitValue}
+              onChange={(e) => setLimitValue(e.target.value)}
+              style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #cbd5e1' }}
+            />
+          </label>
+        </AppDialog>
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h2 style={{ margin: 0 }}>Tenant Details</h2>
           <button
@@ -346,14 +377,20 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
                 </label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button
-                    onClick={() => saveTenantSettings({ maxTokensPerUser: Number(prompt('Max tokens per user', String(details.maxTokensPerUser ?? 0)) ?? 0) || 0 })}
+                    onClick={() => {
+                      setLimitPrompt('tokens');
+                      setLimitValue(String(details.maxTokensPerUser ?? 0));
+                    }}
                     disabled={savingSettings}
                     style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
                   >
                     Set max tokens/user ({details.maxTokensPerUser ?? 'not set'})
                   </button>
                   <button
-                    onClick={() => saveTenantSettings({ maxSpendUgxPerUser: Number(prompt('Max spend per user (UGX)', String(details.maxSpendUgxPerUser ?? 0)) ?? 0) || 0 })}
+                    onClick={() => {
+                      setLimitPrompt('spend');
+                      setLimitValue(String(details.maxSpendUgxPerUser ?? 0));
+                    }}
                     disabled={savingSettings}
                     style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
                   >
