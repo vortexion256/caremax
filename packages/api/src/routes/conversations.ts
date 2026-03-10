@@ -14,6 +14,25 @@ export const conversationRouter: Router = Router({ mergeParams: true });
 const MESSAGES = 'messages';
 const CONVERSATIONS = 'conversations';
 const DIAGNOSTIC_LOGS = 'tenant_diagnostic_logs';
+const DEFAULT_AGENT_HISTORY_LIMIT = 10;
+const MIN_AGENT_HISTORY_LIMIT = 10;
+const MAX_AGENT_HISTORY_LIMIT = 20;
+
+function resolveAgentHistoryLimit(): number {
+  const fromEnv = Number(process.env.AGENT_HISTORY_LIMIT);
+  if (!Number.isFinite(fromEnv)) {
+    return DEFAULT_AGENT_HISTORY_LIMIT;
+  }
+
+  const normalized = Math.floor(fromEnv);
+  if (normalized < MIN_AGENT_HISTORY_LIMIT) {
+    return MIN_AGENT_HISTORY_LIMIT;
+  }
+  if (normalized > MAX_AGENT_HISTORY_LIMIT) {
+    return MAX_AGENT_HISTORY_LIMIT;
+  }
+  return normalized;
+}
 
 function shouldIncludeDebugTrace(opts: {
   isDebugRequested: boolean;
@@ -300,8 +319,14 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
     });
   }
 
-  const historySnap = await db.collection(MESSAGES).where('conversationId', '==', conversationId).orderBy('createdAt', 'asc').get();
-  const history = historySnap.docs.map((d) => {
+  const historyLimit = resolveAgentHistoryLimit();
+  const historySnap = await db
+    .collection(MESSAGES)
+    .where('conversationId', '==', conversationId)
+    .orderBy('createdAt', 'desc')
+    .limit(historyLimit)
+    .get();
+  const history = historySnap.docs.reverse().map((d) => {
     const data = d.data();
     return { role: data.role, content: data.content, imageUrls: data.imageUrls ?? [] };
   });

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '../config/firebase.js';
 import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/auth.js';
 import { FieldValue } from 'firebase-admin/firestore';
+import { invalidateAgentConfigCache } from '../services/agent.js';
 
 export const agentConfigRouter: Router = Router({ mergeParams: true });
 
@@ -115,6 +116,7 @@ agentConfigRouter.put('/', requireAuth, requireAdmin, async (req, res) => {
     { ...parsed.data, tenantId, updatedAt: FieldValue.serverTimestamp() },
     { merge: true }
   );
+  invalidateAgentConfigCache(tenantId);
   const updated = await ref.get();
   res.json({ tenantId, ...updated.data() });
 });
