@@ -252,35 +252,30 @@ export default function Landing() {
             </div>
           </section>
 
-          <section className="pricing-section">
-            <div className="landing-container">
-              <div style={{ textAlign: 'center', marginBottom: 48 }}>
-                <h3 className="section-title">Billing Plans</h3>
-                <p className="section-subtitle">Flexible plans for clinics, care teams, and enterprise health operations.</p>
+          {displayPlans.length > 0 && (
+            <section className="pricing-section">
+              <div className="landing-container">
+                <div style={{ textAlign: 'center', marginBottom: 48 }}>
+                  <h3 className="section-title">Billing Plans</h3>
+                  <p className="section-subtitle">Flexible plans for clinics, care teams, and enterprise health operations.</p>
+                </div>
+                <div className="pricing-grid">
+                  {displayPlans.map((pkg, idx) => (
+                    <div key={pkg.id} className={`pricing-card${idx === 1 ? ' highlighted' : ''}`}>
+                      <h4>{pkg.name}</h4>
+                      <p className="price">
+                        {pkg.priceUgx <= 0 ? 'Free' : formatUgx(pkg.priceUgx)}
+                        <span>{pkg.priceUgx > 0 ? '/month' : '/limited time'}</span>
+                      </p>
+                      {pkg.trialDays > 0 && <p className="price-trial">{pkg.trialDays} day trial included</p>}
+                      <p className="price-description">{pkg.description}</p>
+                      <button onClick={() => navigate('/signup')} className="pricing-btn">{pkg.priceUgx <= 0 ? 'Start Free Trial' : 'Choose Package'}</button>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="pricing-grid">
-                {displayPlans.map((pkg, idx) => (
-                  <div key={pkg.id} className={`pricing-card${idx === 1 ? ' highlighted' : ''}`}>
-                    <h4>{pkg.name}</h4>
-                    <p className="price">
-                      {pkg.priceUgx <= 0 ? 'Free' : formatUgx(pkg.priceUgx)}
-                      <span>{pkg.priceUgx > 0 ? '/month' : '/limited time'}</span>
-                    </p>
-                    {pkg.trialDays > 0 && <p className="price-trial">{pkg.trialDays} day trial included</p>}
-                    <p className="price-description">{pkg.description}</p>
-                    <button onClick={() => navigate('/signup')} className="pricing-btn">{pkg.priceUgx <= 0 ? 'Start Free Trial' : 'Choose Package'}</button>
-                  </div>
-                ))}
-                {displayPlans.length === 0 && (
-                  <div className="pricing-card" style={{ gridColumn: '1 / -1' }}>
-                    <h4>Plans unavailable</h4>
-                    <p className="price-description">Pricing plans are managed by SaaS admin settings and are temporarily unavailable.</p>
-                    <button onClick={() => navigate('/signup')} className="pricing-btn">Continue to Sign Up</button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
+            </section>
+          )}
         </div>
       </main>
 
