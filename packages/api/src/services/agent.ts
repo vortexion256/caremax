@@ -109,7 +109,7 @@ type AgentConfig = {
   consolidationPrompt?: string;
   consolidationPromptEnabled: boolean;
   xPersonProfileEnabled: boolean;
-  xPersonProfileCustomFields: string[];
+  xPersonProfileCustomFields: { field: string; description?: string }[];
 };
 
 type AgentConfigCacheEntry = {
@@ -144,6 +144,31 @@ async function getDefaultAgentModel(): Promise<string> {
   }
 
   return fallbackModel;
+}
+
+
+function normalizeXPersonProfileCustomFields(data: Record<string, unknown> | undefined): { field: string; description?: string }[] {
+  const fields = data?.xPersonProfileCustomFields;
+  if (!Array.isArray(fields)) return [];
+
+  return fields
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        const field = entry.trim();
+        return field ? { field } : null;
+      }
+      if (!entry || typeof entry !== 'object') return null;
+      const rawField = (entry as { field?: unknown }).field;
+      if (typeof rawField !== 'string' || rawField.trim().length === 0) return null;
+      const rawDescription = (entry as { description?: unknown }).description;
+      return {
+        field: rawField.trim(),
+        ...(typeof rawDescription === 'string' && rawDescription.trim().length > 0
+          ? { description: rawDescription.trim() }
+          : {}),
+      };
+    })
+    .filter((entry): entry is { field: string; description?: string } => entry !== null);
 }
 
 function normalizeGoogleSheets(data: Record<string, unknown> | undefined): GoogleSheetEntry[] {
@@ -191,9 +216,7 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
       consolidationPrompt: data?.consolidationPrompt?.trim() || undefined,
       consolidationPromptEnabled: data?.consolidationPromptEnabled === true,
       xPersonProfileEnabled: data?.xPersonProfileEnabled === true,
-      xPersonProfileCustomFields: Array.isArray(data?.xPersonProfileCustomFields)
-        ? data.xPersonProfileCustomFields.filter((f: unknown): f is string => typeof f === 'string' && f.trim().length > 0).map((f: string) => f.trim())
-        : [],
+      xPersonProfileCustomFields: normalizeXPersonProfileCustomFields(data),
     };
     if (AGENT_CONFIG_CACHE_TTL_MS > 0) {
       agentConfigCache.set(tenantId, { value: resolvedConfig, expiresAt: Date.now() + AGENT_CONFIG_CACHE_TTL_MS });
@@ -234,9 +257,7 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
     consolidationPrompt: data?.consolidationPrompt?.trim() || undefined,
     consolidationPromptEnabled: data?.consolidationPromptEnabled === true,
     xPersonProfileEnabled: data?.xPersonProfileEnabled === true,
-    xPersonProfileCustomFields: Array.isArray(data?.xPersonProfileCustomFields)
-      ? data.xPersonProfileCustomFields.filter((f: unknown): f is string => typeof f === 'string' && f.trim().length > 0).map((f: string) => f.trim())
-      : [],
+    xPersonProfileCustomFields: normalizeXPersonProfileCustomFields(data),
   };
   if (AGENT_CONFIG_CACHE_TTL_MS > 0) {
     agentConfigCache.set(tenantId, { value: resolvedConfig, expiresAt: Date.now() + AGENT_CONFIG_CACHE_TTL_MS });
@@ -408,7 +429,7 @@ XPersonProfile (Persons/Pipo) is ENABLED for this tenant.
 - Default fields to maintain: name, phone, location.
 - If user shares new details, call xperson_profile with operation="upsert" in the same turn.
 - If you need to check known user details, call xperson_profile with operation="get" before asking repeated questions.
-${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${config.xPersonProfileCustomFields.join(', ')}\n` : ''}Current profile snapshot: ${currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.'}`;
+${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${config.xPersonProfileCustomFields.map((f) => f.description ? `${f.field} (${f.description})` : f.field).join(', ')}\n` : ''}- Always keep conversation_duration_last_conversation_seconds updated based on the user's latest total conversation time across widget or WhatsApp.\nCurrent profile snapshot: ${currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.'}`;
     } catch (e) {
       console.warn('[Agent] Failed to load XPersonProfile context:', e);
     }

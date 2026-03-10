@@ -68,7 +68,7 @@ export type AgentConfig = {
   /** Sunbird-only temperature used for WhatsApp TTS generation. */
   whatsappSunbirdTemperature?: number;
   xPersonProfileEnabled?: boolean;
-  xPersonProfileCustomFields?: string[];
+  xPersonProfileCustomFields?: { field: string; description?: string }[];
   availableModels?: string[];
 };
 

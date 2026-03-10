@@ -15,6 +15,11 @@ const googleSheetEntry = z.object({
   useWhen: z.string().min(1),
 });
 
+const xPersonProfileCustomFieldEntry = z.object({
+  field: z.string().min(1),
+  description: z.string().optional(),
+});
+
 const updateBody = z.object({
   agentName: z.string().optional(),
   chatTitle: z.string().optional(),
@@ -39,7 +44,7 @@ const updateBody = z.object({
   whatsappTtsProvider: z.enum(['sunbird', 'google-cloud-tts', 'gemini-2.5-flash-preview-tts']).optional(),
   whatsappSunbirdTemperature: z.number().min(0).max(2).optional(),
   xPersonProfileEnabled: z.boolean().optional(),
-  xPersonProfileCustomFields: z.array(z.string()).optional(),
+  xPersonProfileCustomFields: z.array(xPersonProfileCustomFieldEntry).optional(),
 });
 
 const fallbackModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];

@@ -11,6 +11,7 @@ type XPersonProfile = {
   name?: string;
   phone?: string;
   location?: string;
+  conversationDurationLastConversationSeconds?: number;
   attributes?: Record<string, string>;
   lastConversationId?: string;
   updatedAt?: number | null;
@@ -81,6 +82,7 @@ export default function XPersonProfilePage() {
               <div>External ID: {profile.externalUserId || '—'}</div>
               <div>User/Device ID: {profile.userId || '—'}</div>
               <div>Conversation: {profile.lastConversationId || '—'}</div>
+              <div>Last conversation duration: {typeof profile.conversationDurationLastConversationSeconds === 'number' ? `${profile.conversationDurationLastConversationSeconds}s` : '—'}</div>
               {profile.attributes && Object.keys(profile.attributes).length > 0 && (
                 <div style={{ marginTop: 8 }}>
                   <div style={{ fontWeight: 600 }}>Custom fields</div>

@@ -10,6 +10,7 @@ export type XPersonProfileData = {
   name?: string;
   phone?: string;
   location?: string;
+  conversationDurationLastConversationSeconds?: number;
   attributes?: Record<string, string>;
   lastConversationId?: string;
   updatedAt?: number | null;
@@ -58,13 +59,32 @@ export function extractDefaultProfileFields(text: string): Pick<XPersonProfileDa
   };
 }
 
+
+export async function getConversationDurationSeconds(conversationId: string): Promise<number | undefined> {
+  if (!clean(conversationId)) return undefined;
+
+  const snap = await db
+    .collection('messages')
+    .where('conversationId', '==', conversationId)
+    .orderBy('createdAt', 'asc')
+    .limitToLast(500)
+    .get();
+
+  if (snap.empty) return 0;
+
+  const first = snap.docs[0]?.data()?.createdAt?.toMillis?.();
+  const last = snap.docs[snap.docs.length - 1]?.data()?.createdAt?.toMillis?.();
+  if (typeof first !== 'number' || typeof last !== 'number') return undefined;
+  return Math.max(0, Math.round((last - first) / 1000));
+}
+
 export async function upsertXPersonProfile(params: {
   tenantId: string;
   userId?: string;
   externalUserId?: string;
   channel?: 'widget' | 'whatsapp' | 'unknown';
   conversationId?: string;
-  details?: Partial<Pick<XPersonProfileData, 'name' | 'phone' | 'location'>>;
+  details?: Partial<Pick<XPersonProfileData, 'name' | 'phone' | 'location' | 'conversationDurationLastConversationSeconds'>>;
   attributes?: Record<string, string>;
 }): Promise<{ profileId: string; created: boolean }> {
   const profileId = buildProfileId({ userId: params.userId, externalUserId: params.externalUserId });
@@ -80,6 +100,9 @@ export async function upsertXPersonProfile(params: {
     ...(params.details?.name ? { name: params.details.name } : {}),
     ...(params.details?.phone ? { phone: normalizePhone(params.details.phone) } : {}),
     ...(params.details?.location ? { location: params.details.location } : {}),
+    ...(typeof params.details?.conversationDurationLastConversationSeconds === 'number'
+      ? { conversationDurationLastConversationSeconds: Math.max(0, Math.trunc(params.details.conversationDurationLastConversationSeconds)) }
+      : {}),
     ...(params.attributes ? { attributes: params.attributes } : {}),
     ...(params.conversationId ? { lastConversationId: params.conversationId } : {}),
     updatedAt: FieldValue.serverTimestamp(),
@@ -107,6 +130,8 @@ export async function getXPersonProfile(params: {
     name: data.name ?? undefined,
     phone: data.phone ?? undefined,
     location: data.location ?? undefined,
+    conversationDurationLastConversationSeconds:
+      typeof data.conversationDurationLastConversationSeconds === 'number' ? data.conversationDurationLastConversationSeconds : undefined,
     attributes: data.attributes ?? {},
     lastConversationId: data.lastConversationId ?? undefined,
     updatedAt: data.updatedAt?.toMillis?.() ?? null,
@@ -133,6 +158,8 @@ export async function listXPersonProfiles(tenantId: string, limit = 200): Promis
       name: data.name ?? undefined,
       phone: data.phone ?? undefined,
       location: data.location ?? undefined,
+      conversationDurationLastConversationSeconds:
+        typeof data.conversationDurationLastConversationSeconds === 'number' ? data.conversationDurationLastConversationSeconds : undefined,
       attributes: data.attributes ?? {},
       lastConversationId: data.lastConversationId ?? undefined,
       updatedAt: data.updatedAt?.toMillis?.() ?? null,

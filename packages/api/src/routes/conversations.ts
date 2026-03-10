@@ -8,7 +8,7 @@ import { getTenantBillingStatus, WIDGET_BILLING_ERROR } from '../services/billin
 import type { ConversationStatus } from '../types/index.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { resolveConversationIdentity } from '../services/user-identity.js';
-import { extractDefaultProfileFields, upsertXPersonProfile } from '../services/xperson-profile.js';
+import { extractDefaultProfileFields, getConversationDurationSeconds, upsertXPersonProfile } from '../services/xperson-profile.js';
 
 export const conversationRouter: Router = Router({ mergeParams: true });
 
@@ -276,13 +276,19 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
     const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
     if (agentConfigDoc.data()?.xPersonProfileEnabled === true) {
       const profileDetails = extractDefaultProfileFields(content);
+      const conversationDurationLastConversationSeconds = await getConversationDurationSeconds(conversationId);
       await upsertXPersonProfile({
         tenantId,
         userId: typeof convData?.userId === 'string' ? convData.userId : undefined,
         externalUserId: typeof convData?.externalUserId === 'string' ? convData.externalUserId : undefined,
         channel: channel === 'whatsapp' ? 'whatsapp' : 'widget',
         conversationId,
-        details: profileDetails,
+        details: {
+          ...profileDetails,
+          ...(typeof conversationDurationLastConversationSeconds === 'number'
+            ? { conversationDurationLastConversationSeconds }
+            : {}),
+        },
       });
     }
   } catch (profileError) {
