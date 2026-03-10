@@ -14,6 +14,8 @@ export default function Layout() {
   const { isMobile } = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
   const [handoffCount, setHandoffCount] = useState(0);
+  const [activeConversationCount, setActiveConversationCount] = useState(0);
+  const [recentConversationCount, setRecentConversationCount] = useState(0);
 
   useEffect(() => {
     if (!tenantId) {
@@ -32,6 +34,48 @@ export default function Layout() {
     });
 
     return () => unsub();
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (!tenantId) {
+      setActiveConversationCount(0);
+      setRecentConversationCount(0);
+      return;
+    }
+
+    let conversations: Array<{ updatedAt?: { toMillis?: () => number } | number | null }> = [];
+
+    const activeConversationQuery = query(
+      collection(firestore, 'conversations'),
+      where('tenantId', '==', tenantId),
+      where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
+    );
+
+    const updateConversationCounts = () => {
+      const now = Date.now();
+      const oneMinuteAgoMs = now - 60 * 1000;
+      const recentCount = conversations.reduce((count, conversation) => {
+        const updatedAt = conversation.updatedAt;
+        if (!updatedAt) return count;
+        const updatedAtMs = typeof updatedAt === 'number' ? updatedAt : updatedAt.toMillis?.() ?? 0;
+        return updatedAtMs > oneMinuteAgoMs ? count + 1 : count;
+      }, 0);
+
+      setActiveConversationCount(conversations.length);
+      setRecentConversationCount(recentCount);
+    };
+
+    const unsubscribe = onSnapshot(activeConversationQuery, (snap) => {
+      conversations = snap.docs.map((doc) => doc.data() as { updatedAt?: { toMillis?: () => number } | number | null });
+      updateConversationCounts();
+    });
+
+    const intervalId = setInterval(updateConversationCounts, 5000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(intervalId);
+    };
   }, [tenantId]);
 
   const primaryNav: NavItem[] = [
@@ -82,6 +126,21 @@ export default function Layout() {
   const renderNavLink = ({ path, label }: NavItem, isSubItem = false) => {
     const active = location.pathname === path;
     const showHandoffBadge = path === '/handoffs' && handoffCount > 0;
+    const showConversationsBadge = path === '/conversations' && activeConversationCount > 0;
+    const badgeStyle = {
+      color: '#fff',
+      borderRadius: 999,
+      minWidth: 20,
+      height: 20,
+      padding: '0 6px',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: 11,
+      fontWeight: 700,
+      lineHeight: 1,
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+    } as const;
     return (
       <Link
         key={path}
@@ -101,22 +160,36 @@ export default function Layout() {
       >
         <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <span>{label}</span>
+          {showConversationsBadge && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span
+                style={{
+                  ...badgeStyle,
+                  background: '#2563eb'
+                }}
+                aria-label={`${activeConversationCount} active conversations`}
+                title={`Active conversations: ${activeConversationCount}`}
+              >
+                {activeConversationCount}
+              </span>
+              <span
+                style={{
+                  ...badgeStyle,
+                  background: '#0ea5e9',
+                  minWidth: 38
+                }}
+                aria-label={`${recentConversationCount} active in the last 1 minute`}
+                title={`Active in the last 1 minute: ${recentConversationCount}`}
+              >
+                1m {recentConversationCount}
+              </span>
+            </span>
+          )}
           {showHandoffBadge && (
             <span
               style={{
-                background: '#ef4444',
-                color: '#fff',
-                borderRadius: 999,
-                minWidth: 20,
-                height: 20,
-                padding: '0 6px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 11,
-                fontWeight: 700,
-                lineHeight: 1,
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                ...badgeStyle,
+                background: '#ef4444'
               }}
               aria-label={`${handoffCount} pending handoffs`}
             >
