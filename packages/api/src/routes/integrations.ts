@@ -597,14 +597,25 @@ function inferAudioExtensionFromUrl(url: string): string {
   return 'mp3';
 }
 
-async function generateVoiceMediaUrl(params: { tenantId: string; text: string; provider: WhatsAppTtsProvider; sunbirdTemperature: number }): Promise<string | null> {
+async function generateVoiceMediaUrl(params: {
+  tenantId: string;
+  text: string;
+  provider: WhatsAppTtsProvider;
+  sunbirdTemperature: number;
+  shouldCleanText: boolean;
+}): Promise<string | null> {
   if (params.provider === 'google-cloud-tts' || params.provider === 'gemini-2.5-flash-preview-tts') {
     return generateVoiceMediaUrlWithGoogleCloud(params);
   }
   return generateVoiceMediaUrlWithSunbird(params);
 }
 
-async function generateVoiceMediaUrlWithSunbird(params: { tenantId: string; text: string; sunbirdTemperature: number }): Promise<string | null> {
+async function generateVoiceMediaUrlWithSunbird(params: {
+  tenantId: string;
+  text: string;
+  sunbirdTemperature: number;
+  shouldCleanText: boolean;
+}): Promise<string | null> {
   const ttsUrl = process.env.SUNBIRD_TTS_URL ?? process.env.TTS_URL;
   const apiKey = process.env.SUNBIRD_TTS_API_KEY ?? process.env.SUNBIRD_API_KEY;
   if (!ttsUrl) return null;
@@ -622,13 +633,15 @@ async function generateVoiceMediaUrlWithSunbird(params: { tenantId: string; text
     headers.Authorization = `Bearer ${apiKey}`;
   }
 
-  const cleanedText = await cleanLugandaTextForSunbirdTts(params.text);
-  if (!cleanedText) return null;
+  const textForTts = params.shouldCleanText
+    ? await cleanLugandaTextForSunbirdTts(params.text)
+    : params.text.trim();
+  if (!textForTts) return null;
 
   const ttsRes = await fetch(ttsUrl, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ text: cleanedText, speaker_id: speakerId, temperature: params.sunbirdTemperature }),
+    body: JSON.stringify({ text: textForTts, speaker_id: speakerId, temperature: params.sunbirdTemperature }),
     signal: AbortSignal.timeout(WHATSAPP_TTS_REQUEST_TIMEOUT_MS),
   });
 
@@ -676,7 +689,11 @@ async function generateVoiceMediaUrlWithSunbird(params: { tenantId: string; text
   }
 }
 
-async function generateVoiceMediaUrlWithGoogleCloud(params: { tenantId: string; text: string }): Promise<string | null> {
+async function generateVoiceMediaUrlWithGoogleCloud(params: {
+  tenantId: string;
+  text: string;
+  shouldCleanText: boolean;
+}): Promise<string | null> {
   const authClient = await getGoogleCloudTtsAccessTokenClient();
   if (!authClient || !bucket) return null;
 
@@ -686,8 +703,10 @@ async function generateVoiceMediaUrlWithGoogleCloud(params: { tenantId: string; 
     : accessTokenResponse?.token;
   if (!accessToken) return null;
 
-  const cleanedText = await cleanEnglishTextForGoogleCloudTts(params.text);
-  if (!cleanedText) return null;
+  const textForTts = params.shouldCleanText
+    ? await cleanEnglishTextForGoogleCloudTts(params.text)
+    : params.text.trim();
+  if (!textForTts) return null;
 
   const ttsRes = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize', {
     method: 'POST',
@@ -697,7 +716,7 @@ async function generateVoiceMediaUrlWithGoogleCloud(params: { tenantId: string; 
     },
     body: JSON.stringify({
       input: {
-        text: cleanedText,
+        text: textForTts,
       },
       voice: {
         languageCode: process.env.GOOGLE_CLOUD_TTS_LANGUAGE_CODE ?? 'en-US',
@@ -1142,10 +1161,17 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     });
     const exceedsVoiceThreshold = voiceThreshold > 0 && responseText.length >= voiceThreshold;
     const shouldTryVoiceReply = isLugandaReply || forceVoiceReplies || exceedsVoiceThreshold;
+    const shouldCleanVoiceText = voiceThreshold <= 0 || exceedsVoiceThreshold;
 
     if (shouldTryVoiceReply) {
       try {
-        const voiceUrl = await generateVoiceMediaUrl({ tenantId, text: responseText, provider: resolvedTtsProvider, sunbirdTemperature });
+        const voiceUrl = await generateVoiceMediaUrl({
+          tenantId,
+          text: responseText,
+          provider: resolvedTtsProvider,
+          sunbirdTemperature,
+          shouldCleanText: shouldCleanVoiceText,
+        });
         if (voiceUrl) {
           payload.set('MediaUrl', voiceUrl);
         }
