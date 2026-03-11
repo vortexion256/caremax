@@ -8,7 +8,7 @@ import { getTenantBillingStatus, WIDGET_BILLING_ERROR } from '../services/billin
 import type { ConversationStatus } from '../types/index.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { resolveConversationIdentity } from '../services/user-identity.js';
-import { extractDefaultProfileFields, getConversationDurationSeconds, upsertXPersonProfile } from '../services/xperson-profile.js';
+import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, upsertXPersonProfile } from '../services/xperson-profile.js';
 
 export const conversationRouter: Router = Router({ mergeParams: true });
 
@@ -274,8 +274,11 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
 
   try {
     const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
-    if (agentConfigDoc.data()?.xPersonProfileEnabled === true) {
+    const configData = agentConfigDoc.data();
+    if (configData?.xPersonProfileEnabled === true) {
       const profileDetails = extractDefaultProfileFields(content);
+      const customFields = normalizeXPersonCustomFields(configData?.xPersonProfileCustomFields);
+      const extractedAttributes = extractCustomProfileAttributes(content, customFields);
       const conversationDurationLastConversationSeconds = await getConversationDurationSeconds(conversationId);
       await upsertXPersonProfile({
         tenantId,
@@ -289,6 +292,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
             ? { conversationDurationLastConversationSeconds }
             : {}),
         },
+        ...(Object.keys(extractedAttributes).length > 0 ? { attributes: extractedAttributes } : {}),
       });
     }
   } catch (profileError) {

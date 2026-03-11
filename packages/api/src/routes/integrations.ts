@@ -13,7 +13,7 @@ import { verifyMarzPayTransaction } from '../services/marzpay.js';
 import { createTenantNotification } from '../services/tenant-notifications.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
-import { extractDefaultProfileFields, getConversationDurationSeconds, upsertXPersonProfile } from '../services/xperson-profile.js';
+import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, upsertXPersonProfile } from '../services/xperson-profile.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
 import { google } from 'googleapis';
@@ -936,8 +936,11 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
 
     try {
       const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
-      if (agentConfigDoc.data()?.xPersonProfileEnabled === true) {
+      const configData = agentConfigDoc.data();
+      if (configData?.xPersonProfileEnabled === true) {
         const conversationDurationLastConversationSeconds = await getConversationDurationSeconds(conversationRef.id);
+        const customFields = normalizeXPersonCustomFields(configData?.xPersonProfileCustomFields);
+        const extractedAttributes = extractCustomProfileAttributes(body, customFields);
         await upsertXPersonProfile({
           tenantId,
           userId: identity.scopedUserId,
@@ -950,6 +953,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
               ? { conversationDurationLastConversationSeconds }
               : {}),
           },
+          ...(Object.keys(extractedAttributes).length > 0 ? { attributes: extractedAttributes } : {}),
         });
       }
     } catch (profileError) {

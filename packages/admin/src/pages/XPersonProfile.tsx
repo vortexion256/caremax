@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { api } from '../api';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -15,6 +15,15 @@ type XPersonProfile = {
   attributes?: Record<string, string>;
   lastConversationId?: string;
   updatedAt?: number | null;
+};
+
+const metricCardStyle: CSSProperties = {
+  padding: '12px 14px',
+  background: '#f8fafc',
+  borderRadius: 10,
+  border: '1px solid #e2e8f0',
+  display: 'grid',
+  gap: 4,
 };
 
 export default function XPersonProfilePage() {
@@ -43,6 +52,14 @@ export default function XPersonProfilePage() {
     }
   };
 
+  const summary = useMemo(() => {
+    const withNames = profiles.filter((profile) => Boolean(profile.name?.trim())).length;
+    const whatsappProfiles = profiles.filter((profile) => profile.channel === 'whatsapp').length;
+    const widgetProfiles = profiles.filter((profile) => profile.channel === 'widget').length;
+    const withCustomFields = profiles.filter((profile) => profile.attributes && Object.keys(profile.attributes).length > 0).length;
+    return { total: profiles.length, withNames, whatsappProfiles, widgetProfiles, withCustomFields };
+  }, [profiles]);
+
   useEffect(() => {
     if (!tenantId) {
       setLoading(false);
@@ -67,13 +84,23 @@ export default function XPersonProfilePage() {
   }, [tenantId]);
 
   return (
-    <div style={{ padding: isMobile ? '16px 0' : 0 }}>
-      <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>XPersonProfile</h1>
-      <p style={{ color: '#64748b', marginBottom: 24, maxWidth: 880 }}>
-        Profiles captured by the Persons (Pipo) tool using identifiers from widget and WhatsApp conversations (phone, external ID, and device/user ID).
-      </p>
+    <div style={{ padding: isMobile ? '16px 0' : 0, display: 'grid', gap: 16 }}>
+      <div>
+        <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>XPersonProfile</h1>
+        <p style={{ color: '#64748b', marginBottom: 0, maxWidth: 920 }}>
+          Profiles captured by Persons (Pipo) from widget and WhatsApp conversations. Details update continuously as conversations progress.
+        </p>
+      </div>
 
-      {error && <div style={{ padding: 12, borderRadius: 8, background: '#fef2f2', color: '#991b1b', marginBottom: 16 }}>{error}</div>}
+      <section style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, minmax(0, 1fr))', gap: 10 }}>
+        <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Total profiles</span><strong>{summary.total}</strong></div>
+        <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Named profiles</span><strong>{summary.withNames}</strong></div>
+        <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>WhatsApp</span><strong>{summary.whatsappProfiles}</strong></div>
+        <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Widget</span><strong>{summary.widgetProfiles}</strong></div>
+        <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>With custom fields</span><strong>{summary.withCustomFields}</strong></div>
+      </section>
+
+      {error && <div style={{ padding: 12, borderRadius: 8, background: '#fef2f2', color: '#991b1b' }}>{error}</div>}
       {loading ? (
         <div style={{ color: '#64748b', display: 'grid', gap: 8 }}>
           <div>Loading XPersonProfile data...</div>
@@ -88,66 +115,77 @@ export default function XPersonProfilePage() {
       ) : null}
 
       <div style={{ display: 'grid', gap: 12 }}>
-        {profiles.map((profile) => (
-          <article key={profile.profileId} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
-            <button
-              type="button"
-              onClick={() => setExpandedProfileId((current) => (current === profile.profileId ? null : profile.profileId))}
-              style={{
-                width: '100%',
-                border: 'none',
-                background: 'transparent',
-                textAlign: 'left',
-                padding: 16,
-                cursor: 'pointer',
-                display: 'grid',
-                gap: 10,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                <strong style={{ fontSize: 16, color: '#0f172a' }}>{profile.name || 'Unnamed profile'}</strong>
-                <span style={{ fontSize: 12, color: '#64748b' }}>{profile.channel ?? 'unknown'}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
-                <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 8 }}>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>Phone</div>
-                  <div style={{ color: '#0f172a' }}>{profile.phone || '—'}</div>
+        {profiles.map((profile) => {
+          const customAttributes = profile.attributes ? Object.entries(profile.attributes) : [];
+          const isExpanded = expandedProfileId === profile.profileId;
+          return (
+            <article key={profile.profileId} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => setExpandedProfileId((current) => (current === profile.profileId ? null : profile.profileId))}
+                style={{
+                  width: '100%',
+                  border: 'none',
+                  background: 'transparent',
+                  textAlign: 'left',
+                  padding: 16,
+                  cursor: 'pointer',
+                  display: 'grid',
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <strong style={{ fontSize: 16, color: '#0f172a' }}>{profile.name || 'Unnamed profile'}</strong>
+                  <span style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase' }}>{profile.channel ?? 'unknown'}</span>
                 </div>
-                <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 8 }}>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>Duration</div>
-                  <div style={{ color: '#0f172a' }}>{formatDuration(profile.conversationDurationLastConversationSeconds)}</div>
-                </div>
-                <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 8 }}>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>Location</div>
-                  <div style={{ color: '#0f172a' }}>{profile.location || '—'}</div>
-                </div>
-                <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 8 }}>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>Status</div>
-                  <div style={{ color: '#0f172a' }}>{expandedProfileId === profile.profileId ? 'Hide details' : 'View details'}</div>
-                </div>
-              </div>
-            </button>
 
-            {expandedProfileId === profile.profileId && (
-              <div style={{ borderTop: '1px solid #e2e8f0', padding: 16, color: '#334155', fontSize: 14, display: 'grid', gap: 6 }}>
-                <div>Profile ID: {profile.profileId}</div>
-                <div>External ID: {profile.externalUserId || '—'}</div>
-                <div>User/Device ID: {profile.userId || '—'}</div>
-                <div>Conversation: {profile.lastConversationId || '—'}</div>
-                <div>Last conversation duration: {formatDuration(profile.conversationDurationLastConversationSeconds)}</div>
-                <div>Updated: {formatUpdatedAt(profile.updatedAt)}</div>
-                {profile.attributes && Object.keys(profile.attributes).length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    <div style={{ fontWeight: 600 }}>Custom fields</div>
-                    {Object.entries(profile.attributes).map(([key, value]) => (
-                      <div key={key}>{key}: {value}</div>
-                    ))}
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+                  <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Phone</span><span style={{ color: '#0f172a' }}>{profile.phone || '—'}</span></div>
+                  <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Location</span><span style={{ color: '#0f172a' }}>{profile.location || '—'}</span></div>
+                  <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Last duration</span><span style={{ color: '#0f172a' }}>{formatDuration(profile.conversationDurationLastConversationSeconds)}</span></div>
+                  <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Custom fields</span><span style={{ color: '#0f172a' }}>{customAttributes.length}</span></div>
+                </div>
+              </button>
+
+              {isExpanded && (
+                <div style={{ borderTop: '1px solid #e2e8f0', padding: 16, color: '#334155', fontSize: 14, display: 'grid', gap: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                    <div><strong>Profile ID:</strong> {profile.profileId}</div>
+                    <div><strong>Last updated:</strong> {formatUpdatedAt(profile.updatedAt)}</div>
+                    <div><strong>External ID:</strong> {profile.externalUserId || '—'}</div>
+                    <div><strong>User/Device ID:</strong> {profile.userId || '—'}</div>
+                    <div><strong>Conversation ID:</strong> {profile.lastConversationId || '—'}</div>
                   </div>
-                )}
-              </div>
-            )}
-          </article>
-        ))}
+
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Custom fields</div>
+                    {customAttributes.length === 0 ? (
+                      <div style={{ color: '#64748b' }}>No custom profile attributes captured yet.</div>
+                    ) : (
+                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+                        {customAttributes.map(([key, value], index) => (
+                          <div
+                            key={key}
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: isMobile ? '1fr' : '220px 1fr',
+                              gap: 8,
+                              padding: '8px 10px',
+                              background: index % 2 === 0 ? '#fff' : '#f8fafc',
+                            }}
+                          >
+                            <span style={{ color: '#64748b', fontWeight: 600 }}>{key}</span>
+                            <span style={{ color: '#0f172a' }}>{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </article>
+          );
+        })}
       </div>
     </div>
   );
