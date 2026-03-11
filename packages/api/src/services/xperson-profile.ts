@@ -17,6 +17,11 @@ export type XPersonProfileData = {
   createdAt?: number | null;
 };
 
+export type XPersonCustomField = {
+  field: string;
+  description?: string;
+};
+
 function clean(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const out = value.trim();
@@ -59,6 +64,97 @@ export function extractDefaultProfileFields(text: string): Pick<XPersonProfileDa
   };
 }
 
+export function normalizeXPersonCustomFields(value: unknown): XPersonCustomField[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        const field = clean(entry);
+        return field ? { field } : null;
+      }
+      if (!entry || typeof entry !== 'object') return null;
+      const field = clean((entry as { field?: unknown }).field);
+      if (!field) return null;
+      const description = clean((entry as { description?: unknown }).description);
+      return { field, ...(description ? { description } : {}) };
+    })
+    .filter((entry): entry is XPersonCustomField => entry !== null);
+}
+
+function toProfileKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_{2,}/g, '_');
+}
+
+export function extractCustomProfileAttributes(text: string, customFields: XPersonCustomField[]): Record<string, string> {
+  const input = text.trim();
+  if (!input || customFields.length === 0) return {};
+
+  const extracted: Record<string, string> = {};
+  const lowerInput = input.toLowerCase();
+
+  for (const customField of customFields) {
+    const key = toProfileKey(customField.field);
+    if (!key) continue;
+
+    const phrases = [customField.field, customField.description ?? '']
+      .flatMap((segment) => segment.toLowerCase().split(/[^a-z0-9]+/g))
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3);
+
+    const uniquePhrases = [...new Set(phrases)];
+    const directPattern = new RegExp(
+      `(?:my\\s+)?${key.replace(/_/g, '[\\s_-]+')}\\s*(?:is|are|=|:|means)?\\s*([a-z0-9][a-z0-9\\s,.'\\-/]{1,80})`,
+      'i',
+    );
+    const directMatch = input.match(directPattern);
+    if (directMatch?.[1]) {
+      const value = clean(directMatch[1]);
+      if (value) {
+        extracted[key] = value;
+        continue;
+      }
+    }
+
+    const isPreferenceField = uniquePhrases.some((token) => /(like|likes|favorite|favourite|hobby|interest|prefer|preference)/.test(token));
+    if (isPreferenceField) {
+      const preferenceMatch = input.match(/(?:i\s+like|i\s+love|i\s+enjoy|i\s+prefer|my\s+hobb(?:y|ies)\s+is)\s+([a-z0-9][a-z0-9\s,.'\-/]{1,80})/i);
+      if (preferenceMatch?.[1]) {
+        const value = clean(preferenceMatch[1]);
+        if (value) {
+          extracted[key] = value;
+          continue;
+        }
+      }
+    }
+
+    const isWorkField = uniquePhrases.some((token) => /(job|profession|occupation|work|role|career|title)/.test(token));
+    if (isWorkField) {
+      const workMatch = input.match(/(?:i\s+work\s+as|i\s+am\s+an?|my\s+job\s+is|my\s+profession\s+is)\s+([a-z0-9][a-z0-9\s,.'\-/]{1,80})/i);
+      if (workMatch?.[1]) {
+        const value = clean(workMatch[1]);
+        if (value) {
+          extracted[key] = value;
+          continue;
+        }
+      }
+    }
+
+    const hasContextSignal = uniquePhrases.some((token) => lowerInput.includes(token));
+    if (!hasContextSignal) continue;
+
+    const contextualMatch = input.match(/(?:is|are|=|:|about|regarding)\s+([a-z0-9][a-z0-9\s,.'\-/]{1,80})/i);
+    const fallbackValue = clean(contextualMatch?.[1]);
+    if (fallbackValue) extracted[key] = fallbackValue;
+  }
+
+  return extracted;
+}
+
 
 export async function getConversationDurationSeconds(conversationId: string): Promise<number | undefined> {
   if (!clean(conversationId)) return undefined;
@@ -90,6 +186,14 @@ export async function upsertXPersonProfile(params: {
   const profileId = buildProfileId({ userId: params.userId, externalUserId: params.externalUserId });
   const ref = db.collection('xperson_profiles').doc(`${params.tenantId}__${profileId}`);
   const existing = await ref.get();
+  const existingAttributes = (existing.data()?.attributes && typeof existing.data()?.attributes === 'object')
+    ? Object.fromEntries(
+      Object.entries(existing.data()?.attributes as Record<string, unknown>).filter(([, value]) => typeof value === 'string'),
+    ) as Record<string, string>
+    : {};
+  const mergedAttributes = params.attributes
+    ? { ...existingAttributes, ...params.attributes }
+    : undefined;
 
   await ref.set({
     tenantId: params.tenantId,
@@ -103,7 +207,7 @@ export async function upsertXPersonProfile(params: {
     ...(typeof params.details?.conversationDurationLastConversationSeconds === 'number'
       ? { conversationDurationLastConversationSeconds: Math.max(0, Math.trunc(params.details.conversationDurationLastConversationSeconds)) }
       : {}),
-    ...(params.attributes ? { attributes: params.attributes } : {}),
+    ...(mergedAttributes ? { attributes: mergedAttributes } : {}),
     ...(params.conversationId ? { lastConversationId: params.conversationId } : {}),
     updatedAt: FieldValue.serverTimestamp(),
     ...(existing.exists ? {} : { createdAt: FieldValue.serverTimestamp() }),
