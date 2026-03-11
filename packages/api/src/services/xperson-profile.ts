@@ -90,23 +90,57 @@ function toProfileKey(value: string): string {
     .replace(/_{2,}/g, '_');
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildFieldAliases(customField: XPersonCustomField): string[] {
+  const aliasSegments = [customField.field, customField.description ?? '']
+    .flatMap((segment) => segment.split(/[;,|/]/g))
+    .map((segment) => segment.trim().toLowerCase())
+    .filter((segment) => segment.length >= 3);
+
+  return [...new Set(aliasSegments)];
+}
+
 export function extractCustomProfileAttributes(text: string, customFields: XPersonCustomField[]): Record<string, string> {
   const input = text.trim();
   if (!input || customFields.length === 0) return {};
 
   const extracted: Record<string, string> = {};
-  const lowerInput = input.toLowerCase();
 
   for (const customField of customFields) {
     const key = toProfileKey(customField.field);
     if (!key) continue;
 
-    const phrases = [customField.field, customField.description ?? '']
-      .flatMap((segment) => segment.toLowerCase().split(/[^a-z0-9]+/g))
-      .map((token) => token.trim())
-      .filter((token) => token.length >= 3);
+    const aliases = buildFieldAliases(customField);
+    const aliasPattern = aliases.map(escapeRegex).join('|');
 
-    const uniquePhrases = [...new Set(phrases)];
+    const explicitPattern = aliasPattern
+      ? new RegExp(`(?:my\\s+)?(?:${aliasPattern})\\s*(?:is|are|=|:|means)?\\s*([a-z0-9][a-z0-9\\s,.'\\-/]{1,80})`, 'i')
+      : null;
+    const reversePattern = aliasPattern
+      ? new RegExp(`([a-z0-9][a-z0-9\\s,.'\\-/]{1,80})\\s*(?:is|are|=|:)\\s*(?:my\\s+)?(?:${aliasPattern})`, 'i')
+      : null;
+
+    const explicitMatch = explicitPattern ? input.match(explicitPattern) : null;
+    if (explicitMatch?.[1]) {
+      const value = clean(explicitMatch[1]);
+      if (value) {
+        extracted[key] = value;
+        continue;
+      }
+    }
+
+    const reverseMatch = reversePattern ? input.match(reversePattern) : null;
+    if (reverseMatch?.[1]) {
+      const value = clean(reverseMatch[1]);
+      if (value) {
+        extracted[key] = value;
+        continue;
+      }
+    }
+
     const directPattern = new RegExp(
       `(?:my\\s+)?${key.replace(/_/g, '[\\s_-]+')}\\s*(?:is|are|=|:|means)?\\s*([a-z0-9][a-z0-9\\s,.'\\-/]{1,80})`,
       'i',
@@ -119,37 +153,6 @@ export function extractCustomProfileAttributes(text: string, customFields: XPers
         continue;
       }
     }
-
-    const isPreferenceField = uniquePhrases.some((token) => /(like|likes|favorite|favourite|hobby|interest|prefer|preference)/.test(token));
-    if (isPreferenceField) {
-      const preferenceMatch = input.match(/(?:i\s+like|i\s+love|i\s+enjoy|i\s+prefer|my\s+hobb(?:y|ies)\s+is)\s+([a-z0-9][a-z0-9\s,.'\-/]{1,80})/i);
-      if (preferenceMatch?.[1]) {
-        const value = clean(preferenceMatch[1]);
-        if (value) {
-          extracted[key] = value;
-          continue;
-        }
-      }
-    }
-
-    const isWorkField = uniquePhrases.some((token) => /(job|profession|occupation|work|role|career|title)/.test(token));
-    if (isWorkField) {
-      const workMatch = input.match(/(?:i\s+work\s+as|i\s+am\s+an?|my\s+job\s+is|my\s+profession\s+is)\s+([a-z0-9][a-z0-9\s,.'\-/]{1,80})/i);
-      if (workMatch?.[1]) {
-        const value = clean(workMatch[1]);
-        if (value) {
-          extracted[key] = value;
-          continue;
-        }
-      }
-    }
-
-    const hasContextSignal = uniquePhrases.some((token) => lowerInput.includes(token));
-    if (!hasContextSignal) continue;
-
-    const contextualMatch = input.match(/(?:is|are|=|:|about|regarding)\s+([a-z0-9][a-z0-9\s,.'\-/]{1,80})/i);
-    const fallbackValue = clean(contextualMatch?.[1]);
-    if (fallbackValue) extracted[key] = fallbackValue;
   }
 
   return extracted;
