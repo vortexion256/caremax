@@ -350,6 +350,34 @@ function twilioBasicAuthHeader(accountSid: string, authToken: string): string {
   return `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`;
 }
 
+async function sendMetaWhatsAppTextMessage(params: {
+  phoneNumberId: string;
+  accessToken: string;
+  to: string;
+  body: string;
+}): Promise<void> {
+  const res = await fetch(`https://graph.facebook.com/v22.0/${encodeURIComponent(params.phoneNumberId)}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to: params.to,
+      type: 'text',
+      text: {
+        body: params.body,
+      },
+    }),
+    signal: AbortSignal.timeout(12_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Meta WhatsApp outbound send failed (${res.status}): ${await res.text()}`);
+  }
+}
+
 
 
 function isLikelyWhatsAppVoiceNote(payload: Request['body']): boolean {
@@ -844,7 +872,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
 
   try {
     const integrationDoc = await db.collection('tenant_integrations').doc(tenantId).get();
-    const whatsapp = integrationDoc.data()?.whatsapp;
+    const whatsapp = integrationDoc.data()?.whatsappTwilio;
 
     if (!whatsapp?.connected) {
       res.set('Content-Type', 'text/xml');
@@ -1074,7 +1102,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
 
   try {
     const integrationDoc = await db.collection('tenant_integrations').doc(tenantId).get();
-    const whatsapp = integrationDoc.data()?.whatsapp;
+    const whatsapp = integrationDoc.data()?.whatsappTwilio;
     if (!whatsapp?.connected) {
       res.status(404).json({ error: 'WhatsApp integration not connected' });
       return;
@@ -1257,18 +1285,179 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
   }
 });
 
+integrationsCallbackRouter.get('/meta/whatsapp/webhook/:tenantId', async (req: Request, res: Response) => {
+  const tenantId = req.params.tenantId;
+  const mode = typeof req.query['hub.mode'] === 'string' ? req.query['hub.mode'] : '';
+  const token = typeof req.query['hub.verify_token'] === 'string' ? req.query['hub.verify_token'] : '';
+  const challenge = typeof req.query['hub.challenge'] === 'string' ? req.query['hub.challenge'] : '';
+
+  if (!tenantId || mode !== 'subscribe') {
+    res.status(403).send('Forbidden');
+    return;
+  }
+
+  try {
+    const integrationDoc = await db.collection('tenant_integrations').doc(tenantId).get();
+    const whatsapp = integrationDoc.data()?.whatsappMeta;
+    const configuredToken = typeof whatsapp?.webhookVerifyToken === 'string' ? whatsapp.webhookVerifyToken.trim() : '';
+
+    if (!whatsapp?.connected || !configuredToken || token !== configuredToken) {
+      res.status(403).send('Forbidden');
+      return;
+    }
+
+    res.status(200).send(challenge);
+  } catch (error) {
+    console.error('Meta WhatsApp webhook verification error:', error);
+    res.status(500).send('Failed to verify webhook');
+  }
+});
+
+integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: Request, res: Response) => {
+  const tenantId = req.params.tenantId;
+  if (!tenantId) {
+    res.status(400).json({ error: 'Missing tenant id' });
+    return;
+  }
+
+  try {
+    const integrationDoc = await db.collection('tenant_integrations').doc(tenantId).get();
+    const whatsapp = integrationDoc.data()?.whatsappMeta;
+
+    if (!whatsapp?.connected) {
+      res.status(200).json({ ok: true, skipped: 'integration_not_connected' });
+      return;
+    }
+
+    const entries = Array.isArray(req.body?.entry) ? req.body.entry : [];
+    for (const entry of entries) {
+      const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+      for (const change of changes) {
+        const value = change?.value;
+        const messages = Array.isArray(value?.messages) ? value.messages : [];
+        for (const incoming of messages) {
+          if (incoming?.type !== 'text' || typeof incoming?.text?.body !== 'string') continue;
+          const from = typeof incoming?.from === 'string' ? incoming.from.trim() : '';
+          const body = incoming.text.body.trim();
+          const messageId = typeof incoming?.id === 'string' ? incoming.id : null;
+          const identity = resolveConversationIdentity({ channel: 'whatsapp_meta', externalUserId: from });
+          if (!identity.externalUserId || !body) continue;
+
+          const conversationsRef = db.collection('conversations');
+          const existingConversationSnap = await conversationsRef
+            .where('tenantId', '==', tenantId)
+            .where('channel', '==', 'whatsapp_meta')
+            .where('externalUserId', '==', identity.externalUserId)
+            .where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
+            .orderBy('updatedAt', 'desc')
+            .limit(1)
+            .get();
+
+          const conversationRef = existingConversationSnap.empty
+            ? await conversationsRef.add({
+              tenantId,
+              userId: identity.scopedUserId,
+              externalUserId: identity.externalUserId,
+              channel: 'whatsapp_meta',
+              status: 'open',
+              createdAt: FieldValue.serverTimestamp(),
+              updatedAt: FieldValue.serverTimestamp(),
+            })
+            : existingConversationSnap.docs[0].ref;
+
+          await db.collection('messages').add({
+            conversationId: conversationRef.id,
+            tenantId,
+            role: 'user',
+            content: body,
+            channel: 'whatsapp_meta',
+            providerMessageId: messageId,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+
+          const historySnap = await db.collection('messages')
+            .where('conversationId', '==', conversationRef.id)
+            .orderBy('createdAt', 'asc')
+            .limit(25)
+            .get();
+
+          const history = historySnap.docs.map((doc) => {
+            const data = doc.data() as { role?: 'user' | 'assistant' | string; content?: string; imageUrls?: string[] };
+            return {
+              role: data.role === 'assistant' ? 'assistant' : 'user',
+              content: data.content ?? '',
+              imageUrls: data.imageUrls ?? [],
+            };
+          });
+
+          let responseText = '';
+          let requestHandoff = false;
+          try {
+            const agentResponse = await runConfiguredAgent(tenantId, history, {
+              userId: identity.scopedUserId,
+              externalUserId: identity.externalUserId,
+              conversationId: conversationRef.id,
+            });
+            responseText = agentResponse.text?.trim() ?? '';
+            requestHandoff = agentResponse.requestHandoff ?? false;
+          } catch (error) {
+            console.error('Meta WhatsApp AI execution failed:', error);
+            responseText = 'Sorry, I ran into a delay while checking that. Please send your message again in a moment.';
+          }
+
+          if (!responseText) continue;
+
+          await sendMetaWhatsAppTextMessage({
+            phoneNumberId: String(whatsapp.phoneNumberId ?? '').trim(),
+            accessToken: String(whatsapp.accessToken ?? '').trim(),
+            to: identity.externalUserId,
+            body: responseText,
+          });
+
+          await db.collection('messages').add({
+            conversationId: conversationRef.id,
+            tenantId,
+            role: 'assistant',
+            content: responseText,
+            channel: 'whatsapp_meta',
+            createdAt: FieldValue.serverTimestamp(),
+          });
+
+          const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+          if (requestHandoff) {
+            updates.status = 'handoff_requested';
+          }
+          await conversationRef.update(updates);
+        }
+      }
+    }
+
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    console.error('Meta WhatsApp webhook processing error:', error);
+    res.status(500).json({ error: 'Failed to process Meta WhatsApp webhook' });
+  }
+});
+
+
 
 /** Tenant-scoped integration routes (auth, status, disconnect). */
 export const tenantIntegrationsRouter: Router = Router({ mergeParams: true });
 
 tenantIntegrationsRouter.use(requireTenantParam);
 
-const updateWhatsAppBody = z.object({
+const updateWhatsAppTwilioBody = z.object({
   accountSid: z.string().min(1),
   authToken: z.string().min(1),
   whatsappNumber: z.string().min(1),
   messagingServiceSid: z.string().optional(),
   webhookSecret: z.string().optional(),
+});
+
+const updateWhatsAppMetaBody = z.object({
+  phoneNumberId: z.string().min(1),
+  accessToken: z.string().min(1),
+  webhookVerifyToken: z.string().optional(),
 });
 
 function maskSecret(secret: string): string {
@@ -1310,11 +1499,11 @@ tenantIntegrationsRouter.post('/google/disconnect', requireAuth, requireAdmin, a
   }
 });
 
-tenantIntegrationsRouter.get('/whatsapp', requireAuth, requireAdmin, async (_req, res) => {
+tenantIntegrationsRouter.get('/whatsapp/twilio', requireAuth, requireAdmin, async (_req, res) => {
   const tenantId = res.locals.tenantId as string;
   try {
     const doc = await db.collection('tenant_integrations').doc(tenantId).get();
-    const whatsapp = doc.data()?.whatsapp;
+    const whatsapp = doc.data()?.whatsappTwilio;
     if (!whatsapp) {
       res.json({ connected: false });
       return;
@@ -1331,14 +1520,14 @@ tenantIntegrationsRouter.get('/whatsapp', requireAuth, requireAdmin, async (_req
       updatedAt: whatsapp.updatedAt ?? null,
     });
   } catch (error) {
-    console.error('WhatsApp integration fetch error:', error);
-    res.status(500).json({ error: 'Failed to fetch WhatsApp integration' });
+    console.error('WhatsApp Twilio integration fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch WhatsApp Twilio integration' });
   }
 });
 
-tenantIntegrationsRouter.put('/whatsapp', requireAuth, requireAdmin, async (req, res) => {
+tenantIntegrationsRouter.put('/whatsapp/twilio', requireAuth, requireAdmin, async (req, res) => {
   const tenantId = res.locals.tenantId as string;
-  const parsed = updateWhatsAppBody.safeParse(req.body);
+  const parsed = updateWhatsAppTwilioBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
     return;
@@ -1347,7 +1536,7 @@ tenantIntegrationsRouter.put('/whatsapp', requireAuth, requireAdmin, async (req,
   try {
     await db.collection('tenant_integrations').doc(tenantId).set({
       tenantId,
-      whatsapp: {
+      whatsappTwilio: {
         ...parsed.data,
         connected: true,
         updatedAt: new Date().toISOString(),
@@ -1357,22 +1546,86 @@ tenantIntegrationsRouter.put('/whatsapp', requireAuth, requireAdmin, async (req,
 
     res.json({ ok: true, connected: true });
   } catch (error) {
-    console.error('WhatsApp integration update error:', error);
-    res.status(500).json({ error: 'Failed to save WhatsApp integration' });
+    console.error('WhatsApp Twilio integration update error:', error);
+    res.status(500).json({ error: 'Failed to save WhatsApp Twilio integration' });
   }
 });
 
-tenantIntegrationsRouter.delete('/whatsapp', requireAuth, requireAdmin, async (_req, res) => {
+tenantIntegrationsRouter.delete('/whatsapp/twilio', requireAuth, requireAdmin, async (_req, res) => {
   const tenantId = res.locals.tenantId as string;
   try {
     await db.collection('tenant_integrations').doc(tenantId).set({
       tenantId,
-      whatsapp: null,
+      whatsappTwilio: null,
       updatedAt: new Date().toISOString(),
     }, { merge: true });
     res.json({ ok: true });
   } catch (error) {
-    console.error('WhatsApp integration disconnect error:', error);
-    res.status(500).json({ error: 'Failed to disconnect WhatsApp integration' });
+    console.error('WhatsApp Twilio integration disconnect error:', error);
+    res.status(500).json({ error: 'Failed to disconnect WhatsApp Twilio integration' });
+  }
+});
+
+tenantIntegrationsRouter.get('/whatsapp/meta', requireAuth, requireAdmin, async (_req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  try {
+    const doc = await db.collection('tenant_integrations').doc(tenantId).get();
+    const whatsapp = doc.data()?.whatsappMeta;
+    if (!whatsapp) {
+      res.json({ connected: false });
+      return;
+    }
+
+    res.json({
+      connected: true,
+      phoneNumberId: whatsapp.phoneNumberId,
+      accessTokenMasked: maskSecret(whatsapp.accessToken),
+      webhookVerifyTokenMasked: whatsapp.webhookVerifyToken ? maskSecret(whatsapp.webhookVerifyToken) : '',
+      updatedAt: whatsapp.updatedAt ?? null,
+    });
+  } catch (error) {
+    console.error('WhatsApp Meta integration fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch WhatsApp Meta integration' });
+  }
+});
+
+tenantIntegrationsRouter.put('/whatsapp/meta', requireAuth, requireAdmin, async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const parsed = updateWhatsAppMetaBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    await db.collection('tenant_integrations').doc(tenantId).set({
+      tenantId,
+      whatsappMeta: {
+        ...parsed.data,
+        connected: true,
+        updatedAt: new Date().toISOString(),
+      },
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+
+    res.json({ ok: true, connected: true });
+  } catch (error) {
+    console.error('WhatsApp Meta integration update error:', error);
+    res.status(500).json({ error: 'Failed to save WhatsApp Meta integration' });
+  }
+});
+
+tenantIntegrationsRouter.delete('/whatsapp/meta', requireAuth, requireAdmin, async (_req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  try {
+    await db.collection('tenant_integrations').doc(tenantId).set({
+      tenantId,
+      whatsappMeta: null,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('WhatsApp Meta integration disconnect error:', error);
+    res.status(500).json({ error: 'Failed to disconnect WhatsApp Meta integration' });
   }
 });

@@ -97,6 +97,38 @@ curl -X POST "https://your-api.com/tenants/<tenantId>/payments/marzpay/initializ
 - **Widget**: Set `VITE_API_URL` to your API URL (e.g. `http://localhost:3001`).
 - **Admin**: Set `VITE_API_URL` and Firebase client env vars (`VITE_FIREBASE_*`).
 
+#### WhatsApp integration setup (Twilio + Meta Cloud API)
+
+You now have **three channels** in practice:
+1. Widget (web chat)
+2. WhatsApp via Twilio
+3. WhatsApp via Meta/Facebook Cloud API
+
+For WhatsApp integrations specifically:
+
+- **No extra server env var is required just to store credentials**; Twilio and Meta credentials are saved per-tenant from Admin → WhatsApp page.
+- You still need the baseline API env values above (`GEMINI_API_KEY` or `GOOGLE_API_KEY`, Firebase creds, etc.) so agent responses can be generated.
+
+Twilio (per-tenant fields in Admin):
+- `accountSid`
+- `authToken`
+- `whatsappNumber` (or messaging service SID)
+- optional `webhookSecret`
+- Configure Twilio inbound webhook to:
+  - `https://<api-domain>/integrations/twilio/whatsapp/webhook/<tenantId>`
+
+Meta Cloud API (per-tenant fields in Admin):
+- `phoneNumberId`
+- `accessToken` (prefer permanent system-user token)
+- optional `webhookVerifyToken`
+- Configure Meta webhook callback URL to:
+  - `https://<api-domain>/integrations/meta/whatsapp/webhook/<tenantId>`
+- Configure Meta webhook verify token to match the per-tenant `webhookVerifyToken` you saved in Admin.
+
+Notes:
+- Meta path currently handles text messages/replies.
+- Twilio path keeps the existing voice-note/audio behavior.
+
 ### 4. Install and run
 
 If you see peer dependency conflicts with LangChain, use: `npm install --legacy-peer-deps`.
