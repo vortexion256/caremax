@@ -385,6 +385,56 @@ async function sendMetaWhatsAppTextMessage(params: {
   }
 }
 
+async function sendMetaWhatsAppAudioMessage(params: {
+  phoneNumberId: string;
+  accessToken: string;
+  to: string;
+  mediaUrl: string;
+}): Promise<void> {
+  const res = await fetch(`https://graph.facebook.com/v22.0/${encodeURIComponent(params.phoneNumberId)}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to: params.to,
+      type: 'audio',
+      audio: {
+        link: params.mediaUrl,
+      },
+    }),
+    signal: AbortSignal.timeout(12_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Meta WhatsApp outbound audio send failed (${res.status}): ${await res.text()}`);
+  }
+}
+
+async function getMetaWhatsAppMediaDownloadInfo(params: {
+  mediaId: string;
+  accessToken: string;
+}): Promise<{ url: string; mimeType: string } | null> {
+  const res = await fetch(`https://graph.facebook.com/v22.0/${encodeURIComponent(params.mediaId)}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`,
+    },
+    signal: AbortSignal.timeout(12_000),
+  });
+
+  if (!res.ok) return null;
+
+  const payload = await res.json() as { url?: string; mime_type?: string };
+  const url = typeof payload.url === 'string' ? payload.url.trim() : '';
+  const mimeType = typeof payload.mime_type === 'string' ? payload.mime_type.trim() : '';
+
+  if (!url || !mimeType) return null;
+  return { url, mimeType };
+}
+
 
 
 function isLikelyWhatsAppVoiceNote(payload: Request['body']): boolean {
@@ -408,17 +458,14 @@ function isLikelyWhatsAppVoiceNote(payload: Request['body']): boolean {
 async function transcribeWhatsAppAudio(params: {
   mediaUrl: string;
   contentType: string;
-  accountSid: string;
-  authToken: string;
+  authHeader?: string;
 }): Promise<{ transcript: string | null; rejectedForLength: boolean }> {
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) return { transcript: null, rejectedForLength: false };
 
   try {
     const audioRes = await fetch(params.mediaUrl, {
-      headers: {
-        Authorization: twilioBasicAuthHeader(params.accountSid, params.authToken),
-      },
+      headers: params.authHeader ? { Authorization: params.authHeader } : undefined,
       signal: AbortSignal.timeout(WHATSAPP_TRANSCRIPTION_DOWNLOAD_TIMEOUT_MS),
     });
     if (!audioRes.ok) return { transcript: null, rejectedForLength: false };
@@ -920,8 +967,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         const { transcript, rejectedForLength } = await transcribeWhatsAppAudio({
           mediaUrl,
           contentType: mediaContentType,
-          accountSid,
-          authToken,
+          authHeader: twilioBasicAuthHeader(accountSid, authToken),
         });
 
         if (rejectedForLength) {
@@ -1418,6 +1464,29 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
       return;
     }
 
+    const phoneNumberId = String(whatsapp.phoneNumberId ?? '').trim();
+    const accessToken = String(whatsapp.accessToken ?? '').trim();
+    if (!phoneNumberId || !accessToken) {
+      res.status(200).json({ ok: true, skipped: 'integration_credentials_incomplete' });
+      return;
+    }
+
+    const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
+    const rawVoiceThreshold = agentConfigDoc.data()?.whatsappVoiceNoteCharThreshold;
+    const rawForceVoiceReplies = agentConfigDoc.data()?.whatsappForceVoiceReplies;
+    const rawTtsProvider = agentConfigDoc.data()?.whatsappTtsProvider;
+    const rawSunbirdTemperature = agentConfigDoc.data()?.whatsappSunbirdTemperature;
+    const voiceThreshold = typeof rawVoiceThreshold === 'number' && Number.isFinite(rawVoiceThreshold)
+      ? Math.max(0, Math.floor(rawVoiceThreshold))
+      : 0;
+    const forceVoiceReplies = rawForceVoiceReplies === true;
+    const ttsProvider: WhatsAppTtsProvider = rawTtsProvider === 'gemini-2.5-flash-preview-tts' || rawTtsProvider === 'google-cloud-tts'
+      ? rawTtsProvider
+      : 'sunbird';
+    const sunbirdTemperature = typeof rawSunbirdTemperature === 'number' && Number.isFinite(rawSunbirdTemperature)
+      ? Math.min(2, Math.max(0, rawSunbirdTemperature))
+      : 0.7;
+
     const entries = Array.isArray(req.body?.entry) ? req.body.entry : [];
     for (const entry of entries) {
       const changes = Array.isArray(entry?.changes) ? entry.changes : [];
@@ -1425,12 +1494,66 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
         const value = change?.value;
         const messages = Array.isArray(value?.messages) ? value.messages : [];
         for (const incoming of messages) {
-          if (incoming?.type !== 'text' || typeof incoming?.text?.body !== 'string') continue;
           const from = typeof incoming?.from === 'string' ? incoming.from.trim() : '';
-          const body = incoming.text.body.trim();
           const messageId = typeof incoming?.id === 'string' ? incoming.id : null;
           const identity = resolveConversationIdentity({ channel: 'whatsapp_meta', externalUserId: from });
-          if (!identity.externalUserId || !body) continue;
+          if (!identity.externalUserId) continue;
+
+          let body = '';
+          let cameFromVoiceNote = false;
+
+          if (incoming?.type === 'text' && typeof incoming?.text?.body === 'string') {
+            body = incoming.text.body.trim();
+          }
+
+          if (!body && incoming?.type === 'audio' && typeof incoming?.audio?.id === 'string') {
+            const mediaId = incoming.audio.id.trim();
+            if (mediaId) {
+              const mediaInfo = await getMetaWhatsAppMediaDownloadInfo({ mediaId, accessToken });
+              if (mediaInfo?.url && mediaInfo.mimeType.startsWith('audio/')) {
+                const { transcript, rejectedForLength } = await transcribeWhatsAppAudio({
+                  mediaUrl: mediaInfo.url,
+                  contentType: mediaInfo.mimeType,
+                  authHeader: `Bearer ${accessToken}`,
+                });
+
+                if (rejectedForLength) {
+                  await sendMetaWhatsAppTextMessage({
+                    phoneNumberId,
+                    accessToken,
+                    to: identity.externalUserId,
+                    body: 'That voice note is too large. Please keep audio messages under 2 minutes and send shorter clips.',
+                  });
+                  continue;
+                }
+
+                if (transcript) {
+                  body = transcript;
+                  cameFromVoiceNote = true;
+                } else {
+                  await sendMetaWhatsAppTextMessage({
+                    phoneNumberId,
+                    accessToken,
+                    to: identity.externalUserId,
+                    body: 'We could not read that message yet. Please send text or a clearer voice note.',
+                  });
+                  continue;
+                }
+              } else {
+                await sendMetaWhatsAppTextMessage({
+                  phoneNumberId,
+                  accessToken,
+                  to: identity.externalUserId,
+                  body: 'We could not read that message yet. Please send text or a clearer voice note.',
+                });
+                continue;
+              }
+            }
+          }
+
+          if (!body) {
+            continue;
+          }
 
           const conversationsRef = db.collection('conversations');
           const existingConversationSnap = await conversationsRef
@@ -1461,6 +1584,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             content: body,
             channel: 'whatsapp_meta',
             providerMessageId: messageId,
+            ...(cameFromVoiceNote ? { metadata: { source: 'voice_note' } } : {}),
             createdAt: FieldValue.serverTimestamp(),
           });
 
@@ -1481,11 +1605,15 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
 
           let responseText = '';
           let requestHandoff = false;
+          const latestUserMessage = [...history].reverse().find((message) => message.role === 'user')?.content ?? '';
+          const detectedUserLanguage = getLanguagePreferenceInstructionTag(await detectLanguageWithAi(latestUserMessage));
+
           try {
-            const agentResponse = await runConfiguredAgent(tenantId, history, {
+            const agentResponse = await runAgentWithRetry(tenantId, history, {
               userId: identity.scopedUserId,
               externalUserId: identity.externalUserId,
               conversationId: conversationRef.id,
+              preferredResponseLanguage: detectedUserLanguage,
             });
             responseText = agentResponse.text?.trim() ?? '';
             requestHandoff = agentResponse.requestHandoff ?? false;
@@ -1497,11 +1625,43 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
           if (!responseText) continue;
 
           await sendMetaWhatsAppTextMessage({
-            phoneNumberId: String(whatsapp.phoneNumberId ?? '').trim(),
-            accessToken: String(whatsapp.accessToken ?? '').trim(),
+            phoneNumberId,
+            accessToken,
             to: identity.externalUserId,
             body: responseText,
           });
+
+          const responseLanguage = await detectLanguageWithAi(responseText);
+          const isLugandaReply = responseLanguage ? isLugandaLanguageTag(responseLanguage) : false;
+          const resolvedTtsProvider = resolveLanguageAwareTtsProvider({
+            configuredProvider: ttsProvider,
+            responseLanguage,
+          });
+          const exceedsVoiceThreshold = voiceThreshold > 0 && responseText.length >= voiceThreshold;
+          const shouldTryVoiceReply = isLugandaReply || forceVoiceReplies || exceedsVoiceThreshold;
+          const shouldCleanVoiceText = voiceThreshold <= 0 || exceedsVoiceThreshold;
+
+          if (shouldTryVoiceReply) {
+            try {
+              const voiceUrl = await generateVoiceMediaUrl({
+                tenantId,
+                text: responseText,
+                provider: resolvedTtsProvider,
+                sunbirdTemperature,
+                shouldCleanText: shouldCleanVoiceText,
+              });
+              if (voiceUrl) {
+                await sendMetaWhatsAppAudioMessage({
+                  phoneNumberId,
+                  accessToken,
+                  to: identity.externalUserId,
+                  mediaUrl: voiceUrl,
+                });
+              }
+            } catch (error) {
+              console.warn('Failed to generate/send Meta WhatsApp voice reply:', error);
+            }
+          }
 
           await db.collection('messages').add({
             conversationId: conversationRef.id,
