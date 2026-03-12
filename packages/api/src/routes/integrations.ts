@@ -177,7 +177,7 @@ function xmlEmptyResponse(): string {
   return '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 }
 
-const WHATSAPP_PENDING_REPLY_TEXT = 'Thanks for your message. I am checking and will reply shortly.';
+const WHATSAPP_PENDING_REPLY_TEXT = 'Please hold on while I prepare the response.';
 const WHATSAPP_PENDING_REPLY_DELAY_MS = 10_000;
 const WHATSAPP_MAX_VOICE_NOTE_DURATION_SECONDS = 120;
 const WHATSAPP_MAX_AUDIO_BYTES = 6 * 1024 * 1024;
@@ -1151,6 +1151,10 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     } catch (error) {
       console.error('WhatsApp async processor AI execution failed:', error);
       responseText = 'Sorry, I ran into a delay while checking that. Please send your message again in a moment.';
+    }
+
+    if (responseText.includes(pendingReplyText) && responseText !== pendingReplyText) {
+      responseText = pendingReplyText;
     }
 
     if (!responseText || responseText === pendingReplyText) {
