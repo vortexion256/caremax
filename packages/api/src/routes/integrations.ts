@@ -1309,13 +1309,12 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       To: outboundTo,
     });
     const responseLanguage = await detectLanguageWithAi(responseText);
-    const isLugandaReply = responseLanguage ? isLugandaLanguageTag(responseLanguage) : false;
     const resolvedTtsProvider = resolveLanguageAwareTtsProvider({
       configuredProvider: ttsProvider,
       responseLanguage,
     });
     const exceedsVoiceThreshold = voiceThreshold > 0 && responseText.length >= voiceThreshold;
-    const shouldTryVoiceReply = isLugandaReply || forceVoiceReplies || exceedsVoiceThreshold;
+    const shouldTryVoiceReply = forceVoiceReplies || exceedsVoiceThreshold;
     const shouldCleanVoiceText = voiceThreshold <= 0 || exceedsVoiceThreshold;
 
     let hasVoiceReply = false;
@@ -1630,13 +1629,12 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
           if (!responseText) continue;
 
           const responseLanguage = await detectLanguageWithAi(responseText);
-          const isLugandaReply = responseLanguage ? isLugandaLanguageTag(responseLanguage) : false;
           const resolvedTtsProvider = resolveLanguageAwareTtsProvider({
             configuredProvider: ttsProvider,
             responseLanguage,
           });
           const exceedsVoiceThreshold = voiceThreshold > 0 && responseText.length >= voiceThreshold;
-          const shouldTryVoiceReply = isLugandaReply || forceVoiceReplies || exceedsVoiceThreshold;
+          const shouldTryVoiceReply = forceVoiceReplies || exceedsVoiceThreshold;
           const shouldCleanVoiceText = voiceThreshold <= 0 || exceedsVoiceThreshold;
           let voiceReplySent = false;
 
