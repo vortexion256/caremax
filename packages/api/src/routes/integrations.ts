@@ -179,7 +179,6 @@ function xmlEmptyResponse(): string {
 
 const WHATSAPP_PENDING_REPLY_TEXT = 'Please hold on while I prepare the response.';
 const WHATSAPP_PENDING_REPLY_DELAY_MS = 10_000;
-const WHATSAPP_MESSAGE_DEDUP_WINDOW_MS = 20_000;
 const WHATSAPP_PROCESS_COALESCE_DELAY_MS = 1_200;
 const WHATSAPP_PROCESS_LOCK_TTL_MS = 60_000;
 const WHATSAPP_MAX_VOICE_NOTE_DURATION_SECONDS = 120;
@@ -213,8 +212,26 @@ function isAbortTimeoutError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'TimeoutError';
 }
 
-function normalizeInboundMessageText(value: string): string {
-  return value.trim().replace(/\s+/g, ' ').toLowerCase();
+function buildMetaWebhookEventDedupId(tenantId: string, messageId: string): string {
+  return `${tenantId}:${messageId}`;
+}
+
+async function claimMetaWebhookMessage(tenantId: string, messageId: string): Promise<boolean> {
+  const dedupRef = db.collection('meta_whatsapp_webhook_events').doc(buildMetaWebhookEventDedupId(tenantId, messageId));
+  try {
+    await dedupRef.create({
+      tenantId,
+      messageId,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    return true;
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    if (code === 6 || code === 'already-exists') {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function cleanLugandaTextForSunbirdTts(text: string): Promise<string> {
@@ -1012,33 +1029,6 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       : existingConversationSnap.docs[0].ref;
 
 
-    const normalizedBody = normalizeInboundMessageText(body);
-    const lastUserMessageSnap = await db
-      .collection('messages')
-      .where('conversationId', '==', conversationRef.id)
-      .where('role', '==', 'user')
-      .orderBy('createdAt', 'desc')
-      .limit(1)
-      .get();
-
-    const lastUserMessage = lastUserMessageSnap.docs[0]?.data() as { content?: unknown; createdAt?: unknown } | undefined;
-    const lastUserCreatedAt =
-      lastUserMessage?.createdAt && typeof (lastUserMessage.createdAt as { toMillis?: unknown }).toMillis === 'function'
-        ? (lastUserMessage.createdAt as { toMillis: () => number }).toMillis()
-        : null;
-    const isLikelyDuplicateUserMessage =
-      typeof lastUserMessage?.content === 'string'
-      && normalizeInboundMessageText(lastUserMessage.content) === normalizedBody
-      && typeof lastUserCreatedAt === 'number'
-      && (Date.now() - lastUserCreatedAt) <= WHATSAPP_MESSAGE_DEDUP_WINDOW_MS;
-
-    if (isLikelyDuplicateUserMessage) {
-      await conversationRef.update({ updatedAt: FieldValue.serverTimestamp() });
-      res.set('Content-Type', 'text/xml');
-      res.status(200).send(xmlEmptyResponse());
-      return;
-    }
-
     await db.collection('messages').add({
       conversationId: conversationRef.id,
       tenantId,
@@ -1317,7 +1307,6 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
 
     const payload = new URLSearchParams({
       To: outboundTo,
-      Body: responseText,
     });
     const responseLanguage = await detectLanguageWithAi(responseText);
     const isLugandaReply = responseLanguage ? isLugandaLanguageTag(responseLanguage) : false;
@@ -1329,6 +1318,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     const shouldTryVoiceReply = isLugandaReply || forceVoiceReplies || exceedsVoiceThreshold;
     const shouldCleanVoiceText = voiceThreshold <= 0 || exceedsVoiceThreshold;
 
+    let hasVoiceReply = false;
     if (shouldTryVoiceReply) {
       try {
         const voiceUrl = await generateVoiceMediaUrl({
@@ -1340,10 +1330,15 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
         });
         if (voiceUrl) {
           payload.set('MediaUrl', voiceUrl);
+          hasVoiceReply = true;
         }
       } catch (error) {
         console.warn('Failed to generate WhatsApp voice reply:', error);
       }
+    }
+
+    if (!hasVoiceReply) {
+      payload.set('Body', responseText);
     }
 
     if (messagingServiceSid) {
@@ -1495,9 +1490,19 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
         const messages = Array.isArray(value?.messages) ? value.messages : [];
         for (const incoming of messages) {
           const from = typeof incoming?.from === 'string' ? incoming.from.trim() : '';
-          const messageId = typeof incoming?.id === 'string' ? incoming.id : null;
+          const messageId = typeof incoming?.id === 'string' ? incoming.id.trim() : null;
           const identity = resolveConversationIdentity({ channel: 'whatsapp_meta', externalUserId: from });
           if (!identity.externalUserId) continue;
+
+          if (!messageId) {
+            console.warn('Skipping Meta WhatsApp message without message id.', { tenantId, from });
+            continue;
+          }
+
+          const claimedMessage = await claimMetaWebhookMessage(tenantId, messageId);
+          if (!claimedMessage) {
+            continue;
+          }
 
           let body = '';
           let cameFromVoiceNote = false;
@@ -1624,13 +1629,6 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
 
           if (!responseText) continue;
 
-          await sendMetaWhatsAppTextMessage({
-            phoneNumberId,
-            accessToken,
-            to: identity.externalUserId,
-            body: responseText,
-          });
-
           const responseLanguage = await detectLanguageWithAi(responseText);
           const isLugandaReply = responseLanguage ? isLugandaLanguageTag(responseLanguage) : false;
           const resolvedTtsProvider = resolveLanguageAwareTtsProvider({
@@ -1640,6 +1638,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
           const exceedsVoiceThreshold = voiceThreshold > 0 && responseText.length >= voiceThreshold;
           const shouldTryVoiceReply = isLugandaReply || forceVoiceReplies || exceedsVoiceThreshold;
           const shouldCleanVoiceText = voiceThreshold <= 0 || exceedsVoiceThreshold;
+          let voiceReplySent = false;
 
           if (shouldTryVoiceReply) {
             try {
@@ -1657,10 +1656,20 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
                   to: identity.externalUserId,
                   mediaUrl: voiceUrl,
                 });
+                voiceReplySent = true;
               }
             } catch (error) {
               console.warn('Failed to generate/send Meta WhatsApp voice reply:', error);
             }
+          }
+
+          if (!voiceReplySent) {
+            await sendMetaWhatsAppTextMessage({
+              phoneNumberId,
+              accessToken,
+              to: identity.externalUserId,
+              body: responseText,
+            });
           }
 
           await db.collection('messages').add({
