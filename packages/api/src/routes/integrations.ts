@@ -14,7 +14,7 @@ import { createTenantNotification } from '../services/tenant-notifications.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
 import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, upsertXPersonProfile } from '../services/xperson-profile.js';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
 import { google } from 'googleapis';
 import { tmpdir } from 'os';
@@ -179,6 +179,9 @@ function xmlEmptyResponse(): string {
 
 const WHATSAPP_PENDING_REPLY_TEXT = 'Please hold on while I prepare the response.';
 const WHATSAPP_PENDING_REPLY_DELAY_MS = 10_000;
+const WHATSAPP_MESSAGE_DEDUP_WINDOW_MS = 20_000;
+const WHATSAPP_PROCESS_COALESCE_DELAY_MS = 1_200;
+const WHATSAPP_PROCESS_LOCK_TTL_MS = 60_000;
 const WHATSAPP_MAX_VOICE_NOTE_DURATION_SECONDS = 120;
 const WHATSAPP_MAX_AUDIO_BYTES = 6 * 1024 * 1024;
 const WHATSAPP_TRANSCRIPTION_DOWNLOAD_TIMEOUT_MS = 35_000;
@@ -208,6 +211,10 @@ function normalizeTextForSunbirdTts(text: string): string {
 
 function isAbortTimeoutError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'TimeoutError';
+}
+
+function normalizeInboundMessageText(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 async function cleanLugandaTextForSunbirdTts(text: string): Promise<string> {
@@ -931,6 +938,33 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       : existingConversationSnap.docs[0].ref;
 
 
+    const normalizedBody = normalizeInboundMessageText(body);
+    const lastUserMessageSnap = await db
+      .collection('messages')
+      .where('conversationId', '==', conversationRef.id)
+      .where('role', '==', 'user')
+      .orderBy('createdAt', 'desc')
+      .limit(1)
+      .get();
+
+    const lastUserMessage = lastUserMessageSnap.docs[0]?.data() as { content?: unknown; createdAt?: unknown } | undefined;
+    const lastUserCreatedAt =
+      lastUserMessage?.createdAt && typeof (lastUserMessage.createdAt as { toMillis?: unknown }).toMillis === 'function'
+        ? (lastUserMessage.createdAt as { toMillis: () => number }).toMillis()
+        : null;
+    const isLikelyDuplicateUserMessage =
+      typeof lastUserMessage?.content === 'string'
+      && normalizeInboundMessageText(lastUserMessage.content) === normalizedBody
+      && typeof lastUserCreatedAt === 'number'
+      && (Date.now() - lastUserCreatedAt) <= WHATSAPP_MESSAGE_DEDUP_WINDOW_MS;
+
+    if (isLikelyDuplicateUserMessage) {
+      await conversationRef.update({ updatedAt: FieldValue.serverTimestamp() });
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlEmptyResponse());
+      return;
+    }
+
     await db.collection('messages').add({
       conversationId: conversationRef.id,
       tenantId,
@@ -1072,6 +1106,9 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     return;
   }
 
+  const conversationRef = db.collection('conversations').doc(conversationId);
+  const processingToken = randomUUID();
+
   try {
     const integrationDoc = await db.collection('tenant_integrations').doc(tenantId).get();
     const whatsapp = integrationDoc.data()?.whatsapp;
@@ -1089,7 +1126,41 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       }
     }
 
-    const conversationRef = db.collection('conversations').doc(conversationId);
+    const lockAcquired = await db.runTransaction(async (tx) => {
+      const conversationSnap = await tx.get(conversationRef);
+      const conversationData = conversationSnap.data() ?? {};
+
+      if (conversationData.tenantId !== tenantId) {
+        return { ok: false as const, reason: 'conversation_not_found' as const };
+      }
+      if (conversationData.status === 'human_joined') {
+        return { ok: false as const, reason: 'human_joined' as const };
+      }
+
+      const lockUntil =
+        conversationData.whatsappProcessingLockUntil
+        && typeof (conversationData.whatsappProcessingLockUntil as { toMillis?: unknown }).toMillis === 'function'
+          ? (conversationData.whatsappProcessingLockUntil as { toMillis: () => number }).toMillis()
+          : null;
+
+      if (typeof lockUntil === 'number' && lockUntil > Date.now()) {
+        return { ok: false as const, reason: 'processing_in_progress' as const };
+      }
+
+      tx.update(conversationRef, {
+        whatsappProcessingToken: processingToken,
+        whatsappProcessingLockUntil: Timestamp.fromMillis(Date.now() + WHATSAPP_PROCESS_LOCK_TTL_MS),
+      });
+
+      return { ok: true as const };
+    });
+
+    if (!lockAcquired.ok) {
+      const statusCode = lockAcquired.reason === 'conversation_not_found' ? 404 : 200;
+      res.status(statusCode).json({ ok: true, skipped: lockAcquired.reason });
+      return;
+    }
+
     const conversationData = (await conversationRef.get()).data() ?? {};
     if (conversationData.tenantId !== tenantId) {
       res.status(404).json({ error: 'Conversation not found' });
@@ -1099,6 +1170,8 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       res.status(200).json({ ok: true, skipped: 'human_joined' });
       return;
     }
+
+    await new Promise<void>((resolve) => setTimeout(resolve, WHATSAPP_PROCESS_COALESCE_DELAY_MS));
 
     const historySnap = await db
       .collection('messages')
@@ -1254,6 +1327,22 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
   } catch (error) {
     console.error('Twilio WhatsApp async processing error:', error);
     res.status(500).json({ error: 'Failed to process async WhatsApp response' });
+  } finally {
+    try {
+      await db.runTransaction(async (tx) => {
+        const conversationSnap = await tx.get(conversationRef);
+        const conversationData = conversationSnap.data() ?? {};
+        if (conversationData.whatsappProcessingToken !== processingToken) {
+          return;
+        }
+        tx.update(conversationRef, {
+          whatsappProcessingToken: FieldValue.delete(),
+          whatsappProcessingLockUntil: FieldValue.delete(),
+        });
+      });
+    } catch (unlockError) {
+      console.warn('Failed to release WhatsApp processing lock:', unlockError);
+    }
   }
 });
 
