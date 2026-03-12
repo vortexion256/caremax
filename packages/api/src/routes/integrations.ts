@@ -465,7 +465,7 @@ function getWhatsAppAudioDurationSeconds(payload: Request['body']): number | nul
 async function runAgentWithRetry(
   tenantId: string,
   history: Array<{ role: string; content: string; imageUrls?: string[] }>,
-  context: { userId: string; externalUserId: string; conversationId: string },
+  context: { userId: string; externalUserId: string; conversationId: string; preferredResponseLanguage?: 'luganda' | 'english' | null },
 ): Promise<{ text?: string; requestHandoff?: boolean }> {
   try {
     return await withTimeout(
@@ -779,7 +779,7 @@ function resolveLanguageAwareTtsProvider(params: {
   return params.configuredProvider;
 }
 
-async function detectResponseLanguageWithAi(text: string): Promise<string | null> {
+async function detectLanguageWithAi(text: string): Promise<string | null> {
   const input = text.trim();
   if (!input) return null;
 
@@ -819,9 +819,16 @@ async function detectResponseLanguageWithAi(text: string): Promise<string | null
     const cleaned = raw.replace(/[^a-z\-]/g, ' ').trim().split(/\s+/)[0] ?? '';
     return cleaned || null;
   } catch (error) {
-    console.warn('Failed to detect WhatsApp response language via AI:', error);
+    console.warn('Failed to detect WhatsApp language via AI:', error);
     return null;
   }
+}
+
+function getLanguagePreferenceInstructionTag(languageTag: string | null): 'luganda' | 'english' | null {
+  if (!languageTag) return null;
+  if (isLugandaLanguageTag(languageTag)) return 'luganda';
+  if (isEnglishLanguageTag(languageTag)) return 'english';
+  return null;
 }
 
 integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req: Request, res: Response) => {
@@ -1129,11 +1136,15 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       ? Math.min(2, Math.max(0, rawSunbirdTemperature))
       : 0.7;
 
+    const latestUserMessage = [...history].reverse().find((message) => message.role === 'user')?.content ?? '';
+    const detectedUserLanguage = getLanguagePreferenceInstructionTag(await detectLanguageWithAi(latestUserMessage));
+
     try {
       const agentResponse = await runAgentWithRetry(tenantId, history, {
           userId: identity.scopedUserId,
           externalUserId: identity.externalUserId,
           conversationId,
+          preferredResponseLanguage: detectedUserLanguage,
         });
       responseText = agentResponse.text?.trim() ?? '';
       requestHandoff = agentResponse.requestHandoff ?? false;
@@ -1157,7 +1168,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       To: outboundTo,
       Body: responseText,
     });
-    const responseLanguage = await detectResponseLanguageWithAi(responseText);
+    const responseLanguage = await detectLanguageWithAi(responseText);
     const isLugandaReply = responseLanguage ? isLugandaLanguageTag(responseLanguage) : false;
     const resolvedTtsProvider = resolveLanguageAwareTtsProvider({
       configuredProvider: ttsProvider,

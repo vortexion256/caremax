@@ -104,7 +104,7 @@ async function toLangChainMessages(
 export async function runAgentV2(
   tenantId: string,
   history: { role: string; content: string; imageUrls?: string[] }[],
-  options?: { userId?: string; externalUserId?: string; conversationId?: string }
+  options?: { userId?: string; externalUserId?: string; conversationId?: string; preferredResponseLanguage?: 'luganda' | 'english' | null }
 ): Promise<AgentResult> {
   try {
     const config = await getAgentConfig(tenantId);

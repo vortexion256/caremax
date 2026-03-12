@@ -368,7 +368,7 @@ function hasMultipleUserTurns(history: { role: string }[]): boolean {
 export async function runAgent(
   tenantId: string,
   history: { role: string; content: string; imageUrls?: string[] }[],
-  options?: { userId?: string; externalUserId?: string; conversationId?: string }
+  options?: { userId?: string; externalUserId?: string; conversationId?: string; preferredResponseLanguage?: 'luganda' | 'english' | null }
 ): Promise<AgentResult> {
   const runStartedAt = Date.now();
   const config = await getAgentConfig(tenantId);
@@ -388,6 +388,11 @@ export async function runAgent(
   const historyInstruction = `Use the full conversation history. Messages labeled "[Care team said to the user]: ..." are from a human care team member—treat them as what was actually said to the user. When the user asks what was recommended, what the care team said, or "what did you say?" / "what's the best?", answer in one short paragraph using only that history (e.g. "The care team suggested Panado Extra for your pain."). Do not repeat the same sentence or block twice in one reply. Do not repeat long triage unless the user asks for more detail.`;
   const imageInstruction = `When the user attaches images, they are included in the conversation and you can see them. Describe what you observe when relevant (e.g. for symptoms, skin, wounds) and suggest next steps. Do not say you cannot see images or that images are not available—you receive them when the user sends them.`;
   const toneInstruction = `Tone: Be natural and concise. For "hi", "hello", or "how are you?" reply in one short sentence (e.g. "Hi! How can I help?" or "Doing well, thanks—what can I help with?"). Do not repeat "I am [name], a clinical triage assistant" or "How can I assist you with your health concerns today?" in every message—say it only when the user asks who you are or what you do. Vary your wording; avoid the same phrases in every reply.`;
+  const languagePreferenceInstruction = options?.preferredResponseLanguage === 'luganda'
+    ? 'Language preference: The user most recently wrote in Luganda. Reply in natural Luganda unless they explicitly ask for another language.'
+    : (options?.preferredResponseLanguage === 'english'
+      ? 'Language preference: The user most recently wrote in English. Reply in English unless they explicitly ask for another language.'
+      : '');
 
   const escalationInstruction = `
 Escalation to a human: When EITHER of the following is true, you MUST end your reply with exactly "${HANDOFF_MARKER}" on a new line (the user will not see this; the system will connect them to a care team member).
@@ -437,7 +442,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   }
 
 
-  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}`;
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}`;
   if (config.ragEnabled) {
     const lastUser = history.filter((m) => m.role === 'user').pop();
     // Add timeout for RAG context retrieval (5 seconds)
