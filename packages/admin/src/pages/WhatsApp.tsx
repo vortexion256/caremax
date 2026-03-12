@@ -181,6 +181,7 @@ export default function WhatsAppIntegration() {
   const apiBaseUrl = (import.meta.env.VITE_API_URL ?? window.location.origin.replace('5173', '3001')).replace(/\/+$/, '');
   const twilioWebhookUrl = `${apiBaseUrl}/integrations/twilio/whatsapp/webhook/${tenantId}`;
   const metaWebhookUrl = `${apiBaseUrl}/integrations/meta/whatsapp/webhook/${tenantId}`;
+  const statusFieldStyle = { overflowWrap: 'anywhere' as const, wordBreak: 'break-word' as const };
 
   return (
     <div style={{ display: 'grid', gap: 20 }}>
@@ -205,10 +206,10 @@ export default function WhatsAppIntegration() {
             </div>
             {twilioStatus.connected && (
               <div style={{ marginTop: 10, color: '#475569', fontSize: 14, display: 'grid', gap: 4 }}>
-                <span>WhatsApp Number: {twilioStatus.whatsappNumber}</span>
-                <span>Twilio SID: {twilioStatus.accountSidMasked}</span>
-                <span>Auth Token: {twilioStatus.authTokenMasked}</span>
-                {twilioStatus.webhookSecretMasked && <span>Webhook Secret: {twilioStatus.webhookSecretMasked}</span>}
+                <span style={statusFieldStyle}>WhatsApp Number: {twilioStatus.whatsappNumber}</span>
+                <span style={statusFieldStyle}>Twilio SID: {twilioStatus.accountSidMasked}</span>
+                <span style={statusFieldStyle}>Auth Token: {twilioStatus.authTokenMasked}</span>
+                {twilioStatus.webhookSecretMasked && <span style={statusFieldStyle}>Webhook Secret: {twilioStatus.webhookSecretMasked}</span>}
               </div>
             )}
           </div>
@@ -260,9 +261,9 @@ export default function WhatsAppIntegration() {
             </div>
             {metaStatus.connected && (
               <div style={{ marginTop: 10, color: '#475569', fontSize: 14, display: 'grid', gap: 4 }}>
-                <span>Phone Number ID: {metaStatus.phoneNumberId}</span>
-                <span>Access Token: {metaStatus.accessTokenMasked}</span>
-                {metaStatus.webhookVerifyTokenMasked && <span>Verify Token: {metaStatus.webhookVerifyTokenMasked}</span>}
+                <span style={statusFieldStyle}>Phone Number ID: {metaStatus.phoneNumberId}</span>
+                <span style={statusFieldStyle}>Access Token: {metaStatus.accessTokenMasked}</span>
+                {metaStatus.webhookVerifyTokenMasked && <span style={statusFieldStyle}>Verify Token: {metaStatus.webhookVerifyTokenMasked}</span>}
               </div>
             )}
           </div>
