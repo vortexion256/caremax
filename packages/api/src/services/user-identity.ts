@@ -25,20 +25,22 @@ export function normalizeWidgetExternalUserId(raw: string | undefined | null): s
   return trimmed.replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 120) || null;
 }
 
-export function buildScopedUserId(channel: 'widget' | 'whatsapp', externalUserId: string): string {
+export function buildScopedUserId(channel: 'widget' | 'whatsapp' | 'whatsapp_meta', externalUserId: string): string {
   return `${channel}:${externalUserId}`;
 }
 
 export function resolveConversationIdentity(params: {
-  channel: 'widget' | 'whatsapp';
+  channel: 'widget' | 'whatsapp' | 'whatsapp_meta';
   externalUserId?: string | null;
   fallbackUserId?: string | null;
 }): { externalUserId: string; scopedUserId: string } {
-  const normalizedExternal = params.channel === 'whatsapp'
+  const usesPhoneNormalization = params.channel === 'whatsapp' || params.channel === 'whatsapp_meta';
+
+  const normalizedExternal = usesPhoneNormalization
     ? normalizeWhatsAppExternalUserId(params.externalUserId)
     : normalizeWidgetExternalUserId(params.externalUserId);
 
-  const normalizedFallback = params.channel === 'whatsapp'
+  const normalizedFallback = usesPhoneNormalization
     ? normalizeWhatsAppExternalUserId(params.fallbackUserId)
     : normalizeWidgetExternalUserId(params.fallbackUserId);
 
