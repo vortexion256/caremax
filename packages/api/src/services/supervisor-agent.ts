@@ -3,6 +3,9 @@ import { HumanMessage, AIMessage, SystemMessage, type BaseMessage } from '@langc
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { getAgentConfig } from './agent.js';
+import { extractTokenUsage, recordUsage } from './token-usage.js';
+
+type UsageContext = { tenantId: string; userId?: string; conversationId?: string; modelName?: string };
 
 export type ActionPlan = {
   actionsRequired: boolean;
@@ -44,7 +47,8 @@ export class SupervisorAgent {
   async analyzeAndPlan(
     userMessage: string,
     conversationHistory: Array<{ role: string; content: string }>,
-    availableTools: string[]
+    availableTools: string[],
+    usageContext?: UsageContext
   ): Promise<ActionPlan> {
     const systemPrompt = `You are a supervisor agent that creates high-level roadmaps to guide the main agent.
 
@@ -116,6 +120,14 @@ Analyze this request and create a step-by-step action plan. Use create_action_pl
 
     const modelWithTools = this.model.bindTools([planTool]);
     const response = await modelWithTools.invoke(messages);
+    if (usageContext?.tenantId) {
+      await recordUsage(usageContext.modelName ?? 'gemini-3-flash-preview', extractTokenUsage(response), {
+        tenantId: usageContext.tenantId,
+        userId: usageContext.userId,
+        conversationId: usageContext.conversationId,
+        usageType: 'supervisor.plan',
+      });
+    }
 
     // Extract plan from response
     const toolCalls = (response as { tool_calls?: Array<{ name: string; args?: unknown }> }).tool_calls;
@@ -175,7 +187,8 @@ Analyze this request and create a step-by-step action plan. Use create_action_pl
     plan: ActionPlan,
     userMessage: string,
     conversationHistory: Array<{ role: string; content: string }>,
-    completedSteps?: Array<{ step: number; result: string; success: boolean }>
+    completedSteps?: Array<{ step: number; result: string; success: boolean }>,
+    usageContext?: UsageContext
   ): Promise<{ currentStepGuidance: string; nextStep?: number; allStepsCompleted: boolean }> {
     const systemPrompt = `You are a supervisor agent tracking progress and providing guidance to the main agent.
 
@@ -233,6 +246,14 @@ Review the plan and provide guidance on what step the main agent should focus on
 
     const modelWithTools = this.model.bindTools([guidanceTool]);
     const response = await modelWithTools.invoke(messages);
+    if (usageContext?.tenantId) {
+      await recordUsage(usageContext.modelName ?? 'gemini-3-flash-preview', extractTokenUsage(response), {
+        tenantId: usageContext.tenantId,
+        userId: usageContext.userId,
+        conversationId: usageContext.conversationId,
+        usageType: 'supervisor.progress',
+      });
+    }
 
     const toolCalls = (response as { tool_calls?: Array<{ name: string; args?: unknown }> }).tool_calls;
     if (toolCalls && toolCalls.length > 0) {

@@ -980,7 +980,12 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
       });
       
       const lastUserMessage = history.filter((m) => m.role === 'user').pop()?.content ?? '';
-      const intent = await extractIntent(model, lastUserMessage, history);
+      const intent = await extractIntent(model, lastUserMessage, history, {
+        tenantId,
+        userId: options?.userId,
+        conversationId: options?.conversationId,
+        modelName: config.model,
+      });
       
       const analysis = await analyzeEmptyResponse(
         model,

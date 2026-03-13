@@ -123,7 +123,12 @@ export async function runAgentV2(
     // STEP 1: DECOMPOSITION (Decomposer layer)
     // ========================================================================
     const lastUserMessage = history.filter((m) => m.role === 'user').pop()?.content ?? '';
-    const decomposition = await decomposeQuestion(model, lastUserMessage, history);
+    const decomposition = await decomposeQuestion(model, lastUserMessage, history, {
+      tenantId,
+      userId: options?.userId,
+      conversationId: options?.conversationId,
+      modelName: config.model,
+    });
     
     // If complex, we handle the first part and inform the user about the rest
     // This prevents the agent from getting lost in multi-part questions
@@ -138,7 +143,12 @@ export async function runAgentV2(
     // ========================================================================
     // STEP 1.1: INTENT EXTRACTION (LLM suggests)
     // ========================================================================
-    const intent = await extractIntent(model, currentTask, history);
+    const intent = await extractIntent(model, currentTask, history, {
+      tenantId,
+      userId: options?.userId,
+      conversationId: options?.conversationId,
+      modelName: config.model,
+    });
     const wantsHumanHandoff = intent.intent === 'request_human';
 
     // Early exit for human handoff
@@ -171,7 +181,12 @@ export async function runAgentV2(
       }
     }
 
-    const planningDecision = await decideIfNeedsPlanning(model, intent, currentTask, history);
+    const planningDecision = await decideIfNeedsPlanning(model, intent, currentTask, history, {
+      tenantId,
+      userId: options?.userId,
+      conversationId: options?.conversationId,
+      modelName: config.model,
+    });
 
     // Create plan if needed and no active plan exists
     if (planningDecision.needsPlanning && !executionPlan) {
@@ -197,7 +212,13 @@ export async function runAgentV2(
         intent,
         currentTask,
         history,
-        availableTools
+        availableTools,
+        {
+          tenantId,
+          userId: options?.userId,
+          conversationId: options?.conversationId,
+          modelName: config.model,
+        }
       );
 
       // Save new plan to database
@@ -216,7 +237,13 @@ export async function runAgentV2(
         const question = await formatMissingInfoQuestion(
           model,
           executionPlan.missingInfo,
-          `User wants to: ${intent.intent}. ${executionPlan.description}`
+          `User wants to: ${intent.intent}. ${executionPlan.description}`,
+          {
+            tenantId,
+            userId: options?.userId,
+            conversationId: options?.conversationId,
+            modelName: config.model,
+          }
         );
         return {
           text: question,
@@ -233,7 +260,13 @@ export async function runAgentV2(
           const question = await formatConfirmationQuestion(
             model,
             stepToConfirm,
-            `User wants to: ${intent.intent}. ${executionPlan.description}`
+            `User wants to: ${intent.intent}. ${executionPlan.description}`,
+            {
+              tenantId,
+              userId: options?.userId,
+              conversationId: options?.conversationId,
+              modelName: config.model,
+            }
           );
           return {
             text: question,
@@ -538,7 +571,13 @@ Follow this plan step by step. Execute each step in order.`;
             const question = await formatMissingInfoQuestion(
               model,
               missingFromStep,
-              step.description
+              step.description,
+              {
+                tenantId,
+                userId: options?.userId,
+                conversationId: options?.conversationId,
+                modelName: config.model,
+              }
             );
             executionPlan = updatePlanWithResult(executionPlan, step.stepNumber, {
               success: false,
