@@ -45,6 +45,7 @@ const updateBody = z.object({
   whatsappSunbirdTemperature: z.number().min(0).max(2).optional(),
   whatsappGoogleTtsLanguageCode: z.string().min(1).optional(),
   whatsappGoogleTtsVoiceName: z.string().min(1).optional(),
+  whatsappElevenLabsVoiceId: z.string().min(1).optional(),
   xPersonProfileEnabled: z.boolean().optional(),
   xPersonProfileCustomFields: z.array(xPersonProfileCustomFieldEntry).optional(),
 });
@@ -94,6 +95,7 @@ agentConfigRouter.get('/', async (req, res) => {
       whatsappSunbirdTemperature: 0.7,
       whatsappGoogleTtsLanguageCode: 'en-US',
       whatsappGoogleTtsVoiceName: 'en-US-Neural2-F',
+      whatsappElevenLabsVoiceId: 'JBFqnCBsd6RMkjVDRZzb',
       xPersonProfileEnabled: false,
       xPersonProfileCustomFields: [],
       availableModels,

@@ -6,6 +6,20 @@ import { useIsMobile } from '../hooks/useIsMobile';
 const GOOGLE_TTS_LANGUAGE_CODE_DEFAULT = 'en-US';
 const GOOGLE_TTS_VOICE_NAME_DEFAULT = 'en-US-Neural2-F';
 
+
+const ELEVENLABS_VOICE_ID_DEFAULT = 'JBFqnCBsd6RMkjVDRZzb';
+
+const ELEVENLABS_VOICE_OPTIONS = [
+  { value: 'JBFqnCBsd6RMkjVDRZzb', label: 'George (Default)' },
+  { value: '21m00Tcm4TlvDq8ikWAM', label: 'Rachel' },
+  { value: 'AZnzlk1XvdvUeBnXmlld', label: 'Domi' },
+  { value: 'EXAVITQu4vr4xnSDxMaL', label: 'Bella' },
+  { value: 'TxGEqnHWrfWFTfGW9XjX', label: 'Josh' },
+  { value: 'VR6AewLTigWG4xSOukaG', label: 'Arnold' },
+  { value: 'pNInz6obpgDQGcFmaJgB', label: 'Adam' },
+  { value: 'yoZ06aMxZJJ28mfd3POQ', label: 'Sam' },
+];
+
 const GOOGLE_TTS_VOICE_OPTIONS = [
   { value: 'en-US-Neural2-F', label: 'en-US-Neural2-F (Female)' },
   { value: 'en-US-Neural2-J', label: 'en-US-Neural2-J (Male)' },
@@ -101,6 +115,9 @@ export default function AgentSettings() {
       const safeGoogleVoiceName = typeof config.whatsappGoogleTtsVoiceName === 'string' && config.whatsappGoogleTtsVoiceName.trim().length > 0
         ? config.whatsappGoogleTtsVoiceName.trim()
         : GOOGLE_TTS_VOICE_NAME_DEFAULT;
+      const safeElevenLabsVoiceId = typeof config.whatsappElevenLabsVoiceId === 'string' && config.whatsappElevenLabsVoiceId.trim().length > 0
+        ? config.whatsappElevenLabsVoiceId.trim()
+        : ELEVENLABS_VOICE_ID_DEFAULT;
 
       const updated = await api<AgentConfig>(`/tenants/${tenantId}/agent-config`, {
         method: 'PUT',
@@ -123,6 +140,7 @@ export default function AgentSettings() {
           whatsappSunbirdTemperature: safeSunbirdTemperature,
           whatsappGoogleTtsLanguageCode: safeGoogleLanguageCode,
           whatsappGoogleTtsVoiceName: safeGoogleVoiceName,
+          whatsappElevenLabsVoiceId: safeElevenLabsVoiceId,
           xPersonProfileEnabled: Boolean(config.xPersonProfileEnabled),
           xPersonProfileCustomFields: Array.isArray(config.xPersonProfileCustomFields)
             ? config.xPersonProfileCustomFields
@@ -174,6 +192,9 @@ export default function AgentSettings() {
     transition: 'all 0.2s',
     outline: 'none'
   };
+
+  const englishTtsProvider = config?.whatsappTtsProvider === 'elevenlabs' ? 'elevenlabs' : 'google-cloud-tts';
+  const showGoogleVoiceSettings = englishTtsProvider === 'google-cloud-tts';
 
   return (
     <div style={{ paddingBottom: 40, padding: isMobile ? '16px 0' : 0 }}>
@@ -405,50 +426,82 @@ export default function AgentSettings() {
         </div>
 
         <div style={{ marginTop: 16 }}>
-          <label style={labelStyle}>WhatsApp TTS Provider</label>
+          <label style={labelStyle}>Luganda TTS Provider</label>
+          <input
+            value="Sunbird"
+            readOnly
+            style={{ ...inputStyle, maxWidth: 260, backgroundColor: '#f8fafc', color: '#475569' }}
+          />
+          <span style={helperStyle}>
+            Luganda voice replies use Sunbird by default.
+          </span>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <label style={labelStyle}>English TTS Provider</label>
           <select
-            value={config?.whatsappTtsProvider ?? 'sunbird'}
+            value={englishTtsProvider}
             onChange={(e) => setConfig((c) => (c ? { ...c, whatsappTtsProvider: e.target.value as AgentConfig['whatsappTtsProvider'] } : c))}
             style={{ ...inputStyle, maxWidth: 320 }}
           >
-            <option value="sunbird">Sunbird</option>
             <option value="google-cloud-tts">Google Cloud TTS</option>
             <option value="elevenlabs">ElevenLabs</option>
-            <option value="gemini-2.5-flash-preview-tts">Gemini 2.5 Flash Preview TTS</option>
           </select>
           <span style={helperStyle}>
-            Choose which text-to-speech engine is used when WhatsApp voice notes are generated (Google, ElevenLabs, Gemini, or Sunbird).
+            Select the provider used for English WhatsApp voice notes.
           </span>
         </div>
 
-        <div style={{ marginTop: 16 }}>
-          <label style={labelStyle}>Google TTS Language Code</label>
-          <input
-            value={config?.whatsappGoogleTtsLanguageCode ?? GOOGLE_TTS_LANGUAGE_CODE_DEFAULT}
-            onChange={(e) => setConfig((c) => (c ? { ...c, whatsappGoogleTtsLanguageCode: e.target.value } : c))}
-            style={{ ...inputStyle, maxWidth: 260 }}
-            placeholder={GOOGLE_TTS_LANGUAGE_CODE_DEFAULT}
-          />
-          <span style={helperStyle}>
-            Used by Google Cloud TTS / Gemini preview voice generation (example: en-US). ElevenLabs uses its own voice/model configuration via API environment variables.
-          </span>
-        </div>
+        {showGoogleVoiceSettings && (
+          <>
+            <div style={{ marginTop: 16 }}>
+              <label style={labelStyle}>Google TTS Language Code</label>
+              <input
+                value={config?.whatsappGoogleTtsLanguageCode ?? GOOGLE_TTS_LANGUAGE_CODE_DEFAULT}
+                onChange={(e) => setConfig((c) => (c ? { ...c, whatsappGoogleTtsLanguageCode: e.target.value } : c))}
+                style={{ ...inputStyle, maxWidth: 260 }}
+                placeholder={GOOGLE_TTS_LANGUAGE_CODE_DEFAULT}
+              />
+              <span style={helperStyle}>
+                Used for English Google TTS voice generation (example: en-US).
+              </span>
+            </div>
 
-        <div style={{ marginTop: 16 }}>
-          <label style={labelStyle}>Google TTS Voice</label>
-          <select
-            value={config?.whatsappGoogleTtsVoiceName ?? GOOGLE_TTS_VOICE_NAME_DEFAULT}
-            onChange={(e) => setConfig((c) => (c ? { ...c, whatsappGoogleTtsVoiceName: e.target.value } : c))}
-            style={{ ...inputStyle, maxWidth: 360 }}
-          >
-            {GOOGLE_TTS_VOICE_OPTIONS.map((voice) => (
-              <option key={voice.value} value={voice.value}>{voice.label}</option>
-            ))}
-          </select>
-          <span style={helperStyle}>
-            Select the Google voice used for WhatsApp voice notes when Google Cloud TTS is active. (Ignored for ElevenLabs.)
-          </span>
-        </div>
+            <div style={{ marginTop: 16 }}>
+              <label style={labelStyle}>Google TTS Voice</label>
+              <select
+                value={config?.whatsappGoogleTtsVoiceName ?? GOOGLE_TTS_VOICE_NAME_DEFAULT}
+                onChange={(e) => setConfig((c) => (c ? { ...c, whatsappGoogleTtsVoiceName: e.target.value } : c))}
+                style={{ ...inputStyle, maxWidth: 360 }}
+              >
+                {GOOGLE_TTS_VOICE_OPTIONS.map((voice) => (
+                  <option key={voice.value} value={voice.value}>{voice.label}</option>
+                ))}
+              </select>
+              <span style={helperStyle}>
+                Select the Google voice used for English WhatsApp voice notes.
+              </span>
+            </div>
+          </>
+        )}
+
+        {englishTtsProvider === 'elevenlabs' && (
+          <div style={{ marginTop: 16 }}>
+            <label style={labelStyle}>ElevenLabs Voice</label>
+            <select
+              value={config?.whatsappElevenLabsVoiceId ?? ELEVENLABS_VOICE_ID_DEFAULT}
+              onChange={(e) => setConfig((c) => (c ? { ...c, whatsappElevenLabsVoiceId: e.target.value } : c))}
+              style={{ ...inputStyle, maxWidth: 360 }}
+            >
+              {ELEVENLABS_VOICE_OPTIONS.map((voice) => (
+                <option key={voice.value} value={voice.value}>{voice.label}</option>
+              ))}
+            </select>
+            <span style={helperStyle}>
+              Pick the ElevenLabs voice used for English WhatsApp voice notes.
+            </span>
+          </div>
+        )}
 
         <div style={{ marginTop: 16 }}>
           <label style={labelStyle}>Sunbird TTS Temperature</label>

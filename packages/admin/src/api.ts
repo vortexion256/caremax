@@ -71,6 +71,8 @@ export type AgentConfig = {
   whatsappGoogleTtsLanguageCode?: string;
   /** Google Cloud TTS voice name used for WhatsApp voice replies (for example en-US-Neural2-F). */
   whatsappGoogleTtsVoiceName?: string;
+  /** ElevenLabs voice ID used for English WhatsApp voice replies. */
+  whatsappElevenLabsVoiceId?: string;
   xPersonProfileEnabled?: boolean;
   xPersonProfileCustomFields?: { field: string; description?: string }[];
   availableModels?: string[];
