@@ -9,6 +9,7 @@ import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { extractTokenUsage, recordUsage } from './token-usage.js';
 
 export interface ExtractedIntent {
   intent: 'book_appointment' | 'check_availability' | 'query_information' | 'create_note' | 'general_conversation' | 'request_human' | 'confirm_action';
@@ -33,7 +34,8 @@ export interface ExtractedIntent {
 export async function extractIntent(
   model: ChatGoogleGenerativeAI,
   userMessage: string,
-  conversationHistory: Array<{ role: string; content: string }>
+  conversationHistory: Array<{ role: string; content: string }>,
+  usageContext?: { tenantId: string; userId?: string; conversationId?: string; modelName?: string }
 ): Promise<ExtractedIntent> {
   const systemPrompt = `You are an intent extraction system. Your job is to analyze user messages and extract:
 1. What the user wants (intent)
@@ -97,6 +99,14 @@ Extract the intent and entities. Use extract_intent to structure your response.`
 
   const modelWithTools = model.bindTools([extractTool]);
   const response = await modelWithTools.invoke(messages);
+  if (usageContext?.tenantId) {
+    await recordUsage(usageContext.modelName ?? 'gemini-3-flash-preview', extractTokenUsage(response), {
+      tenantId: usageContext.tenantId,
+      userId: usageContext.userId,
+      conversationId: usageContext.conversationId,
+      usageType: 'intent.extraction',
+    });
+  }
 
   const toolCalls = (response as { tool_calls?: Array<{ name: string; args?: unknown }> }).tool_calls;
   if (toolCalls && toolCalls.length > 0) {

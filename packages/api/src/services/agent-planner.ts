@@ -13,6 +13,9 @@ import { HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/m
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { ExtractedIntent } from './agent-intent.js';
+import { extractTokenUsage, recordUsage } from './token-usage.js';
+
+type UsageContext = { tenantId: string; userId?: string; conversationId?: string; modelName?: string };
 
 export interface PlanStep {
   stepNumber: number;
@@ -57,7 +60,8 @@ export async function decideIfNeedsPlanning(
   model: ChatGoogleGenerativeAI,
   intent: ExtractedIntent,
   userMessage: string,
-  conversationHistory: Array<{ role: string; content: string }>
+  conversationHistory: Array<{ role: string; content: string }>,
+  usageContext?: UsageContext
 ): Promise<PlanningDecision> {
   const systemPrompt = `You are a planning decision system. Your job is to determine if a user's request requires multi-step planning.
 
@@ -108,6 +112,14 @@ Decide if this task needs planning. Use decide_planning to structure your respon
 
   const modelWithTools = model.bindTools([decisionTool]);
   const response = await modelWithTools.invoke(messages);
+  if (usageContext?.tenantId) {
+    await recordUsage(usageContext.modelName ?? 'gemini-3-flash-preview', extractTokenUsage(response), {
+      tenantId: usageContext.tenantId,
+      userId: usageContext.userId,
+      conversationId: usageContext.conversationId,
+      usageType: 'planning.decision',
+    });
+  }
 
   const toolCalls = (response as { tool_calls?: Array<{ name: string; args?: unknown }> }).tool_calls;
   if (toolCalls && toolCalls.length > 0) {
@@ -142,7 +154,8 @@ export async function createExecutionPlan(
   intent: ExtractedIntent,
   userMessage: string,
   conversationHistory: Array<{ role: string; content: string }>,
-  availableTools: string[]
+  availableTools: string[],
+  usageContext?: UsageContext
 ): Promise<ExecutionPlan> {
   const planId = `plan-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -205,6 +218,14 @@ Create a detailed execution plan. Use create_plan to structure your response.`
 
   const modelWithTools = model.bindTools([planTool]);
   const response = await modelWithTools.invoke(messages);
+  if (usageContext?.tenantId) {
+    await recordUsage(usageContext.modelName ?? 'gemini-3-flash-preview', extractTokenUsage(response), {
+      tenantId: usageContext.tenantId,
+      userId: usageContext.userId,
+      conversationId: usageContext.conversationId,
+      usageType: 'planning.create',
+    });
+  }
 
   const toolCalls = (response as { tool_calls?: Array<{ name: string; args?: unknown }> }).tool_calls;
   if (toolCalls && toolCalls.length > 0) {
@@ -394,7 +415,8 @@ export function planNeedsInfo(plan: ExecutionPlan): boolean {
 export async function formatMissingInfoQuestion(
   model: ChatGoogleGenerativeAI,
   missingInfo: string[],
-  context: string
+  context: string,
+  usageContext?: UsageContext
 ): Promise<string> {
   const systemPrompt = `You are a helpful assistant. Format missing information requests as natural, friendly questions to ask the user.
 
@@ -412,6 +434,14 @@ Format this as a friendly question to ask the user.`
   ];
 
   const response = await model.invoke(messages);
+  if (usageContext?.tenantId) {
+    await recordUsage(usageContext.modelName ?? 'gemini-3-flash-preview', extractTokenUsage(response), {
+      tenantId: usageContext.tenantId,
+      userId: usageContext.userId,
+      conversationId: usageContext.conversationId,
+      usageType: 'planning.missing_info_prompt',
+    });
+  }
   const content = (response as { content?: string }).content;
   return typeof content === 'string' ? content : `I need some information: ${missingInfo.join(', ')}`;
 }
@@ -594,7 +624,8 @@ export function confirmStep(plan: ExecutionPlan, stepNumber: number): ExecutionP
 export async function formatConfirmationQuestion(
   model: ChatGoogleGenerativeAI,
   step: PlanStep,
-  context: string
+  context: string,
+  usageContext?: UsageContext
 ): Promise<string> {
   const systemPrompt = `You are a helpful assistant. Format a confirmation request for a specific action as a natural, friendly question to ask the user.
   
@@ -614,6 +645,14 @@ Format this as a friendly confirmation question to ask the user before executing
   ];
 
   const response = await model.invoke(messages);
+  if (usageContext?.tenantId) {
+    await recordUsage(usageContext.modelName ?? 'gemini-3-flash-preview', extractTokenUsage(response), {
+      tenantId: usageContext.tenantId,
+      userId: usageContext.userId,
+      conversationId: usageContext.conversationId,
+      usageType: 'planning.confirmation_prompt',
+    });
+  }
   const content = (response as { content?: string }).content;
   return typeof content === 'string' ? content : `I'm ready to ${step.description}. Should I proceed?`;
 }

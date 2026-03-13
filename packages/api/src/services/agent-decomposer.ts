@@ -11,6 +11,7 @@ import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { extractTokenUsage, recordUsage } from './token-usage.js';
 
 export interface DecomposedQuestion {
   isComplex: boolean;
@@ -25,7 +26,8 @@ export interface DecomposedQuestion {
 export async function decomposeQuestion(
   model: ChatGoogleGenerativeAI,
   userMessage: string,
-  conversationHistory: Array<{ role: string; content: string }>
+  conversationHistory: Array<{ role: string; content: string }>,
+  usageContext?: { tenantId: string; userId?: string; conversationId?: string; modelName?: string }
 ): Promise<DecomposedQuestion> {
   const systemPrompt = `You are a question decomposition system. Your job is to analyze user messages and determine if they are "complex".
   
@@ -70,6 +72,14 @@ Analyze and decompose this message if necessary. Use decompose_question to struc
   try {
     const modelWithTools = model.bindTools([decompositionTool]);
     const response = await modelWithTools.invoke(messages);
+    if (usageContext?.tenantId) {
+      await recordUsage(usageContext.modelName ?? 'gemini-3-flash-preview', extractTokenUsage(response), {
+        tenantId: usageContext.tenantId,
+        userId: usageContext.userId,
+        conversationId: usageContext.conversationId,
+        usageType: 'question.decomposition',
+      });
+    }
 
     const toolCalls = (response as { tool_calls?: Array<{ name: string; args?: unknown }> }).tool_calls;
     if (toolCalls && toolCalls.length > 0) {
