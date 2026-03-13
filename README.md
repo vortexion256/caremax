@@ -129,6 +129,25 @@ Notes:
 - Meta path currently handles text messages/replies.
 - Twilio path keeps the existing voice-note/audio behavior.
 
+##### WhatsApp TTS provider and Google Cloud voice selection
+
+- You can pick the WhatsApp TTS engine per tenant in **Admin → Agent Settings → WhatsApp TTS Provider**:
+  - `Sunbird`
+  - `Google Cloud TTS`
+  - `Gemini 2.5 Flash Preview TTS` (this currently reuses the Google Cloud TTS synthesis path/server-side credentials).
+- If no provider has been saved yet, backend fallback is `sunbird`.
+- Language-aware override is also applied when voice notes are generated:
+  - English (`en`/`eng`/`english`) forces `google-cloud-tts`
+  - Luganda (`lg`/`luganda`) forces `sunbird`
+
+For the Google Cloud synthesis path, the voice and output format are configurable with env vars:
+
+- `GOOGLE_CLOUD_TTS_LANGUAGE_CODE` (default: `en-US`)
+- `GOOGLE_CLOUD_TTS_VOICE_NAME` (default: `en-US-Neural2-F`)
+- `GOOGLE_CLOUD_TTS_AUDIO_ENCODING` (default: `OGG_OPUS`)
+
+So if you want a different Google voice, set `GOOGLE_CLOUD_TTS_VOICE_NAME` (and optionally language code/encoding), then restart the API service.
+
 ### 4. Install and run
 
 If you see peer dependency conflicts with LangChain, use: `npm install --legacy-peer-deps`.

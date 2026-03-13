@@ -702,6 +702,8 @@ async function generateVoiceMediaUrl(params: {
   provider: WhatsAppTtsProvider;
   sunbirdTemperature: number;
   shouldCleanText: boolean;
+  googleLanguageCode: string;
+  googleVoiceName: string;
 }): Promise<string | null> {
   if (params.provider === 'google-cloud-tts' || params.provider === 'gemini-2.5-flash-preview-tts') {
     return generateVoiceMediaUrlWithGoogleCloud(params);
@@ -792,6 +794,8 @@ async function generateVoiceMediaUrlWithGoogleCloud(params: {
   tenantId: string;
   text: string;
   shouldCleanText: boolean;
+  googleLanguageCode: string;
+  googleVoiceName: string;
 }): Promise<string | null> {
   const authClient = await getGoogleCloudTtsAccessTokenClient();
   if (!authClient || !bucket) return null;
@@ -818,8 +822,8 @@ async function generateVoiceMediaUrlWithGoogleCloud(params: {
         text: textForTts,
       },
       voice: {
-        languageCode: process.env.GOOGLE_CLOUD_TTS_LANGUAGE_CODE ?? 'en-US',
-        name: process.env.GOOGLE_CLOUD_TTS_VOICE_NAME ?? 'en-US-Neural2-F',
+        languageCode: params.googleLanguageCode,
+        name: params.googleVoiceName,
       },
       audioConfig: {
         audioEncoding: process.env.GOOGLE_CLOUD_TTS_AUDIO_ENCODING ?? 'OGG_OPUS',
@@ -876,6 +880,22 @@ function resolveLanguageAwareTtsProvider(params: {
   if (isLugandaLanguageTag(params.responseLanguage)) return 'sunbird';
   if (isEnglishLanguageTag(params.responseLanguage)) return 'google-cloud-tts';
   return params.configuredProvider;
+}
+
+function resolveGoogleCloudVoiceConfig(configData: Record<string, unknown> | undefined): {
+  languageCode: string;
+  voiceName: string;
+} {
+  const rawLanguageCode = configData?.whatsappGoogleTtsLanguageCode;
+  const rawVoiceName = configData?.whatsappGoogleTtsVoiceName;
+  const languageCode = typeof rawLanguageCode === 'string' && rawLanguageCode.trim().length > 0
+    ? rawLanguageCode.trim()
+    : (process.env.GOOGLE_CLOUD_TTS_LANGUAGE_CODE ?? 'en-US');
+  const voiceName = typeof rawVoiceName === 'string' && rawVoiceName.trim().length > 0
+    ? rawVoiceName.trim()
+    : (process.env.GOOGLE_CLOUD_TTS_VOICE_NAME ?? 'en-US-Neural2-F');
+
+  return { languageCode, voiceName };
 }
 
 async function detectLanguageWithAi(text: string): Promise<string | null> {
@@ -1258,10 +1278,12 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     let requestHandoff = false;
 
     const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
-    const rawVoiceThreshold = agentConfigDoc.data()?.whatsappVoiceNoteCharThreshold;
-    const rawForceVoiceReplies = agentConfigDoc.data()?.whatsappForceVoiceReplies;
-    const rawTtsProvider = agentConfigDoc.data()?.whatsappTtsProvider;
-    const rawSunbirdTemperature = agentConfigDoc.data()?.whatsappSunbirdTemperature;
+    const agentConfigData = agentConfigDoc.data() as Record<string, unknown> | undefined;
+    const { languageCode: googleLanguageCode, voiceName: googleVoiceName } = resolveGoogleCloudVoiceConfig(agentConfigData);
+    const rawVoiceThreshold = agentConfigData?.whatsappVoiceNoteCharThreshold;
+    const rawForceVoiceReplies = agentConfigData?.whatsappForceVoiceReplies;
+    const rawTtsProvider = agentConfigData?.whatsappTtsProvider;
+    const rawSunbirdTemperature = agentConfigData?.whatsappSunbirdTemperature;
     const voiceThreshold = typeof rawVoiceThreshold === 'number' && Number.isFinite(rawVoiceThreshold)
       ? Math.max(0, Math.floor(rawVoiceThreshold))
       : 0;
@@ -1326,6 +1348,8 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
           provider: resolvedTtsProvider,
           sunbirdTemperature,
           shouldCleanText: shouldCleanVoiceText,
+          googleLanguageCode,
+          googleVoiceName,
         });
         if (voiceUrl) {
           payload.set('MediaUrl', voiceUrl);
@@ -1466,10 +1490,12 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
     }
 
     const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
-    const rawVoiceThreshold = agentConfigDoc.data()?.whatsappVoiceNoteCharThreshold;
-    const rawForceVoiceReplies = agentConfigDoc.data()?.whatsappForceVoiceReplies;
-    const rawTtsProvider = agentConfigDoc.data()?.whatsappTtsProvider;
-    const rawSunbirdTemperature = agentConfigDoc.data()?.whatsappSunbirdTemperature;
+    const agentConfigData = agentConfigDoc.data() as Record<string, unknown> | undefined;
+    const { languageCode: googleLanguageCode, voiceName: googleVoiceName } = resolveGoogleCloudVoiceConfig(agentConfigData);
+    const rawVoiceThreshold = agentConfigData?.whatsappVoiceNoteCharThreshold;
+    const rawForceVoiceReplies = agentConfigData?.whatsappForceVoiceReplies;
+    const rawTtsProvider = agentConfigData?.whatsappTtsProvider;
+    const rawSunbirdTemperature = agentConfigData?.whatsappSunbirdTemperature;
     const voiceThreshold = typeof rawVoiceThreshold === 'number' && Number.isFinite(rawVoiceThreshold)
       ? Math.max(0, Math.floor(rawVoiceThreshold))
       : 0;
@@ -1646,6 +1672,8 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
                 provider: resolvedTtsProvider,
                 sunbirdTemperature,
                 shouldCleanText: shouldCleanVoiceText,
+                googleLanguageCode,
+                googleVoiceName,
               });
               if (voiceUrl) {
                 await sendMetaWhatsAppAudioMessage({

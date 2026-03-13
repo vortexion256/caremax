@@ -3,6 +3,20 @@ import { api, type AgentConfig } from '../api';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 
+const GOOGLE_TTS_LANGUAGE_CODE_DEFAULT = 'en-US';
+const GOOGLE_TTS_VOICE_NAME_DEFAULT = 'en-US-Neural2-F';
+
+const GOOGLE_TTS_VOICE_OPTIONS = [
+  { value: 'en-US-Neural2-F', label: 'en-US-Neural2-F (Female)' },
+  { value: 'en-US-Neural2-J', label: 'en-US-Neural2-J (Male)' },
+  { value: 'en-US-Neural2-A', label: 'en-US-Neural2-A' },
+  { value: 'en-US-Neural2-C', label: 'en-US-Neural2-C' },
+  { value: 'en-US-Neural2-D', label: 'en-US-Neural2-D' },
+  { value: 'en-US-Neural2-E', label: 'en-US-Neural2-E' },
+  { value: 'en-US-Wavenet-F', label: 'en-US-Wavenet-F (Female)' },
+  { value: 'en-US-Wavenet-D', label: 'en-US-Wavenet-D (Male)' },
+];
+
 export default function AgentSettings() {
   const { tenantId } = useTenant();
   const { isMobile } = useIsMobile();
@@ -80,6 +94,12 @@ export default function AgentSettings() {
         config.whatsappTtsProvider === 'sunbird'
           ? config.whatsappTtsProvider
           : 'sunbird';
+      const safeGoogleLanguageCode = typeof config.whatsappGoogleTtsLanguageCode === 'string' && config.whatsappGoogleTtsLanguageCode.trim().length > 0
+        ? config.whatsappGoogleTtsLanguageCode.trim()
+        : GOOGLE_TTS_LANGUAGE_CODE_DEFAULT;
+      const safeGoogleVoiceName = typeof config.whatsappGoogleTtsVoiceName === 'string' && config.whatsappGoogleTtsVoiceName.trim().length > 0
+        ? config.whatsappGoogleTtsVoiceName.trim()
+        : GOOGLE_TTS_VOICE_NAME_DEFAULT;
 
       const updated = await api<AgentConfig>(`/tenants/${tenantId}/agent-config`, {
         method: 'PUT',
@@ -100,6 +120,8 @@ export default function AgentSettings() {
           whatsappForceVoiceReplies: Boolean(config.whatsappForceVoiceReplies),
           whatsappTtsProvider: safeProvider,
           whatsappSunbirdTemperature: safeSunbirdTemperature,
+          whatsappGoogleTtsLanguageCode: safeGoogleLanguageCode,
+          whatsappGoogleTtsVoiceName: safeGoogleVoiceName,
           xPersonProfileEnabled: Boolean(config.xPersonProfileEnabled),
           xPersonProfileCustomFields: Array.isArray(config.xPersonProfileCustomFields)
             ? config.xPersonProfileCustomFields
@@ -394,6 +416,35 @@ export default function AgentSettings() {
           </select>
           <span style={helperStyle}>
             Choose which text-to-speech engine is used when WhatsApp voice notes are generated.
+          </span>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <label style={labelStyle}>Google TTS Language Code</label>
+          <input
+            value={config?.whatsappGoogleTtsLanguageCode ?? GOOGLE_TTS_LANGUAGE_CODE_DEFAULT}
+            onChange={(e) => setConfig((c) => (c ? { ...c, whatsappGoogleTtsLanguageCode: e.target.value } : c))}
+            style={{ ...inputStyle, maxWidth: 260 }}
+            placeholder={GOOGLE_TTS_LANGUAGE_CODE_DEFAULT}
+          />
+          <span style={helperStyle}>
+            Used by Google Cloud TTS / Gemini preview voice generation (example: en-US).
+          </span>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <label style={labelStyle}>Google TTS Voice</label>
+          <select
+            value={config?.whatsappGoogleTtsVoiceName ?? GOOGLE_TTS_VOICE_NAME_DEFAULT}
+            onChange={(e) => setConfig((c) => (c ? { ...c, whatsappGoogleTtsVoiceName: e.target.value } : c))}
+            style={{ ...inputStyle, maxWidth: 360 }}
+          >
+            {GOOGLE_TTS_VOICE_OPTIONS.map((voice) => (
+              <option key={voice.value} value={voice.value}>{voice.label}</option>
+            ))}
+          </select>
+          <span style={helperStyle}>
+            Select the Google voice used for WhatsApp voice notes when Google Cloud TTS is active.
           </span>
         </div>
 

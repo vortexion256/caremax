@@ -16,6 +16,8 @@ export type AgentConfig = {
   temperature: number;
   ragEnabled: boolean;
   whatsappSunbirdTemperature?: number;
+  whatsappGoogleTtsLanguageCode?: string;
+  whatsappGoogleTtsVoiceName?: string;
   updatedAt: Timestamp;
 };
 
