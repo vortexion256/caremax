@@ -599,7 +599,7 @@ function parseExtraHeaders(raw: string): Record<string, string> {
   }
 }
 
-type WhatsAppTtsProvider = 'sunbird' | 'google-cloud-tts' | 'gemini-2.5-flash-preview-tts';
+type WhatsAppTtsProvider = 'sunbird' | 'google-cloud-tts' | 'elevenlabs' | 'gemini-2.5-flash-preview-tts';
 
 async function convertAudioToWhatsAppVoiceNote(audioBuffer: Buffer, inputExt: string): Promise<Buffer | null> {
   const tempBase = join(tmpdir(), `caremax-voice-note-${randomUUID()}`);
@@ -708,6 +708,9 @@ async function generateVoiceMediaUrl(params: {
   if (params.provider === 'google-cloud-tts' || params.provider === 'gemini-2.5-flash-preview-tts') {
     return generateVoiceMediaUrlWithGoogleCloud(params);
   }
+  if (params.provider === 'elevenlabs') {
+    return generateVoiceMediaUrlWithElevenLabs(params);
+  }
   return generateVoiceMediaUrlWithSunbird(params);
 }
 
@@ -790,6 +793,62 @@ async function generateVoiceMediaUrlWithSunbird(params: {
   }
 }
 
+
+
+async function generateVoiceMediaUrlWithElevenLabs(params: {
+  tenantId: string;
+  text: string;
+  shouldCleanText: boolean;
+}): Promise<string | null> {
+  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  if (!apiKey || !bucket) return null;
+
+  const textForTts = params.shouldCleanText
+    ? await cleanEnglishTextForGoogleCloudTts(params.text)
+    : params.text.trim();
+  if (!textForTts) return null;
+
+  const voiceId = process.env.ELEVENLABS_VOICE_ID?.trim() || 'JBFqnCBsd6RMkjVDRZzb';
+  const modelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
+  const outputFormat = process.env.ELEVENLABS_OUTPUT_FORMAT?.trim() || 'mp3_44100_128';
+
+  const ttsRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': apiKey,
+      'Content-Type': 'application/json',
+      Accept: 'audio/mpeg',
+    },
+    body: JSON.stringify({
+      text: textForTts,
+      model_id: modelId,
+      output_format: outputFormat,
+    }),
+    signal: AbortSignal.timeout(WHATSAPP_TTS_REQUEST_TIMEOUT_MS),
+  });
+
+  if (!ttsRes.ok) {
+    const errText = await ttsRes.text().catch(() => '');
+    throw new Error(`ElevenLabs TTS request failed (${ttsRes.status}): ${errText}`);
+  }
+
+  const sourceAudioBuffer = Buffer.from(await ttsRes.arrayBuffer());
+  const sourceExt = outputFormat.toLowerCase().startsWith('mp3_') ? 'mp3' : (outputFormat.toLowerCase().startsWith('ogg_') ? 'ogg' : 'mp3');
+  const voiceNoteBuffer = isOggLikeAudioExtension(sourceExt)
+    ? sourceAudioBuffer
+    : await convertAudioToWhatsAppVoiceNote(sourceAudioBuffer, sourceExt);
+  const audioBuffer = voiceNoteBuffer ?? sourceAudioBuffer;
+  const path = `tenants/${params.tenantId}/whatsapp-voice-replies/${randomUUID()}.${voiceNoteBuffer ? 'ogg' : 'mp3'}`;
+  const fileRef = bucket.file(path);
+  await fileRef.save(audioBuffer, { metadata: { contentType: voiceNoteBuffer ? 'audio/ogg' : 'audio/mpeg' } });
+
+  const [signedUrl] = await fileRef.getSignedUrl({
+    action: 'read',
+    expires: Date.now() + 24 * 60 * 60 * 1000,
+  });
+
+  return signedUrl;
+}
 async function generateVoiceMediaUrlWithGoogleCloud(params: {
   tenantId: string;
   text: string;
@@ -878,7 +937,12 @@ function resolveLanguageAwareTtsProvider(params: {
 }): WhatsAppTtsProvider {
   if (!params.responseLanguage) return params.configuredProvider;
   if (isLugandaLanguageTag(params.responseLanguage)) return 'sunbird';
-  if (isEnglishLanguageTag(params.responseLanguage)) return 'google-cloud-tts';
+  if (isEnglishLanguageTag(params.responseLanguage)) {
+    if (params.configuredProvider === 'elevenlabs' || params.configuredProvider === 'google-cloud-tts') {
+      return params.configuredProvider;
+    }
+    return 'google-cloud-tts';
+  }
   return params.configuredProvider;
 }
 
@@ -1288,7 +1352,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       ? Math.max(0, Math.floor(rawVoiceThreshold))
       : 0;
     const forceVoiceReplies = rawForceVoiceReplies === true;
-    const ttsProvider: WhatsAppTtsProvider = rawTtsProvider === 'gemini-2.5-flash-preview-tts' || rawTtsProvider === 'google-cloud-tts'
+    const ttsProvider: WhatsAppTtsProvider = rawTtsProvider === 'gemini-2.5-flash-preview-tts' || rawTtsProvider === 'google-cloud-tts' || rawTtsProvider === 'elevenlabs'
       ? rawTtsProvider
       : 'sunbird';
     const sunbirdTemperature = typeof rawSunbirdTemperature === 'number' && Number.isFinite(rawSunbirdTemperature)
@@ -1500,7 +1564,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
       ? Math.max(0, Math.floor(rawVoiceThreshold))
       : 0;
     const forceVoiceReplies = rawForceVoiceReplies === true;
-    const ttsProvider: WhatsAppTtsProvider = rawTtsProvider === 'gemini-2.5-flash-preview-tts' || rawTtsProvider === 'google-cloud-tts'
+    const ttsProvider: WhatsAppTtsProvider = rawTtsProvider === 'gemini-2.5-flash-preview-tts' || rawTtsProvider === 'google-cloud-tts' || rawTtsProvider === 'elevenlabs'
       ? rawTtsProvider
       : 'sunbird';
     const sunbirdTemperature = typeof rawSunbirdTemperature === 'number' && Number.isFinite(rawSunbirdTemperature)

@@ -134,10 +134,11 @@ Notes:
 - You can pick the WhatsApp TTS engine per tenant in **Admin → Agent Settings → WhatsApp TTS Provider**:
   - `Sunbird`
   - `Google Cloud TTS`
+  - `ElevenLabs`
   - `Gemini 2.5 Flash Preview TTS` (this currently reuses the Google Cloud TTS synthesis path/server-side credentials).
 - If no provider has been saved yet, backend fallback is `sunbird`.
 - Language-aware override is also applied when voice notes are generated:
-  - English (`en`/`eng`/`english`) forces `google-cloud-tts`
+  - English (`en`/`eng`/`english`) keeps the tenant's configured English provider (`google-cloud-tts` or `elevenlabs`), and falls back to `google-cloud-tts` when another provider is selected
   - Luganda (`lg`/`luganda`) forces `sunbird`
 
 For the Google Cloud synthesis path, the voice and output format are configurable with env vars:
@@ -147,6 +148,13 @@ For the Google Cloud synthesis path, the voice and output format are configurabl
 - `GOOGLE_CLOUD_TTS_AUDIO_ENCODING` (default: `OGG_OPUS`)
 
 So if you want a different Google voice, set `GOOGLE_CLOUD_TTS_VOICE_NAME` (and optionally language code/encoding), then restart the API service.
+
+For ElevenLabs synthesis, set:
+
+- `ELEVENLABS_API_KEY` (required when provider is `elevenlabs`)
+- `ELEVENLABS_VOICE_ID` (optional, default: `JBFqnCBsd6RMkjVDRZzb`)
+- `ELEVENLABS_MODEL_ID` (optional, default: `eleven_multilingual_v2`)
+- `ELEVENLABS_OUTPUT_FORMAT` (optional, default: `mp3_44100_128`)
 
 ### 4. Install and run
 

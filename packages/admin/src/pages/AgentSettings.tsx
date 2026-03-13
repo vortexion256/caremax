@@ -91,6 +91,7 @@ export default function AgentSettings() {
       const safeProvider =
         config.whatsappTtsProvider === 'google-cloud-tts' ||
         config.whatsappTtsProvider === 'gemini-2.5-flash-preview-tts' ||
+        config.whatsappTtsProvider === 'elevenlabs' ||
         config.whatsappTtsProvider === 'sunbird'
           ? config.whatsappTtsProvider
           : 'sunbird';
@@ -412,10 +413,11 @@ export default function AgentSettings() {
           >
             <option value="sunbird">Sunbird</option>
             <option value="google-cloud-tts">Google Cloud TTS</option>
+            <option value="elevenlabs">ElevenLabs</option>
             <option value="gemini-2.5-flash-preview-tts">Gemini 2.5 Flash Preview TTS</option>
           </select>
           <span style={helperStyle}>
-            Choose which text-to-speech engine is used when WhatsApp voice notes are generated.
+            Choose which text-to-speech engine is used when WhatsApp voice notes are generated (Google, ElevenLabs, Gemini, or Sunbird).
           </span>
         </div>
 
@@ -428,7 +430,7 @@ export default function AgentSettings() {
             placeholder={GOOGLE_TTS_LANGUAGE_CODE_DEFAULT}
           />
           <span style={helperStyle}>
-            Used by Google Cloud TTS / Gemini preview voice generation (example: en-US).
+            Used by Google Cloud TTS / Gemini preview voice generation (example: en-US). ElevenLabs uses its own voice/model configuration via API environment variables.
           </span>
         </div>
 
@@ -444,7 +446,7 @@ export default function AgentSettings() {
             ))}
           </select>
           <span style={helperStyle}>
-            Select the Google voice used for WhatsApp voice notes when Google Cloud TTS is active.
+            Select the Google voice used for WhatsApp voice notes when Google Cloud TTS is active. (Ignored for ElevenLabs.)
           </span>
         </div>
 
