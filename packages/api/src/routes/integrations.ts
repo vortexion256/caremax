@@ -704,6 +704,7 @@ async function generateVoiceMediaUrl(params: {
   shouldCleanText: boolean;
   googleLanguageCode: string;
   googleVoiceName: string;
+  elevenLabsVoiceId: string;
 }): Promise<string | null> {
   if (params.provider === 'google-cloud-tts' || params.provider === 'gemini-2.5-flash-preview-tts') {
     return generateVoiceMediaUrlWithGoogleCloud(params);
@@ -799,6 +800,7 @@ async function generateVoiceMediaUrlWithElevenLabs(params: {
   tenantId: string;
   text: string;
   shouldCleanText: boolean;
+  elevenLabsVoiceId: string;
 }): Promise<string | null> {
   const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
   if (!apiKey || !bucket) return null;
@@ -808,7 +810,7 @@ async function generateVoiceMediaUrlWithElevenLabs(params: {
     : params.text.trim();
   if (!textForTts) return null;
 
-  const voiceId = process.env.ELEVENLABS_VOICE_ID?.trim() || 'JBFqnCBsd6RMkjVDRZzb';
+  const voiceId = params.elevenLabsVoiceId;
   const modelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
   const outputFormat = process.env.ELEVENLABS_OUTPUT_FORMAT?.trim() || 'mp3_44100_128';
 
@@ -944,6 +946,14 @@ function resolveLanguageAwareTtsProvider(params: {
     return 'google-cloud-tts';
   }
   return params.configuredProvider;
+}
+
+function resolveElevenLabsVoiceId(configData: Record<string, unknown> | undefined): string {
+  const rawVoiceId = configData?.whatsappElevenLabsVoiceId;
+  if (typeof rawVoiceId === 'string' && rawVoiceId.trim().length > 0) {
+    return rawVoiceId.trim();
+  }
+  return process.env.ELEVENLABS_VOICE_ID?.trim() || 'JBFqnCBsd6RMkjVDRZzb';
 }
 
 function resolveGoogleCloudVoiceConfig(configData: Record<string, unknown> | undefined): {
@@ -1344,6 +1354,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
     const agentConfigData = agentConfigDoc.data() as Record<string, unknown> | undefined;
     const { languageCode: googleLanguageCode, voiceName: googleVoiceName } = resolveGoogleCloudVoiceConfig(agentConfigData);
+    const elevenLabsVoiceId = resolveElevenLabsVoiceId(agentConfigData);
     const rawVoiceThreshold = agentConfigData?.whatsappVoiceNoteCharThreshold;
     const rawForceVoiceReplies = agentConfigData?.whatsappForceVoiceReplies;
     const rawTtsProvider = agentConfigData?.whatsappTtsProvider;
@@ -1414,6 +1425,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
           shouldCleanText: shouldCleanVoiceText,
           googleLanguageCode,
           googleVoiceName,
+          elevenLabsVoiceId,
         });
         if (voiceUrl) {
           payload.set('MediaUrl', voiceUrl);
@@ -1556,6 +1568,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
     const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
     const agentConfigData = agentConfigDoc.data() as Record<string, unknown> | undefined;
     const { languageCode: googleLanguageCode, voiceName: googleVoiceName } = resolveGoogleCloudVoiceConfig(agentConfigData);
+    const elevenLabsVoiceId = resolveElevenLabsVoiceId(agentConfigData);
     const rawVoiceThreshold = agentConfigData?.whatsappVoiceNoteCharThreshold;
     const rawForceVoiceReplies = agentConfigData?.whatsappForceVoiceReplies;
     const rawTtsProvider = agentConfigData?.whatsappTtsProvider;
@@ -1738,6 +1751,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
                 shouldCleanText: shouldCleanVoiceText,
                 googleLanguageCode,
                 googleVoiceName,
+                elevenLabsVoiceId,
               });
               if (voiceUrl) {
                 await sendMetaWhatsAppAudioMessage({
