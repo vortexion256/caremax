@@ -156,6 +156,11 @@ For ElevenLabs synthesis, set:
 - `ELEVENLABS_MODEL_ID` (optional, default: `eleven_multilingual_v2`)
 - `ELEVENLABS_OUTPUT_FORMAT` (optional, default: `mp3_44100_128`)
 
+Notes:
+
+- There is currently **no ElevenLabs voice picker in the Admin UI**. ElevenLabs voice/model/output are configured on the API server via environment variables.
+- The Admin voice dropdown only controls Google Cloud voice selection (`whatsappGoogleTtsVoiceName`) and is ignored when ElevenLabs is selected.
+
 ### 4. Install and run
 
 If you see peer dependency conflicts with LangChain, use: `npm install --legacy-peer-deps`.
