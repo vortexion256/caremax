@@ -67,6 +67,10 @@ export type AgentConfig = {
   whatsappTtsProvider?: 'sunbird' | 'google-cloud-tts' | 'gemini-2.5-flash-preview-tts';
   /** Sunbird-only temperature used for WhatsApp TTS generation. */
   whatsappSunbirdTemperature?: number;
+  /** Google Cloud TTS language code used for WhatsApp voice replies (for example en-US). */
+  whatsappGoogleTtsLanguageCode?: string;
+  /** Google Cloud TTS voice name used for WhatsApp voice replies (for example en-US-Neural2-F). */
+  whatsappGoogleTtsVoiceName?: string;
   xPersonProfileEnabled?: boolean;
   xPersonProfileCustomFields?: { field: string; description?: string }[];
   availableModels?: string[];

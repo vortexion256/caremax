@@ -43,6 +43,8 @@ const updateBody = z.object({
   whatsappForceVoiceReplies: z.boolean().optional(),
   whatsappTtsProvider: z.enum(['sunbird', 'google-cloud-tts', 'gemini-2.5-flash-preview-tts']).optional(),
   whatsappSunbirdTemperature: z.number().min(0).max(2).optional(),
+  whatsappGoogleTtsLanguageCode: z.string().min(1).optional(),
+  whatsappGoogleTtsVoiceName: z.string().min(1).optional(),
   xPersonProfileEnabled: z.boolean().optional(),
   xPersonProfileCustomFields: z.array(xPersonProfileCustomFieldEntry).optional(),
 });
@@ -90,6 +92,8 @@ agentConfigRouter.get('/', async (req, res) => {
       whatsappForceVoiceReplies: false,
       whatsappTtsProvider: 'sunbird',
       whatsappSunbirdTemperature: 0.7,
+      whatsappGoogleTtsLanguageCode: 'en-US',
+      whatsappGoogleTtsVoiceName: 'en-US-Neural2-F',
       xPersonProfileEnabled: false,
       xPersonProfileCustomFields: [],
       availableModels,
