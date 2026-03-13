@@ -41,7 +41,7 @@ const updateBody = z.object({
   consolidationPromptEnabled: z.boolean().optional(),
   whatsappVoiceNoteCharThreshold: z.number().int().min(0).optional(),
   whatsappForceVoiceReplies: z.boolean().optional(),
-  whatsappTtsProvider: z.enum(['sunbird', 'google-cloud-tts', 'gemini-2.5-flash-preview-tts']).optional(),
+  whatsappTtsProvider: z.enum(['sunbird', 'google-cloud-tts', 'elevenlabs', 'gemini-2.5-flash-preview-tts']).optional(),
   whatsappSunbirdTemperature: z.number().min(0).max(2).optional(),
   whatsappGoogleTtsLanguageCode: z.string().min(1).optional(),
   whatsappGoogleTtsVoiceName: z.string().min(1).optional(),
