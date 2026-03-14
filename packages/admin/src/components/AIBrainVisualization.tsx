@@ -175,14 +175,14 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
     };
   };
 
-  // Start simulation when there's an active chat
-  // DISABLED: Automatic animations are currently disabled
-  // useEffect(() => {
-  //   const cleanup = simulateCommunication();
-  //   return () => {
-  //     if (cleanup) cleanup();
-  //   };
-  // }, [hasActiveChat]);
+  // Start simulation when there's an active chat so cards/nodes visibly pulse
+  // during live conversations (including WhatsApp conversations).
+  useEffect(() => {
+    const cleanup = simulateCommunication();
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, [hasActiveChat]);
 
   // Clean up old communication events
   useEffect(() => {
