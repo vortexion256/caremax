@@ -279,3 +279,12 @@ You have two options:
 curl -X POST "https://<your-api-domain>/public/reminders/dispatch" \
   -H "x-reminder-secret: <REMINDER_DISPATCH_SECRET>"
 ```
+
+### Troubleshooting 500 on `/public/reminders/dispatch`
+
+If you still receive `500`, inspect the JSON body from the endpoint response and verify:
+
+- `REMINDER_DISPATCH_SECRET` exists in the API runtime environment.
+- Firebase server credentials are set for the deployed environment.
+- Firestore has the required query index for reminders dispatch (`status` + `dueAt`).
+- The API service account has permission to read and update Firestore `reminders` documents.
