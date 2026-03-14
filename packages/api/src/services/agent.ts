@@ -12,6 +12,7 @@ import { recordDiagnosticLog } from './diagnostic-logs.js';
 import { createNote, listNotes as listAgentNotes, updateNoteContent, getNote } from './agent-notes.js';
 import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
 import { createWhatsAppReminder, deleteUserReminder, editUserReminder, listUserReminders } from './reminders.js';
+import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
@@ -78,6 +79,34 @@ function shouldPreloadUpcomingReminders(lastUserMessage: string | undefined, cha
   const isWhatsAppChannel = channel === 'whatsapp' || channel === 'whatsapp_meta';
   if (!isWhatsAppChannel) return false;
   return REMINDER_RELATED_TURN_REGEX.test(lastUserMessage);
+}
+
+function normalizeContactPhone(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const digits = trimmed.replace(/[^\d]/g, '');
+  if (!digits) return undefined;
+
+  // Enforce next-of-kin numbers in Uganda country-code format: 256XXXXXXXXX
+  if (digits.startsWith('256') && digits.length === 12) return digits;
+  if (digits.startsWith('0') && digits.length === 10) return `256${digits.slice(1)}`;
+  if (digits.startsWith('7') && digits.length === 9) return `256${digits}`;
+
+  return undefined;
+}
+
+
+function extractNextOfKinPhoneCandidate(text: string | undefined): string | undefined {
+  if (typeof text !== 'string' || text.trim().length === 0) return undefined;
+  const input = text.trim();
+  const hasNextOfKinContext = /\b(next\s*of\s*kin|nok|emergency\s+contact)\b/i.test(input);
+  if (!hasNextOfKinContext) return undefined;
+
+  const phoneMatch = input.match(/(?:\+?\d[\d\s().-]{6,}\d)/);
+  if (!phoneMatch?.[0]) return undefined;
+  return normalizeContactPhone(phoneMatch[0]);
 }
 
 const defaultSystemPrompt = `You are a helpful clinical triage assistant. You help users understand possible next steps based on their symptoms.
@@ -503,9 +532,10 @@ If your need is urgent, please call your care team or 911 in an emergency.`;
 
 
   let xPersonProfileContext = '';
+  let currentProfile: Awaited<ReturnType<typeof getXPersonProfile>> = null;
   if (config.xPersonProfileEnabled) {
     try {
-      const currentProfile = await getXPersonProfile({
+      currentProfile = await getXPersonProfile({
         tenantId,
         userId: options?.userId,
         externalUserId: options?.externalUserId,
@@ -516,9 +546,12 @@ XPersonProfile (Persons/Pipo) is ENABLED for this tenant.
 - Tool name: xperson_profile
 - Always use this tool autonomously when user identity/profile details are needed.
 - Default fields to maintain: name, phone, location.
+- Every user must have a next-of-kin phone number stored in profile attributes as "next_of_kin_phone". Ask for it politely when missing.
+- Save next_of_kin_phone in Uganda format starting with 256 (example: 2567XXXXXXXX).
 - If user shares new details, call xperson_profile with operation="upsert" in the same turn.
 - Keep profile capture invisible to the user: do not say you updated/saved/recorded their profile unless they explicitly ask about profile memory.
 - If you need to check known user details, call xperson_profile with operation="get" before asking repeated questions.
+- For emergencies or when the user explicitly asks to notify next of kin, use the send_next_of_kin_message tool.
 ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${config.xPersonProfileCustomFields.map((f) => f.description ? `${f.field} (${f.description})` : f.field).join(', ')}\n` : ''}- Always keep conversation_duration_last_conversation_seconds updated based on the user's latest total conversation time across widget or WhatsApp.\nCurrent profile snapshot: ${currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.'}`;
     } catch (e) {
       console.warn('[Agent] Failed to load XPersonProfile context:', e);
@@ -547,6 +580,28 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   const timeInstruction = `Date/time grounding: Use this as the current local date/time unless the user specifies another timezone. Timezone=${resolvedTimezone}, country=${resolvedCountryCode}, localNow=${locationNow}, localNowISO=${isoInTimezone}. If user asks for date/time, answer from this context and mention timezone.`;
 
   const latestUserText = history.filter((m) => m.role === 'user').pop()?.content;
+  if (config.xPersonProfileEnabled) {
+    const existingNextOfKin = normalizeContactPhone(
+      currentProfile?.attributes && typeof currentProfile.attributes === 'object'
+        ? currentProfile.attributes.next_of_kin_phone
+        : undefined,
+    );
+    const extractedNextOfKin = extractNextOfKinPhoneCandidate(latestUserText);
+    if (!existingNextOfKin && extractedNextOfKin) {
+      try {
+        await upsertXPersonProfile({
+          tenantId,
+          userId: options?.userId,
+          externalUserId: options?.externalUserId,
+          conversationId: options?.conversationId,
+          attributes: { next_of_kin_phone: extractedNextOfKin },
+        });
+        currentProfile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId });
+      } catch (e) {
+        console.warn('[Agent] Failed to auto-save next_of_kin_phone:', e);
+      }
+    }
+  }
   let reminderSnapshotContext = '';
   if (shouldPreloadUpcomingReminders(latestUserText, options?.channel) && options?.externalUserId) {
     try {
@@ -560,6 +615,14 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
     } catch (e) {
       console.warn('[Agent] Failed to preload reminder snapshot:', e);
     }
+  }
+
+  if (config.xPersonProfileEnabled) {
+    const profileSnapshot = currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.';
+    xPersonProfileContext = xPersonProfileContext.replace(
+      /Current profile snapshot: [\s\S]*$/,
+      `Current profile snapshot: ${profileSnapshot}`,
+    );
   }
 
   let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}${reminderSnapshotContext}`;
@@ -812,6 +875,32 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
       return `XPersonProfile upserted successfully (profileId=${result.profileId}, created=${result.created}).`;
     },
   });
+
+  const sendNextOfKinMessageTool = new DynamicStructuredTool({
+    name: 'send_next_of_kin_message',
+    description: 'Send a WhatsApp message to the current user\'s saved next of kin phone number for emergencies or explicit user requests.',
+    schema: z.object({
+      message: z.string().min(5).max(1000).describe('The exact message to send to the next of kin.'),
+      reason: z.enum(['emergency', 'user_request']).describe('Why the next of kin notification is being sent.'),
+    }),
+    func: async ({ message, reason }) => {
+      const profile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId });
+      const attributes = profile?.attributes && typeof profile.attributes === 'object' ? profile.attributes : {};
+      const nextOfKinPhone = normalizeContactPhone(attributes?.next_of_kin_phone);
+
+      if (!nextOfKinPhone) {
+        return 'Cannot send message: next_of_kin_phone is missing in the user profile. Ask the user to save it first via xperson_profile upsert.';
+      }
+
+      const sentVia = await sendWhatsAppOutboundMessage({
+        tenantId,
+        to: nextOfKinPhone,
+        body: message.trim(),
+      });
+
+      return `Next-of-kin message sent successfully via ${sentVia} (${reason}).`;
+    },
+  });
   const setReminderTool = new DynamicStructuredTool({
     name: 'set_reminder',
     description: 'Schedule a future reminder message for WhatsApp users. Use only after the user clearly confirms date/time and reminder message.',
@@ -937,6 +1026,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
   if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
   if (config.xPersonProfileEnabled) tools.push(xPersonProfileTool);
+  if (config.xPersonProfileEnabled) tools.push(sendNextOfKinMessageTool);
   if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
     tools.push(setReminderTool, listUserRemindersTool, getUpcomingRemindersTool, editReminderTool, deleteReminderTool);
   }
@@ -1171,6 +1261,16 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         } catch (e) {
           console.error('xperson_profile error:', e);
           content = e instanceof Error ? e.message : 'Failed to access XPersonProfile.';
+        }
+      } else if (tc.name === 'send_next_of_kin_message' && config.xPersonProfileEnabled) {
+        try {
+          content = await sendNextOfKinMessageTool.invoke({
+            message: typeof tc.args?.message === 'string' ? tc.args.message : '',
+            reason: tc.args?.reason === 'emergency' ? 'emergency' : 'user_request',
+          });
+        } catch (e) {
+          console.error('send_next_of_kin_message error:', e);
+          content = e instanceof Error ? e.message : 'Failed to send next-of-kin message.';
         }
       } else {
         content = 'Invalid arguments.';
