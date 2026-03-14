@@ -46,7 +46,10 @@ reminderRouter.post('/', requireAuth, async (req, res) => {
 reminderDispatchRouter.post('/dispatch', async (req, res) => {
   const configuredSecret = process.env.REMINDER_DISPATCH_SECRET?.trim();
   if (!configuredSecret) {
-    res.status(500).json({ error: 'REMINDER_DISPATCH_SECRET is not configured.' });
+    res.status(500).json({
+      error: 'REMINDER_DISPATCH_SECRET is not configured.',
+      hint: 'Set REMINDER_DISPATCH_SECRET in the API runtime environment (e.g. Vercel project env vars).',
+    });
     return;
   }
 
@@ -64,6 +67,20 @@ reminderDispatchRouter.post('/dispatch', async (req, res) => {
     res.json({ ok: true, ...result });
   } catch (error) {
     const details = error instanceof Error ? error.message : 'Failed to dispatch reminders';
-    res.status(500).json({ error: 'Dispatch failed', details });
+    const lowerDetails = details.toLowerCase();
+
+    const hints: string[] = [];
+    if (lowerDetails.includes('firebase') || lowerDetails.includes('credential')) {
+      hints.push('Verify Firebase server credentials are configured for this deployment environment.');
+    }
+    if (lowerDetails.includes('requires an index') || lowerDetails.includes('failed-precondition')) {
+      hints.push('Create the Firestore composite index for reminders(status ASC, dueAt ASC).');
+    }
+    if (lowerDetails.includes('permission') || lowerDetails.includes('missing or insufficient permissions')) {
+      hints.push('Check Firestore IAM/security rules for server-side reminder reads and updates.');
+    }
+
+    console.error('Reminder dispatch failed:', error);
+    res.status(500).json({ error: 'Dispatch failed', details, hints });
   }
 });
