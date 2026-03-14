@@ -32,6 +32,7 @@ import { extractIntent, ExtractedIntent } from './agent-intent.js';
 import { decomposeQuestion, DecomposedQuestion } from './agent-decomposer.js';
 import { extractTokenUsage, recordUsage, type UsageMetadata } from './token-usage.js';
 import { extractDefaultProfileFields } from './xperson-profile.js';
+import { listUserReminders } from './reminders.js';
 import {
   decideIfNeedsPlanning,
   createExecutionPlan,
@@ -56,6 +57,7 @@ export type AgentResult = {
 };
 
 const HANDOFF_MARKER = '[HANDOFF]';
+const REMINDER_RELATED_TURN_REGEX = /\b(reminder|remind|upcoming|scheduled|schedule|delete|remove|cancel|edit|change|update)\b/i;
 
 /** Format existing Auto Agent Brain records for the system prompt. */
 const CONTENT_SNIPPET_LENGTH = 120;
@@ -220,7 +222,7 @@ export async function runAgentV2(
         availableTools.push('xperson_profile');
       }
       if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
-        availableTools.push('set_reminder');
+        availableTools.push('set_reminder', 'list_user_reminders', 'get_upcoming_reminders', 'edit_reminder', 'delete_reminder');
       }
 
       executionPlan = await createExecutionPlan(
@@ -330,7 +332,26 @@ export async function runAgentV2(
     const nameInstruction = `Your name is ${config.agentName}. Always use this name when greeting or introducing yourself.`;
     const contextSection = formatContextForPrompt(agentContext);
     
-    let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${contextSection}\n\n`;
+    let reminderSnapshotContext = '';
+    const shouldPreloadReminders =
+      (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta')
+      && !!options?.externalUserId
+      && REMINDER_RELATED_TURN_REGEX.test(currentTask);
+    if (shouldPreloadReminders && options?.externalUserId) {
+      try {
+        const upcomingReminders = await listUserReminders({
+          tenantId,
+          externalUserId: options.externalUserId,
+          upcomingOnly: true,
+          limit: 10,
+        });
+        reminderSnapshotContext = `\nUpcoming reminders for this WhatsApp user (tenant-scoped lookup, safe fields only): ${JSON.stringify(upcomingReminders)}\n`;
+      } catch (e) {
+        console.warn('[Agent V2] Reminder preload failed:', e);
+      }
+    }
+
+    let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${contextSection}\n${reminderSnapshotContext}\n`;
     
     // Add tool instructions
     systemContent += `CRITICAL RULES:
@@ -491,6 +512,50 @@ export async function runAgentV2(
         func: async () => 'Reminder scheduling requested.',
       });
       tools.push(setReminderTool);
+
+      const listUserRemindersTool = new DynamicStructuredTool({
+        name: 'list_user_reminders',
+        description: 'List reminders for the current WhatsApp user. Returns safe fields only: reminderId, dueAtIso, message, status.',
+        schema: z.object({
+          includePast: z.boolean().optional(),
+          limit: z.number().int().min(1).max(50).optional(),
+        }),
+        func: async () => 'Reminder listing requested.',
+      });
+      tools.push(listUserRemindersTool);
+
+      const getUpcomingRemindersTool = new DynamicStructuredTool({
+        name: 'get_upcoming_reminders',
+        description: 'Get pending upcoming reminders for the current WhatsApp user.',
+        schema: z.object({
+          limit: z.number().int().min(1).max(50).optional(),
+        }),
+        func: async () => 'Upcoming reminder lookup requested.',
+      });
+      tools.push(getUpcomingRemindersTool);
+
+      const editReminderTool = new DynamicStructuredTool({
+        name: 'edit_reminder',
+        description: 'Edit a pending reminder for the current WhatsApp user by reminderId.',
+        schema: z.object({
+          reminderId: z.string(),
+          message: z.string().optional(),
+          remindAtIso: z.string().optional(),
+          timezone: z.string().optional(),
+        }),
+        func: async () => 'Reminder edit requested.',
+      });
+      tools.push(editReminderTool);
+
+      const deleteReminderTool = new DynamicStructuredTool({
+        name: 'delete_reminder',
+        description: 'Delete (cancel) a pending reminder for the current WhatsApp user by reminderId.',
+        schema: z.object({
+          reminderId: z.string(),
+        }),
+        func: async () => 'Reminder deletion requested.',
+      });
+      tools.push(deleteReminderTool);
     }
 
     // Google Sheets tools
