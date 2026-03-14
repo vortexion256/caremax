@@ -75,6 +75,10 @@ export type AgentConfig = {
   whatsappElevenLabsVoiceId?: string;
   xPersonProfileEnabled?: boolean;
   xPersonProfileCustomFields?: { field: string; description?: string }[];
+  /** IANA timezone for agent date/time context (for example Africa/Kampala). */
+  agentTimezone?: string;
+  /** Optional ISO-3166 country code used for locale-sensitive date/time hints. */
+  agentCountryCode?: string;
   availableModels?: string[];
 };
 

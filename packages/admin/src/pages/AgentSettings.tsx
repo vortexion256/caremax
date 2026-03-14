@@ -142,6 +142,12 @@ export default function AgentSettings() {
           whatsappGoogleTtsVoiceName: safeGoogleVoiceName,
           whatsappElevenLabsVoiceId: safeElevenLabsVoiceId,
           xPersonProfileEnabled: Boolean(config.xPersonProfileEnabled),
+          agentTimezone: typeof config.agentTimezone === 'string' && config.agentTimezone.trim().length > 0
+            ? config.agentTimezone.trim()
+            : 'UTC',
+          agentCountryCode: typeof config.agentCountryCode === 'string' && config.agentCountryCode.trim().length === 2
+            ? config.agentCountryCode.trim().toUpperCase()
+            : 'US',
           xPersonProfileCustomFields: Array.isArray(config.xPersonProfileCustomFields)
             ? config.xPersonProfileCustomFields
                 .filter((field) => field && typeof field.field === 'string' && field.field.trim().length > 0)
@@ -248,6 +254,41 @@ export default function AgentSettings() {
             placeholder="e.g. Hello, how can I be of service?"
           />
           <span style={helperStyle}>The first message the user sees when opening the widget.</span>
+        </div>
+
+        <div style={{ marginTop: 24 }}>
+          <label style={labelStyle}>Date & Time Location</label>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr', gap: 12 }}>
+            <input
+              value={config?.agentTimezone ?? 'UTC'}
+              onChange={(e) => setConfig((c) => (c ? { ...c, agentTimezone: e.target.value } : c))}
+              style={inputStyle}
+              placeholder="e.g. Africa/Kampala"
+            />
+            <input
+              value={config?.agentCountryCode ?? 'US'}
+              onChange={(e) => setConfig((c) => (c ? { ...c, agentCountryCode: e.target.value.toUpperCase() } : c))}
+              style={inputStyle}
+              placeholder="Country code (UG)"
+              maxLength={2}
+            />
+          </div>
+          <span style={helperStyle}>Used by the AI when answering "current date/time" questions. Set timezone (IANA format) and 2-letter country code for locale context.</span>
+          <div style={{ marginTop: 10, fontSize: 12, color: '#475569' }}>
+            Local preview: {(() => {
+              const timezone = (config?.agentTimezone ?? 'UTC').trim() || 'UTC';
+              const countryCode = (config?.agentCountryCode ?? 'US').trim().toUpperCase() || 'US';
+              try {
+                return new Intl.DateTimeFormat(`en-${countryCode}`, {
+                  timeZone: timezone,
+                  dateStyle: 'full',
+                  timeStyle: 'long',
+                }).format(new Date());
+              } catch {
+                return 'Invalid timezone. Example: Africa/Kampala';
+              }
+            })()}
+          </div>
         </div>
         </div>
 

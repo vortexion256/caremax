@@ -48,6 +48,8 @@ const updateBody = z.object({
   whatsappElevenLabsVoiceId: z.string().min(1).optional(),
   xPersonProfileEnabled: z.boolean().optional(),
   xPersonProfileCustomFields: z.array(xPersonProfileCustomFieldEntry).optional(),
+  agentTimezone: z.string().min(1).optional(),
+  agentCountryCode: z.string().trim().length(2).optional(),
 });
 
 const fallbackModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
@@ -98,6 +100,8 @@ agentConfigRouter.get('/', async (req, res) => {
       whatsappElevenLabsVoiceId: 'JBFqnCBsd6RMkjVDRZzb',
       xPersonProfileEnabled: false,
       xPersonProfileCustomFields: [],
+      agentTimezone: 'UTC',
+      agentCountryCode: 'US',
       availableModels,
     });
     return;
@@ -126,9 +130,17 @@ agentConfigRouter.put('/', requireAuth, requireAdmin, async (req, res) => {
     return;
   }
 
+  const payload: Record<string, unknown> = { ...parsed.data };
+  if (typeof payload.agentTimezone === 'string') {
+    payload.agentTimezone = payload.agentTimezone.trim() || 'UTC';
+  }
+  if (typeof payload.agentCountryCode === 'string') {
+    payload.agentCountryCode = payload.agentCountryCode.trim().toUpperCase();
+  }
+
   const ref = db.collection('agent_config').doc(tenantId);
   await ref.set(
-    { ...parsed.data, tenantId, updatedAt: FieldValue.serverTimestamp() },
+    { ...payload, tenantId, updatedAt: FieldValue.serverTimestamp() },
     { merge: true }
   );
   invalidateAgentConfigCache(tenantId);
