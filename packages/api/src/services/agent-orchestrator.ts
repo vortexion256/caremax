@@ -21,7 +21,7 @@ import { isGoogleConnected, fetchSheetData, appendSheetRow, getSheetRows, update
 import { createNote, listNotes as listAgentNotes, AgentNote } from './agent-notes.js';
 import { db } from '../config/firebase.js';
 import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
-import { createWhatsAppReminder } from './reminders.js';
+import { createWhatsAppReminder, deleteUserReminder, editUserReminder, listUserReminders } from './reminders.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
 // Record agent activity for dashboard visualization
@@ -968,6 +968,137 @@ export class AgentOrchestrator {
           result = {
             success: false,
             error: 'Invalid arguments for set_reminder',
+          };
+        }
+        break;
+
+      case 'list_user_reminders':
+        if (!externalUserId) {
+          result = {
+            success: false,
+            error: 'Cannot list reminders without WhatsApp external user id',
+          };
+          break;
+        }
+
+        try {
+          const reminders = await listUserReminders({
+            tenantId: this.tenantId,
+            externalUserId,
+            upcomingOnly: toolCall.args.includePast === true ? false : true,
+            limit: typeof toolCall.args.limit === 'number' ? toolCall.args.limit : undefined,
+          });
+          result = {
+            success: true,
+            data: reminders,
+            action: 'read',
+          };
+        } catch (e) {
+          result = {
+            success: false,
+            error: e instanceof Error ? e.message : 'Failed to list reminders',
+          };
+        }
+        break;
+
+      case 'get_upcoming_reminders':
+        if (!externalUserId) {
+          result = {
+            success: false,
+            error: 'Cannot fetch reminders without WhatsApp external user id',
+          };
+          break;
+        }
+
+        try {
+          const reminders = await listUserReminders({
+            tenantId: this.tenantId,
+            externalUserId,
+            upcomingOnly: true,
+            limit: typeof toolCall.args.limit === 'number' ? toolCall.args.limit : undefined,
+          });
+          result = {
+            success: true,
+            data: reminders,
+            action: 'read',
+          };
+        } catch (e) {
+          result = {
+            success: false,
+            error: e instanceof Error ? e.message : 'Failed to fetch upcoming reminders',
+          };
+        }
+        break;
+
+      case 'edit_reminder':
+        if (typeof toolCall.args.reminderId === 'string') {
+          if (!externalUserId) {
+            result = {
+              success: false,
+              error: 'Cannot edit reminder without WhatsApp external user id',
+            };
+            break;
+          }
+
+          try {
+            const reminder = await editUserReminder({
+              tenantId: this.tenantId,
+              externalUserId,
+              reminderId: toolCall.args.reminderId,
+              message: typeof toolCall.args.message === 'string' ? toolCall.args.message : undefined,
+              remindAtIso: typeof toolCall.args.remindAtIso === 'string' ? toolCall.args.remindAtIso : undefined,
+              timezone: typeof toolCall.args.timezone === 'string' ? toolCall.args.timezone : undefined,
+            });
+            result = {
+              success: true,
+              data: reminder,
+              action: 'edit',
+            };
+          } catch (e) {
+            result = {
+              success: false,
+              error: e instanceof Error ? e.message : 'Failed to edit reminder',
+            };
+          }
+        } else {
+          result = {
+            success: false,
+            error: 'Invalid arguments for edit_reminder',
+          };
+        }
+        break;
+
+      case 'delete_reminder':
+        if (typeof toolCall.args.reminderId === 'string') {
+          if (!externalUserId) {
+            result = {
+              success: false,
+              error: 'Cannot delete reminder without WhatsApp external user id',
+            };
+            break;
+          }
+
+          try {
+            const reminder = await deleteUserReminder({
+              tenantId: this.tenantId,
+              externalUserId,
+              reminderId: toolCall.args.reminderId,
+            });
+            result = {
+              success: true,
+              data: reminder,
+              action: 'delete',
+            };
+          } catch (e) {
+            result = {
+              success: false,
+              error: e instanceof Error ? e.message : 'Failed to delete reminder',
+            };
+          }
+        } else {
+          result = {
+            success: false,
+            error: 'Invalid arguments for delete_reminder',
           };
         }
         break;

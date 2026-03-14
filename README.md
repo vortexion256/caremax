@@ -249,6 +249,8 @@ This approach prevents cross-user name/personality leakage while still allowing 
 This project now supports AI-created WhatsApp reminders:
 
 - The agent can call the `set_reminder` tool during a WhatsApp conversation.
+- The agent can call `list_user_reminders` / `get_upcoming_reminders` to retrieve only safe reminder fields (`id`, `due time`, `message`, `status`) for the current tenant + WhatsApp user identity.
+- The agent can call `edit_reminder` and `delete_reminder` to update/cancel a pending reminder when the user asks.
 - Reminders are stored in Firestore collection `reminders` with status `pending`.
 - A secured dispatch endpoint sends due reminders and marks them `sent` or `failed`:
   - `POST /public/reminders/dispatch`

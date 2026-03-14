@@ -11,7 +11,7 @@ import { isGoogleConnected, fetchSheetData } from './google-sheets.js';
 import { recordDiagnosticLog } from './diagnostic-logs.js';
 import { createNote, listNotes as listAgentNotes, updateNoteContent, getNote } from './agent-notes.js';
 import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
-import { createWhatsAppReminder } from './reminders.js';
+import { createWhatsAppReminder, deleteUserReminder, editUserReminder, listUserReminders } from './reminders.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
@@ -70,6 +70,15 @@ function formatExistingRecordsForPrompt(records: { recordId: string; title: stri
 
 /** When the model includes this at the end of its reply, we escalate to a human. Enables indirect "I want a person" and "couldn't help after repeat" detection. */
 const HANDOFF_MARKER = '[HANDOFF]';
+
+const REMINDER_RELATED_TURN_REGEX = /\b(reminder|remind|upcoming|scheduled|schedule|delete|remove|cancel|edit|change|update)\b/i;
+
+function shouldPreloadUpcomingReminders(lastUserMessage: string | undefined, channel?: string): boolean {
+  if (!lastUserMessage) return false;
+  const isWhatsAppChannel = channel === 'whatsapp' || channel === 'whatsapp_meta';
+  if (!isWhatsAppChannel) return false;
+  return REMINDER_RELATED_TURN_REGEX.test(lastUserMessage);
+}
 
 const defaultSystemPrompt = `You are a helpful clinical triage assistant. You help users understand possible next steps based on their symptoms.
 You may suggest: possible diagnoses (as possibilities, not certainties), tests they could discuss with a doctor, first aid or home care when appropriate, and when to seek emergency or in-person care.
@@ -537,7 +546,23 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   }).format(now).replace(' ', 'T');
   const timeInstruction = `Date/time grounding: Use this as the current local date/time unless the user specifies another timezone. Timezone=${resolvedTimezone}, country=${resolvedCountryCode}, localNow=${locationNow}, localNowISO=${isoInTimezone}. If user asks for date/time, answer from this context and mention timezone.`;
 
-  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}`;
+  const latestUserText = history.filter((m) => m.role === 'user').pop()?.content;
+  let reminderSnapshotContext = '';
+  if (shouldPreloadUpcomingReminders(latestUserText, options?.channel) && options?.externalUserId) {
+    try {
+      const upcomingReminders = await listUserReminders({
+        tenantId,
+        externalUserId: options.externalUserId,
+        upcomingOnly: true,
+        limit: 10,
+      });
+      reminderSnapshotContext = `\n\nUpcoming reminders for this WhatsApp user (tenant-scoped lookup, safe fields only): ${JSON.stringify(upcomingReminders)}`;
+    } catch (e) {
+      console.warn('[Agent] Failed to preload reminder snapshot:', e);
+    }
+  }
+
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}${reminderSnapshotContext}`;
   if (config.ragEnabled) {
     const lastUser = history.filter((m) => m.role === 'user').pop();
     // Add timeout for RAG context retrieval (5 seconds)
@@ -816,6 +841,95 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
     },
   });
 
+  const listUserRemindersTool = new DynamicStructuredTool({
+    name: 'list_user_reminders',
+    description: 'List reminders for the current WhatsApp user (tenant-scoped). Returns safe fields only: reminderId, dueAtIso, message, status.',
+    schema: z.object({
+      includePast: z.boolean().optional(),
+      limit: z.number().int().min(1).max(50).optional(),
+    }),
+    func: async ({ includePast, limit }) => {
+      const isWhatsAppChannel = options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta';
+      if (!isWhatsAppChannel || !options?.externalUserId) {
+        return 'Reminder listing is currently available only for WhatsApp conversations.';
+      }
+      const reminders = await listUserReminders({
+        tenantId,
+        externalUserId: options.externalUserId,
+        upcomingOnly: !includePast,
+        limit,
+      });
+      return JSON.stringify(reminders);
+    },
+  });
+
+  const getUpcomingRemindersTool = new DynamicStructuredTool({
+    name: 'get_upcoming_reminders',
+    description: 'Fetch pending upcoming reminders for the current WhatsApp user. Safe fields only.',
+    schema: z.object({
+      limit: z.number().int().min(1).max(50).optional(),
+    }),
+    func: async ({ limit }) => {
+      const isWhatsAppChannel = options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta';
+      if (!isWhatsAppChannel || !options?.externalUserId) {
+        return 'Reminder lookup is currently available only for WhatsApp conversations.';
+      }
+      const reminders = await listUserReminders({
+        tenantId,
+        externalUserId: options.externalUserId,
+        upcomingOnly: true,
+        limit,
+      });
+      return JSON.stringify(reminders);
+    },
+  });
+
+  const editReminderTool = new DynamicStructuredTool({
+    name: 'edit_reminder',
+    description: 'Edit a pending reminder for this WhatsApp user by reminderId. Allowed fields: message, remindAtIso, timezone.',
+    schema: z.object({
+      reminderId: z.string(),
+      message: z.string().optional(),
+      remindAtIso: z.string().optional(),
+      timezone: z.string().optional(),
+    }),
+    func: async ({ reminderId, message, remindAtIso, timezone }) => {
+      const isWhatsAppChannel = options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta';
+      if (!isWhatsAppChannel || !options?.externalUserId) {
+        return 'Reminder editing is currently available only for WhatsApp conversations.';
+      }
+      const updated = await editUserReminder({
+        tenantId,
+        externalUserId: options.externalUserId,
+        reminderId,
+        message,
+        remindAtIso,
+        timezone,
+      });
+      return JSON.stringify(updated);
+    },
+  });
+
+  const deleteReminderTool = new DynamicStructuredTool({
+    name: 'delete_reminder',
+    description: 'Delete (cancel) a pending reminder for this WhatsApp user by reminderId.',
+    schema: z.object({
+      reminderId: z.string(),
+    }),
+    func: async ({ reminderId }) => {
+      const isWhatsAppChannel = options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta';
+      if (!isWhatsAppChannel || !options?.externalUserId) {
+        return 'Reminder deletion is currently available only for WhatsApp conversations.';
+      }
+      const deleted = await deleteUserReminder({
+        tenantId,
+        externalUserId: options.externalUserId,
+        reminderId,
+      });
+      return JSON.stringify(deleted);
+    },
+  });
+
 
   const tools: unknown[] = [];
   // Always include notebook tools - essential for tracking analytics, insights, and patterns
@@ -823,7 +937,9 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
   if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
   if (config.xPersonProfileEnabled) tools.push(xPersonProfileTool);
-  if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') tools.push(setReminderTool);
+  if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
+    tools.push(setReminderTool, listUserRemindersTool, getUpcomingRemindersTool, editReminderTool, deleteReminderTool);
+  }
   const modelWithTools = tools.length ? model.bindTools(tools as Parameters<typeof model.bindTools>[0]) : model;
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
@@ -996,6 +1112,46 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         } catch (e) {
           console.error('set_reminder error:', e);
           content = e instanceof Error ? e.message : 'Failed to create reminder.';
+        }
+      } else if (tc.name === 'list_user_reminders' && (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta')) {
+        try {
+          content = await listUserRemindersTool.invoke({
+            includePast: tc.args?.includePast === true,
+            limit: typeof tc.args?.limit === 'number' ? tc.args.limit : undefined,
+          });
+        } catch (e) {
+          console.error('list_user_reminders error:', e);
+          content = e instanceof Error ? e.message : 'Failed to list reminders.';
+        }
+      } else if (tc.name === 'get_upcoming_reminders' && (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta')) {
+        try {
+          content = await getUpcomingRemindersTool.invoke({
+            limit: typeof tc.args?.limit === 'number' ? tc.args.limit : undefined,
+          });
+        } catch (e) {
+          console.error('get_upcoming_reminders error:', e);
+          content = e instanceof Error ? e.message : 'Failed to fetch upcoming reminders.';
+        }
+      } else if (tc.name === 'edit_reminder' && (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta')) {
+        try {
+          content = await editReminderTool.invoke({
+            reminderId: typeof tc.args?.reminderId === 'string' ? tc.args.reminderId : '',
+            message: typeof tc.args?.message === 'string' ? tc.args.message : undefined,
+            remindAtIso: typeof tc.args?.remindAtIso === 'string' ? tc.args.remindAtIso : undefined,
+            timezone: typeof tc.args?.timezone === 'string' ? tc.args.timezone : undefined,
+          });
+        } catch (e) {
+          console.error('edit_reminder error:', e);
+          content = e instanceof Error ? e.message : 'Failed to edit reminder.';
+        }
+      } else if (tc.name === 'delete_reminder' && (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta')) {
+        try {
+          content = await deleteReminderTool.invoke({
+            reminderId: typeof tc.args?.reminderId === 'string' ? tc.args.reminderId : '',
+          });
+        } catch (e) {
+          console.error('delete_reminder error:', e);
+          content = e instanceof Error ? e.message : 'Failed to delete reminder.';
         }
       } else if (tc.name === 'xperson_profile' && config.xPersonProfileEnabled) {
         try {
