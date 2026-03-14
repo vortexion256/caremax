@@ -372,6 +372,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
       userId,
       externalUserId,
       conversationId,
+      channel: channel === 'whatsapp_meta' ? 'whatsapp_meta' : channel === 'whatsapp' ? 'whatsapp' : 'widget',
     });
   } catch (err) {
     console.error('Agent error:', err);

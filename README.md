@@ -243,3 +243,39 @@ Practical recommendation for this codebase:
   - disable personal memory capture (Auto Agent Brain for user facts) and keep only session/conversation context.
 
 This approach prevents cross-user name/personality leakage while still allowing high-quality shared support knowledge.
+
+## WhatsApp autonomous reminders
+
+This project now supports AI-created WhatsApp reminders:
+
+- The agent can call the `set_reminder` tool during a WhatsApp conversation.
+- Reminders are stored in Firestore collection `reminders` with status `pending`.
+- A secured dispatch endpoint sends due reminders and marks them `sent` or `failed`:
+  - `POST /public/reminders/dispatch`
+  - Header required: `x-reminder-secret: <REMINDER_DISPATCH_SECRET>`
+
+### Required env var
+
+- `REMINDER_DISPATCH_SECRET` (required for dispatcher auth)
+
+### Cloud Scheduler / Cloud Function setup
+
+You have two options:
+
+1. **Recommended (simpler): Cloud Scheduler -> HTTP endpoint**
+   - Create a scheduler job (every 1 minute)
+   - URL: `https://<your-api-domain>/public/reminders/dispatch`
+   - Method: `POST`
+   - Add header `x-reminder-secret: <REMINDER_DISPATCH_SECRET>`
+
+2. **If you want Cloud Function in the middle**
+   - Create a scheduled Cloud Function (every 1 minute)
+   - In the function, do an authenticated `POST` to `/public/reminders/dispatch` with `x-reminder-secret`
+   - Keep `REMINDER_DISPATCH_SECRET` in Secret Manager / function env
+
+### Manual test command
+
+```bash
+curl -X POST "https://<your-api-domain>/public/reminders/dispatch" \
+  -H "x-reminder-secret: <REMINDER_DISPATCH_SECRET>"
+```

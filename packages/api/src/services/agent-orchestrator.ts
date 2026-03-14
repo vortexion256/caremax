@@ -21,6 +21,7 @@ import { isGoogleConnected, fetchSheetData, appendSheetRow, getSheetRows, update
 import { createNote, listNotes as listAgentNotes, AgentNote } from './agent-notes.js';
 import { db } from '../config/firebase.js';
 import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
+import { createWhatsAppReminder } from './reminders.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
 // Record agent activity for dashboard visualization
@@ -930,6 +931,46 @@ export class AgentOrchestrator {
         }
         break;
 
+
+      case 'set_reminder':
+        if (typeof toolCall.args.message === 'string' && typeof toolCall.args.remindAtIso === 'string') {
+          if (!externalUserId) {
+            result = {
+              success: false,
+              error: 'Cannot set reminder without WhatsApp external user id',
+            };
+            break;
+          }
+
+          const channel = toolCall.args.channel === 'whatsapp_meta' ? 'whatsapp_meta' : 'whatsapp';
+          try {
+            const reminder = await createWhatsAppReminder({
+              tenantId: this.tenantId,
+              message: toolCall.args.message,
+              remindAtIso: toolCall.args.remindAtIso,
+              timezone: typeof toolCall.args.timezone === 'string' ? toolCall.args.timezone : undefined,
+              externalUserId,
+              userId,
+              conversationId,
+              channel,
+            });
+            result = {
+              success: true,
+              data: reminder,
+            };
+          } catch (e) {
+            result = {
+              success: false,
+              error: e instanceof Error ? e.message : 'Failed to create reminder',
+            };
+          }
+        } else {
+          result = {
+            success: false,
+            error: 'Invalid arguments for set_reminder',
+          };
+        }
+        break;
 
       case 'xperson_profile':
         if (toolCall.args.operation === 'get' || toolCall.args.operation === 'upsert') {

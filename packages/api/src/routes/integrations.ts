@@ -564,7 +564,7 @@ function getWhatsAppAudioDurationSeconds(payload: Request['body']): number | nul
 async function runAgentWithRetry(
   tenantId: string,
   history: Array<{ role: string; content: string; imageUrls?: string[] }>,
-  context: { userId: string; externalUserId: string; conversationId: string; preferredResponseLanguage?: 'luganda' | 'english' | null },
+  context: { userId: string; externalUserId: string; conversationId: string; preferredResponseLanguage?: 'luganda' | 'english' | null; channel?: 'whatsapp' | 'whatsapp_meta' },
 ): Promise<{ text?: string; requestHandoff?: boolean }> {
   try {
     return await withTimeout(
@@ -1379,6 +1379,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
           externalUserId: identity.externalUserId,
           conversationId,
           preferredResponseLanguage: detectedUserLanguage,
+          channel: 'whatsapp',
         });
       responseText = agentResponse.text?.trim() ?? '';
       requestHandoff = agentResponse.requestHandoff ?? false;
@@ -1721,6 +1722,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
               externalUserId: identity.externalUserId,
               conversationId: conversationRef.id,
               preferredResponseLanguage: detectedUserLanguage,
+              channel: 'whatsapp_meta',
             });
             responseText = agentResponse.text?.trim() ?? '';
             requestHandoff = agentResponse.requestHandoff ?? false;
