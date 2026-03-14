@@ -377,14 +377,14 @@ function hasMultipleUserTurns(history: { role: string }[]): boolean {
 function isGreetingLikeTurn(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
-  return /\b(hi|hello|hey|good\s+(morning|afternoon|evening)|how are you|what'?s up|morning|evening)\b/i.test(normalized);
+  return /^(hi|hi there|hello|hello there|hey|hey there|good\s+(morning|afternoon|evening)|how are you|what'?s up|morning|evening)[.!?,\s]*$/i.test(normalized);
 }
 
 
 function isGratitudeLikeTurn(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
-  return /\b(thanks|thank you|ok|okay|ok thanks|okay thanks|nice|great|cool|got it)\b/i.test(normalized);
+  return /^(thanks|thank you|ok|okay|ok thanks|okay thanks|nice|great|cool|got it)[.!?,\s]*$/i.test(normalized);
 }
 
 function isHealthTopicTurn(text: string): boolean {
