@@ -14,6 +14,7 @@ import { createTenantNotification } from '../services/tenant-notifications.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
 import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, upsertXPersonProfile } from '../services/xperson-profile.js';
+import { claimTwilioWebhookMessage, routeNokRelayReply } from '../services/whatsapp-relay.js';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
 import { google } from 'googleapis';
@@ -1071,6 +1072,37 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     }
 
     const incomingBody = typeof req.body?.Body === 'string' ? req.body.Body.trim() : '';
+    const providerMessageId = typeof req.body?.MessageSid === 'string' ? req.body.MessageSid.trim() : '';
+
+    if (providerMessageId) {
+      const claimed = await claimTwilioWebhookMessage(tenantId, providerMessageId);
+      if (!claimed) {
+        res.set('Content-Type', 'text/xml');
+        res.status(200).send(xmlEmptyResponse());
+        return;
+      }
+    }
+
+    if (incomingBody) {
+      const relayRoute = await routeNokRelayReply({
+        tenantId,
+        nokExternalUserId: identity.externalUserId,
+        inboundBody: incomingBody,
+      });
+
+      if (relayRoute.type === 'routed') {
+        res.set('Content-Type', 'text/xml');
+        res.status(200).send(xmlResponse(`Thanks. We have forwarded your message to the patient (ref ${relayRoute.relayTicketId}).`));
+        return;
+      }
+
+      if (relayRoute.type === 'ambiguous' || relayRoute.type === 'invalid_code') {
+        res.set('Content-Type', 'text/xml');
+        res.status(200).send(xmlResponse(relayRoute.prompt));
+        return;
+      }
+    }
+
     const mediaUrl = typeof req.body?.MediaUrl0 === 'string' ? req.body.MediaUrl0.trim() : '';
     const mediaContentType = typeof req.body?.MediaContentType0 === 'string' ? req.body.MediaContentType0.trim() : '';
 

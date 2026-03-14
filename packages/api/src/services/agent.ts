@@ -13,6 +13,7 @@ import { createNote, listNotes as listAgentNotes, updateNoteContent, getNote } f
 import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
 import { createWhatsAppReminder, deleteUserReminder, editUserReminder, listUserReminders } from './reminders.js';
 import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
+import { buildNokRelayOutboundMessage, createRelayTicket, markRelayTicketSendFailed } from './whatsapp-relay.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
@@ -892,13 +893,36 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         return 'Cannot send message: next_of_kin_phone is missing in the user profile. Ask the user to save it first via xperson_profile upsert.';
       }
 
-      const sentVia = await sendWhatsAppOutboundMessage({
+      const relayTicket = await createRelayTicket({
         tenantId,
-        to: nextOfKinPhone,
-        body: message.trim(),
+        patientConversationId: options?.conversationId,
+        patientUserId: options?.userId,
+        patientExternalUserId: options?.externalUserId,
+        nokPhone: nextOfKinPhone,
+        reason,
       });
 
-      return `Next-of-kin message sent successfully via ${sentVia} (${reason}).`;
+      const relayMessage = buildNokRelayOutboundMessage({
+        relayTicketId: relayTicket.relayTicketId,
+        message,
+      });
+
+      let sentVia: 'whatsapp' | 'whatsapp_meta';
+      try {
+        sentVia = await sendWhatsAppOutboundMessage({
+          tenantId,
+          to: nextOfKinPhone,
+          body: relayMessage,
+        });
+      } catch (error) {
+        await markRelayTicketSendFailed({
+          ticketId: relayTicket.id,
+          errorMessage: error instanceof Error ? error.message : 'Unknown outbound send failure',
+        });
+        throw error;
+      }
+
+      return `Next-of-kin message sent successfully via ${sentVia} (${reason}). Reference code: ${relayTicket.relayTicketId}.`;
     },
   });
   const setReminderTool = new DynamicStructuredTool({
