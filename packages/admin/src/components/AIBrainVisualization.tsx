@@ -13,10 +13,12 @@ interface Item {
   shortLabel: string;
   path: string;
   color: string;
+  matchPriority?: number;
   activityTypes?: string[];
 }
 
 const normalizeActivityToken = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+const toActivityTokens = (value: string): string[] => value.toLowerCase().split(/[^a-z0-9]+/g).filter(Boolean);
 
 interface CommunicationEvent {
   sourceIndex: number;
@@ -44,35 +46,61 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
   const { tenantId } = useTenant();
 
   const items: Item[] = [
-    { label: 'Knowledge', shortLabel: 'KB', path: '/rag', color: '#3b82f6', activityTypes: ['rag', 'knowledge', 'knowledge-base'] },
-    { label: 'Brain', shortLabel: 'AB', path: '/agent-brain', color: '#8b5cf6', activityTypes: ['agent-brain', 'brain', 'orchestrator'] },
-    { label: 'Notes', shortLabel: 'NT', path: '/agent-notes', color: '#ec4899', activityTypes: ['agent-notes', 'notes'] },
-    { label: 'Handoffs', shortLabel: 'HO', path: '/handoffs', color: '#f43f5e', activityTypes: ['handoffs', 'handoff', 'human-handoff'] },
-    { label: 'Integrations', shortLabel: 'IN', path: '/integrations', color: '#10b981', activityTypes: ['integrations', 'integration', 'google-sheets'] },
-    { label: 'WhatsApp', shortLabel: 'WA', path: '/integrations', color: '#22c55e', activityTypes: ['whatsapp', 'wa', 'whatsapp-sent', 'whatsapp-received', 'whatsapp-meta', 'whatsapp-twilio'] },
-    { label: 'Twilio', shortLabel: 'TW', path: '/integrations', color: '#ef4444', activityTypes: ['twilio', 'twilio-whatsapp', 'whatsapp-twilio-sent', 'whatsapp-twilio-received'] },
-    { label: 'Meta', shortLabel: 'MT', path: '/integrations', color: '#2563eb', activityTypes: ['meta', 'facebook', 'graph-api', 'whatsapp-meta-sent', 'whatsapp-meta-received'] },
-    { label: 'Gemini', shortLabel: 'GM', path: '/integrations', color: '#0ea5e9', activityTypes: ['gemini', 'google-gemini'] },
-    { label: 'Sunbird', shortLabel: 'SB', path: '/integrations', color: '#f97316', activityTypes: ['sunbird', 'sun-bird', 'sunbrd', 'sunbird-accessed'] },
-    { label: 'Google TTS', shortLabel: 'GT', path: '/integrations', color: '#f59e0b', activityTypes: ['google-cloud-tts', 'gcp-tts', 'google-tts', 'google-cloud-tts-accessed'] },
-    { label: 'ElevenLabs', shortLabel: 'EL', path: '/integrations', color: '#7c3aed', activityTypes: ['elevenlabs', 'eleven-labs', 'elevenlabs-accessed'] },
-    { label: 'Config', shortLabel: 'AC', path: '/agent', color: '#14b8a6', activityTypes: ['agent', 'config'] }
+    { label: 'Knowledge', shortLabel: 'KB', path: '/rag', color: '#3b82f6', matchPriority: 60, activityTypes: ['rag', 'knowledge', 'knowledge-base'] },
+    { label: 'Brain', shortLabel: 'AB', path: '/agent-brain', color: '#8b5cf6', matchPriority: 90, activityTypes: ['agent-brain', 'brain', 'orchestrator'] },
+    { label: 'Notes', shortLabel: 'NT', path: '/agent-notes', color: '#ec4899', matchPriority: 90, activityTypes: ['agent-notes', 'notes'] },
+    { label: 'Handoffs', shortLabel: 'HO', path: '/handoffs', color: '#f43f5e', matchPriority: 80, activityTypes: ['handoffs', 'handoff', 'human-handoff'] },
+    { label: 'Integrations', shortLabel: 'IN', path: '/integrations', color: '#10b981', matchPriority: 10, activityTypes: ['integrations', 'integration', 'google-sheets'] },
+    { label: 'WhatsApp', shortLabel: 'WA', path: '/integrations', color: '#22c55e', matchPriority: 30, activityTypes: ['whatsapp', 'whatsapp-sent', 'whatsapp-received'] },
+    { label: 'Twilio', shortLabel: 'TW', path: '/integrations', color: '#ef4444', matchPriority: 100, activityTypes: ['twilio', 'twilio-whatsapp', 'whatsapp-twilio', 'whatsapp-twilio-sent', 'whatsapp-twilio-received'] },
+    { label: 'Meta', shortLabel: 'MT', path: '/integrations', color: '#2563eb', matchPriority: 100, activityTypes: ['meta', 'facebook', 'graph-api', 'whatsapp-meta', 'whatsapp-meta-sent', 'whatsapp-meta-received'] },
+    { label: 'Gemini', shortLabel: 'GM', path: '/integrations', color: '#0ea5e9', matchPriority: 95, activityTypes: ['gemini', 'google-gemini', 'gemini-2.5-flash-preview-tts'] },
+    { label: 'Sunbird', shortLabel: 'SB', path: '/integrations', color: '#f97316', matchPriority: 95, activityTypes: ['sunbird', 'sun-bird', 'sunbrd', 'sunbird-accessed'] },
+    { label: 'Google TTS', shortLabel: 'GT', path: '/integrations', color: '#f59e0b', matchPriority: 95, activityTypes: ['google-cloud-tts', 'gcp-tts', 'google-tts', 'google-cloud-tts-accessed'] },
+    { label: 'ElevenLabs', shortLabel: 'EL', path: '/integrations', color: '#7c3aed', matchPriority: 95, activityTypes: ['elevenlabs', 'eleven-labs', 'elevenlabs-accessed'] },
+    { label: 'Config', shortLabel: 'AC', path: '/agent', color: '#14b8a6', matchPriority: 50, activityTypes: ['agent', 'config'] }
   ];
 
   const findItemIndexForActivity = (activityType: string): number => {
-    const normalizedType = String(activityType || '').toLowerCase();
-    const normalizedToken = normalizeActivityToken(normalizedType);
+    const rawType = String(activityType || '').trim().toLowerCase();
+    if (!rawType) return -1;
 
-    return items.findIndex(item => {
-      const path = item.path.replace('/', '');
-      const aliases = item.activityTypes || [];
-      const normalizedAliases = [path, ...aliases].map(normalizeActivityToken);
-      return normalizedAliases.some(alias => (
-        alias === normalizedToken
-        || normalizedToken.includes(alias)
-        || alias.includes(normalizedToken)
-      ));
+    const compactType = normalizeActivityToken(rawType);
+    const typeTokens = new Set(toActivityTokens(rawType));
+
+    let bestMatch = { index: -1, score: 0, priority: -1 };
+
+    items.forEach((item, index) => {
+      const aliases = [item.path.replace('/', ''), ...(item.activityTypes || [])];
+      const priority = item.matchPriority ?? 0;
+
+      aliases.forEach((alias) => {
+        const normalizedAlias = normalizeActivityToken(alias);
+        const aliasTokens = toActivityTokens(alias);
+        let score = 0;
+
+        if (!normalizedAlias) return;
+
+        if (normalizedAlias === compactType) {
+          score = 100;
+        } else if (aliasTokens.length > 0 && aliasTokens.every(token => typeTokens.has(token))) {
+          score = 80 + Math.min(aliasTokens.length, 10);
+        } else if (typeTokens.has(normalizedAlias)) {
+          score = 70;
+        } else if (normalizedAlias.length >= 5 && compactType.includes(normalizedAlias)) {
+          score = 50;
+        }
+
+        if (
+          score > bestMatch.score
+          || (score === bestMatch.score && priority > bestMatch.priority)
+        ) {
+          bestMatch = { index, score, priority };
+        }
+      });
     });
+
+    return bestMatch.score > 0 ? bestMatch.index : -1;
   };
 
   // Clean up old communication events
