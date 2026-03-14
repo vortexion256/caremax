@@ -188,6 +188,19 @@ export async function runAgentV2(
       modelName: config.model,
     });
 
+    // Guardrail: drop stale active plans when the user switches to normal conversation.
+    // Without this, the agent can keep executing an old plan and repeat previous answers
+    // even when the latest user turn is a greeting or unrelated follow-up.
+    const isLikelyGreetingTurn = /\b(hi|hello|hey|good\s+(morning|afternoon|evening)|how are you|what'?s up)\b/i.test(lastUserMessage);
+    const shouldIgnoreActivePlan =
+      executionPlan
+      && intent.intent !== 'confirm_action'
+      && (intent.intent === 'general_conversation' || (intent.intent === 'query_information' && isLikelyGreetingTurn));
+
+    if (shouldIgnoreActivePlan) {
+      executionPlan = null;
+    }
+
     // Create plan if needed and no active plan exists
     if (planningDecision.needsPlanning && !executionPlan) {
       const availableTools: string[] = [];

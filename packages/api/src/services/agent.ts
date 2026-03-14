@@ -365,6 +365,25 @@ function hasMultipleUserTurns(history: { role: string }[]): boolean {
   return history.filter((m) => m.role === 'user').length >= 2;
 }
 
+function isGreetingLikeTurn(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return /\b(hi|hello|hey|good\s+(morning|afternoon|evening)|how are you|what'?s up|morning|evening)\b/i.test(normalized);
+}
+
+
+function isGratitudeLikeTurn(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return /\b(thanks|thank you|ok thanks|okay thanks|nice|great|cool|got it)\b/i.test(normalized);
+}
+
+function isHealthTopicTurn(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return /\b(health|healthy|symptom|symptoms|pain|fever|headache|doctor|medicine|medication|diagnos|triage|treatment|wellness|hospital|clinic)\b/i.test(normalized);
+}
+
 export async function runAgent(
   tenantId: string,
   history: { role: string; content: string; imageUrls?: string[] }[],
@@ -402,6 +421,33 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
     hasMultipleUserTurns(history) && lastReplyWasUnhelpfulOrUncertain(history)
       ? ` The user has sent another message after you previously could not fully help. You MUST end your reply with "${HANDOFF_MARKER}" to escalate to a human.`
       : '';
+
+  const lastUserContent = history.filter((m) => m.role === 'user').pop()?.content ?? '';
+  const userWantsHuman =
+    /\b(talk|speak|connect|transfer|hand me off|get me)\s+(to|with)\s+(a\s+)?(human|real\s+person|person|agent|someone|care\s+team|staff|representative)/i.test(lastUserContent) ||
+    /\b(let me\s+)?(talk|speak)\s+to\s+(a\s+)?(human|person|someone)/i.test(lastUserContent) ||
+    /\b(want|need)\s+to\s+(speak|talk)\s+to\s+(a\s+)?(human|person|someone)/i.test(lastUserContent) ||
+    /\b(real\s+person|human\s+agent|live\s+agent)/i.test(lastUserContent);
+
+  if (userWantsHuman) {
+    const handoffMessage =
+      `I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.
+
+If your need is urgent, please call your care team or 911 in an emergency.`;
+    return { text: handoffMessage, requestHandoff: true };
+  }
+
+  const smallTalkOnlyTurn = (isGreetingLikeTurn(lastUserContent) || isGratitudeLikeTurn(lastUserContent)) && !isHealthTopicTurn(lastUserContent);
+  if (smallTalkOnlyTurn) {
+    const normalized = lastUserContent.trim().toLowerCase();
+    if (isGratitudeLikeTurn(normalized)) {
+      return { text: 'You’re welcome! If you want, I can help with any health question.' };
+    }
+    if (/\bhow are you\b|\bwhat'?s up\b/i.test(normalized)) {
+      return { text: 'I’m doing well, thanks. How can I help you today?' };
+    }
+    return { text: 'Good to hear from you! How can I help you today?' };
+  }
 
   // Get existing notes for this conversation to prevent duplicates
   let existingNotesContext = '';
@@ -500,7 +546,16 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
     }
   }
 
-  const langChainHistory = await toLangChainMessages(history);
+  const lastUserMessage = history.filter((m) => m.role === 'user').pop()?.content ?? '';
+  const greetingLikeTurn = isGreetingLikeTurn(lastUserMessage);
+  const historyForModel = greetingLikeTurn ? history.slice(-3) : history;
+  if (greetingLikeTurn) {
+    systemContent += `
+
+Latest-turn priority rule: The user's latest message is a greeting/small-talk. Respond directly to that greeting in 1 short sentence, then offer help. Do not continue or repeat prior medical guidance unless the user asks for it.`;
+  }
+
+  const langChainHistory = await toLangChainMessages(historyForModel);
   const messages: BaseMessage[] = [
     new SystemMessage(systemContent),
     ...langChainHistory,
@@ -525,19 +580,6 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
     conversationId: options?.conversationId,
     metadata: { messageCount: messages.length, contextChars: messageContextChars },
   });
-
-  const lastUserContent = history.filter((m) => m.role === 'user').pop()?.content ?? '';
-  const userWantsHuman =
-    /\b(talk|speak|connect|transfer|hand me off|get me)\s+(to|with)\s+(a\s+)?(human|real\s+person|person|agent|someone|care\s+team|staff|representative)/i.test(lastUserContent) ||
-    /\b(let me\s+)?(talk|speak)\s+to\s+(a\s+)?(human|person|someone)/i.test(lastUserContent) ||
-    /\b(want|need)\s+to\s+(speak|talk)\s+to\s+(a\s+)?(human|person|someone)/i.test(lastUserContent) ||
-    /\b(real\s+person|human\s+agent|live\s+agent)/i.test(lastUserContent);
-
-  if (userWantsHuman) {
-    const handoffMessage =
-      `I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.\n\nIf your need is urgent, please call your care team or 911 in an emergency.`;
-    return { text: handoffMessage, requestHandoff: true };
-  }
 
   const recordTool = new DynamicStructuredTool({
     name: 'record_learned_knowledge',
