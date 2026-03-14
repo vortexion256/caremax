@@ -17,6 +17,7 @@ import { platformRouter } from './routes/platform.js';
 import { integrationsCallbackRouter, tenantIntegrationsRouter } from './routes/integrations.js';
 import { rateLimit } from './middleware/rateLimit.js';
 import { publicRouter } from './routes/public.js';
+import { reminderDispatchRouter, reminderRouter } from './routes/reminders.js';
 import { domainAllowlist } from './middleware/allowlist.js';
 
 const app: express.Application = express();
@@ -44,6 +45,7 @@ app.use('/health', healthRouter);
 app.use('/auth', authRouter);
 app.use('/register', registerRouter);
 app.use('/public', publicRouter);
+app.use('/public/reminders', reminderDispatchRouter);
 app.use('/platform', platformRouter);
 app.use('/integrations', integrationsCallbackRouter);
 app.use('/tenants', rateLimit);
@@ -59,6 +61,7 @@ app.use('/tenants/:tenantId/agent-records', agentRecordsRouter);
 app.use('/tenants/:tenantId/agent-notes', agentNotesRouter);
 app.use('/tenants/:tenantId/analytics', analyticsRouter);
 app.use('/tenants/:tenantId/xperson-profile', xPersonProfileRouter);
+app.use('/tenants/:tenantId/reminders', reminderRouter);
 app.use('/tenants', tenantRouter);
 
 export default app;

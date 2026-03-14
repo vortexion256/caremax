@@ -104,7 +104,7 @@ async function toLangChainMessages(
 export async function runAgentV2(
   tenantId: string,
   history: { role: string; content: string; imageUrls?: string[] }[],
-  options?: { userId?: string; externalUserId?: string; conversationId?: string; preferredResponseLanguage?: 'luganda' | 'english' | null }
+  options?: { userId?: string; externalUserId?: string; conversationId?: string; preferredResponseLanguage?: 'luganda' | 'english' | null; channel?: 'widget' | 'whatsapp' | 'whatsapp_meta' }
 ): Promise<AgentResult> {
   try {
     const config = await getAgentConfig(tenantId);
@@ -218,6 +218,9 @@ export async function runAgentV2(
       availableTools.push('create_note');
       if (config.xPersonProfileEnabled) {
         availableTools.push('xperson_profile');
+      }
+      if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
+        availableTools.push('set_reminder');
       }
 
       executionPlan = await createExecutionPlan(
@@ -476,6 +479,20 @@ export async function runAgentV2(
       tools.push(xPersonProfileTool);
     }
 
+    if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
+      const setReminderTool = new DynamicStructuredTool({
+        name: 'set_reminder',
+        description: 'Schedule a future reminder message for WhatsApp users.',
+        schema: z.object({
+          message: z.string(),
+          remindAtIso: z.string(),
+          timezone: z.string().optional(),
+        }),
+        func: async () => 'Reminder scheduling requested.',
+      });
+      tools.push(setReminderTool);
+    }
+
     // Google Sheets tools
     if (sheetsEnabled && googleSheetsList.length > 0) {
       const queryGoogleSheetTool = new DynamicStructuredTool({
@@ -607,9 +624,13 @@ Follow this plan step by step. Execute each step in order.`;
 
         // Execute step if it has a tool
         if (step.toolName) {
+          const toolArgs = { ...(step.toolArgs ?? {}) };
+          if (step.toolName === 'set_reminder' && options?.channel) {
+            toolArgs.channel = options.channel;
+          }
           const toolCall: ToolCall = {
             name: step.toolName,
-            args: step.toolArgs ?? {},
+            args: toolArgs,
           };
 
           const result = await orchestrator.executeToolCall(
@@ -697,9 +718,13 @@ Follow this plan step by step. Execute each step in order.`;
         
         for (const tc of toolCalls) {
           // Orchestrator executes deterministically
+          const toolArgs = { ...(tc.args ?? {}) };
+          if (tc.name === 'set_reminder' && options?.channel) {
+            toolArgs.channel = options.channel;
+          }
           const toolCall: ToolCall = {
             name: tc.name,
-            args: tc.args ?? {},
+            args: toolArgs,
           };
 
           const result = await orchestrator.executeToolCall(

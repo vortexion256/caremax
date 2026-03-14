@@ -11,6 +11,7 @@ import { isGoogleConnected, fetchSheetData } from './google-sheets.js';
 import { recordDiagnosticLog } from './diagnostic-logs.js';
 import { createNote, listNotes as listAgentNotes, updateNoteContent, getNote } from './agent-notes.js';
 import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
+import { createWhatsAppReminder } from './reminders.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
@@ -405,7 +406,7 @@ function recentlyGaveGenericHealthTips(history: { role: string; content: string 
 export async function runAgent(
   tenantId: string,
   history: { role: string; content: string; imageUrls?: string[] }[],
-  options?: { userId?: string; externalUserId?: string; conversationId?: string; preferredResponseLanguage?: 'luganda' | 'english' | null }
+  options?: { userId?: string; externalUserId?: string; conversationId?: string; preferredResponseLanguage?: 'luganda' | 'english' | null; channel?: 'widget' | 'whatsapp' | 'whatsapp_meta' }
 ): Promise<AgentResult> {
   const runStartedAt = Date.now();
   const config = await getAgentConfig(tenantId);
@@ -758,6 +759,35 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
       return `XPersonProfile upserted successfully (profileId=${result.profileId}, created=${result.created}).`;
     },
   });
+  const setReminderTool = new DynamicStructuredTool({
+    name: 'set_reminder',
+    description: 'Schedule a future reminder message for WhatsApp users. Use only after the user clearly confirms date/time and reminder message.',
+    schema: z.object({
+      message: z.string().describe('The reminder message to send at the due time.'),
+      remindAtIso: z.string().describe('Reminder datetime in ISO format, e.g. 2026-03-20T14:30:00+03:00'),
+      timezone: z.string().optional().describe('IANA timezone, e.g. Africa/Kampala'),
+    }),
+    func: async ({ message, remindAtIso, timezone }) => {
+      const isWhatsAppChannel = options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta';
+      if (!isWhatsAppChannel || !options?.externalUserId) {
+        return 'Reminders are currently available only for WhatsApp conversations.';
+      }
+
+      const created = await createWhatsAppReminder({
+        tenantId,
+        message,
+        remindAtIso,
+        timezone,
+        externalUserId: options.externalUserId,
+        userId: options.userId,
+        conversationId: options.conversationId,
+        channel: options.channel === 'whatsapp_meta' ? 'whatsapp_meta' : 'whatsapp',
+      });
+
+      return `Reminder scheduled successfully (id=${created.reminderId}) for ${created.dueAtIso}.`;
+    },
+  });
+
 
   const tools: unknown[] = [];
   // Always include notebook tools - essential for tracking analytics, insights, and patterns
@@ -765,6 +795,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
   if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
   if (config.xPersonProfileEnabled) tools.push(xPersonProfileTool);
+  if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') tools.push(setReminderTool);
   const modelWithTools = tools.length ? model.bindTools(tools as Parameters<typeof model.bindTools>[0]) : model;
   let currentMessages: BaseMessage[] = messages;
   const maxToolRounds = 3;
@@ -926,6 +957,17 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         } catch (e) {
           console.error('update_note error:', e);
           content = e instanceof Error ? e.message : 'Failed to update note.';
+        }
+      } else if (tc.name === 'set_reminder' && (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta')) {
+        try {
+          content = await setReminderTool.invoke({
+            message: typeof tc.args?.message === 'string' ? tc.args.message : '',
+            remindAtIso: typeof tc.args?.remindAtIso === 'string' ? tc.args.remindAtIso : '',
+            timezone: typeof tc.args?.timezone === 'string' ? tc.args.timezone : undefined,
+          });
+        } catch (e) {
+          console.error('set_reminder error:', e);
+          content = e instanceof Error ? e.message : 'Failed to create reminder.';
         }
       } else if (tc.name === 'xperson_profile' && config.xPersonProfileEnabled) {
         try {
