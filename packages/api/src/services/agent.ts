@@ -110,6 +110,8 @@ type AgentConfig = {
   consolidationPromptEnabled: boolean;
   xPersonProfileEnabled: boolean;
   xPersonProfileCustomFields: { field: string; description?: string }[];
+  agentTimezone?: string;
+  agentCountryCode?: string;
 };
 
 type AgentConfigCacheEntry = {
@@ -217,6 +219,8 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
       consolidationPromptEnabled: data?.consolidationPromptEnabled === true,
       xPersonProfileEnabled: data?.xPersonProfileEnabled === true,
       xPersonProfileCustomFields: normalizeXPersonProfileCustomFields(data),
+      agentTimezone: typeof data?.agentTimezone === 'string' && data.agentTimezone.trim().length > 0 ? data.agentTimezone.trim() : 'UTC',
+      agentCountryCode: typeof data?.agentCountryCode === 'string' && data.agentCountryCode.trim().length === 2 ? data.agentCountryCode.trim().toUpperCase() : 'US',
     };
     if (AGENT_CONFIG_CACHE_TTL_MS > 0) {
       agentConfigCache.set(tenantId, { value: resolvedConfig, expiresAt: Date.now() + AGENT_CONFIG_CACHE_TTL_MS });
@@ -240,6 +244,8 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
       ragEnabled: false,
       xPersonProfileEnabled: false,
       xPersonProfileCustomFields: [],
+      agentTimezone: 'UTC',
+      agentCountryCode: 'US',
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true }).catch(() => {});
   }
@@ -258,6 +264,8 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
     consolidationPromptEnabled: data?.consolidationPromptEnabled === true,
     xPersonProfileEnabled: data?.xPersonProfileEnabled === true,
     xPersonProfileCustomFields: normalizeXPersonProfileCustomFields(data),
+    agentTimezone: typeof data?.agentTimezone === 'string' && data.agentTimezone.trim().length > 0 ? data.agentTimezone.trim() : 'UTC',
+    agentCountryCode: typeof data?.agentCountryCode === 'string' && data.agentCountryCode.trim().length === 2 ? data.agentCountryCode.trim().toUpperCase() : 'US',
   };
   if (AGENT_CONFIG_CACHE_TTL_MS > 0) {
     agentConfigCache.set(tenantId, { value: resolvedConfig, expiresAt: Date.now() + AGENT_CONFIG_CACHE_TTL_MS });
@@ -508,7 +516,27 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   }
 
 
-  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}`;
+  const resolvedTimezone = config.agentTimezone?.trim() || 'UTC';
+  const resolvedCountryCode = config.agentCountryCode?.trim()?.toUpperCase() || 'US';
+  const now = new Date();
+  const locationNow = new Intl.DateTimeFormat('en-GB', {
+    timeZone: resolvedTimezone,
+    dateStyle: 'full',
+    timeStyle: 'long',
+  }).format(now);
+  const isoInTimezone = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: resolvedTimezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now).replace(' ', 'T');
+  const timeInstruction = `Date/time grounding: Use this as the current local date/time unless the user specifies another timezone. Timezone=${resolvedTimezone}, country=${resolvedCountryCode}, localNow=${locationNow}, localNowISO=${isoInTimezone}. If user asks for date/time, answer from this context and mention timezone.`;
+
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}`;
   if (config.ragEnabled) {
     const lastUser = history.filter((m) => m.role === 'user').pop();
     // Add timeout for RAG context retrieval (5 seconds)
