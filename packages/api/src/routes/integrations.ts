@@ -1697,11 +1697,11 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
 
           const historySnap = await db.collection('messages')
             .where('conversationId', '==', conversationRef.id)
-            .orderBy('createdAt', 'asc')
+            .orderBy('createdAt', 'desc')
             .limit(25)
             .get();
 
-          const history = historySnap.docs.map((doc) => {
+          const history = historySnap.docs.reverse().map((doc) => {
             const data = doc.data() as { role?: 'user' | 'assistant' | string; content?: string; imageUrls?: string[] };
             return {
               role: data.role === 'assistant' ? 'assistant' : 'user',
