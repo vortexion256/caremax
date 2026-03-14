@@ -87,3 +87,39 @@ Never guess a patient when ambiguity exists.
 - [ ] Relay projection into patient timeline
 - [ ] Ticket TTL/closure job
 - [ ] Audit + consent logging
+
+## Why this can still fail (common misses)
+If you already implemented the pattern and routing is still wrong, one of these is usually missing:
+
+1. **No durable ticket write before send**
+   - The outbound message is sent first, then ticket creation fails/rolls back.
+   - Fix: write `relay_ticket` first in a committed transaction, then send the WhatsApp message.
+
+2. **Not persisting provider message IDs**
+   - Inbound webhook payload cannot be tied back to outbound interaction/button context.
+   - Fix: store Twilio/Meta `message_id`, button payload, and `relay_ticket_id` together.
+
+3. **Ticket matching only by phone number**
+   - NOK has multiple active tickets and message is attached to the wrong patient.
+   - Fix: require `CMX-xxxx` disambiguation whenever `open_ticket_count(from) > 1`.
+
+4. **Ticket expiry not enforced at read time**
+   - Expired tickets still participate in routing lookups.
+   - Fix: inbound matcher must filter strictly on `status = open` and `expires_at > now()`.
+
+5. **Race conditions in inbound webhooks**
+   - Retries or duplicate webhook deliveries create inconsistent links.
+   - Fix: idempotency key on provider event ID + upsert semantics for message ingestion.
+
+6. **No explicit ambiguous-path UX**
+   - System falls back to generic chat when there are multiple candidate tickets.
+   - Fix: send the ambiguity prompt and pause routing until a valid code is received.
+
+## Quick verification script (engineering handoff)
+Use these tests before rollout:
+
+- [ ] **Single open ticket path**: one NOK + one open ticket routes correctly to that patient timeline.
+- [ ] **Multi-ticket ambiguity path**: one NOK + two open tickets requires code, no auto-guess.
+- [ ] **Expired ticket path**: reply to an expired code is rejected or treated as generic chat.
+- [ ] **Duplicate webhook path**: repeated provider event does not duplicate relay timeline entries.
+- [ ] **Cross-tenant safety path**: same phone in different tenants never crosses tenant boundary.
