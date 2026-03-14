@@ -36,11 +36,11 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [handoffCount, setHandoffCount] = useState(0);
   const [activeItemIndex, setActiveItemIndex] = useState<number | null>(null);
+  const [activityActiveIndex, setActivityActiveIndex] = useState<number | null>(null);
   const [pulseBorderOnly, setPulseBorderOnly] = useState(false);
   const [communicationEvents, setCommunicationEvents] = useState<CommunicationEvent[]>([]);
-  const [isSimulating, setIsSimulating] = useState(false);
-  const [hasActiveChat, setHasActiveChat] = useState(false);
-  const hasActiveChatRef = useRef(false);
+  const activityHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSeenActivityIdsRef = useRef<Set<string>>(new Set());
   const { tenantId } = useTenant();
 
   const items: Item[] = [
@@ -48,141 +48,32 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
     { label: 'Brain', shortLabel: 'AB', path: '/agent-brain', color: '#8b5cf6', activityTypes: ['agent-brain', 'brain', 'orchestrator'] },
     { label: 'Notes', shortLabel: 'NT', path: '/agent-notes', color: '#ec4899', activityTypes: ['agent-notes', 'notes'] },
     { label: 'Handoffs', shortLabel: 'HO', path: '/handoffs', color: '#f43f5e', activityTypes: ['handoffs', 'handoff', 'human-handoff'] },
-    { label: 'Integrations', shortLabel: 'IN', path: '/integrations', color: '#10b981', activityTypes: ['integrations', 'integration'] },
-    { label: 'WhatsApp', shortLabel: 'WA', path: '/integrations', color: '#22c55e', activityTypes: ['whatsapp', 'wa'] },
-    { label: 'Twilio', shortLabel: 'TW', path: '/integrations', color: '#ef4444', activityTypes: ['twilio'] },
-    { label: 'Meta', shortLabel: 'MT', path: '/integrations', color: '#2563eb', activityTypes: ['meta', 'facebook', 'graph-api'] },
+    { label: 'Integrations', shortLabel: 'IN', path: '/integrations', color: '#10b981', activityTypes: ['integrations', 'integration', 'google-sheets'] },
+    { label: 'WhatsApp', shortLabel: 'WA', path: '/integrations', color: '#22c55e', activityTypes: ['whatsapp', 'wa', 'whatsapp-sent', 'whatsapp-received', 'whatsapp-meta', 'whatsapp-twilio'] },
+    { label: 'Twilio', shortLabel: 'TW', path: '/integrations', color: '#ef4444', activityTypes: ['twilio', 'twilio-whatsapp', 'whatsapp-twilio-sent', 'whatsapp-twilio-received'] },
+    { label: 'Meta', shortLabel: 'MT', path: '/integrations', color: '#2563eb', activityTypes: ['meta', 'facebook', 'graph-api', 'whatsapp-meta-sent', 'whatsapp-meta-received'] },
     { label: 'Gemini', shortLabel: 'GM', path: '/integrations', color: '#0ea5e9', activityTypes: ['gemini', 'google-gemini'] },
-    { label: 'Sunbird', shortLabel: 'SB', path: '/integrations', color: '#f97316', activityTypes: ['sunbird', 'sun-bird', 'sunbrd'] },
-    { label: 'Google TTS', shortLabel: 'GT', path: '/integrations', color: '#f59e0b', activityTypes: ['google-cloud-tts', 'gcp-tts', 'google-tts'] },
-    { label: 'ElevenLabs', shortLabel: 'EL', path: '/integrations', color: '#7c3aed', activityTypes: ['elevenlabs', 'eleven-labs'] },
+    { label: 'Sunbird', shortLabel: 'SB', path: '/integrations', color: '#f97316', activityTypes: ['sunbird', 'sun-bird', 'sunbrd', 'sunbird-accessed'] },
+    { label: 'Google TTS', shortLabel: 'GT', path: '/integrations', color: '#f59e0b', activityTypes: ['google-cloud-tts', 'gcp-tts', 'google-tts', 'google-cloud-tts-accessed'] },
+    { label: 'ElevenLabs', shortLabel: 'EL', path: '/integrations', color: '#7c3aed', activityTypes: ['elevenlabs', 'eleven-labs', 'elevenlabs-accessed'] },
     { label: 'Config', shortLabel: 'AC', path: '/agent', color: '#14b8a6', activityTypes: ['agent', 'config'] }
   ];
 
-  // Generate random color
-  const getRandomColor = () => {
-    const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e', '#10b981', '#f59e0b', '#06b6d4', '#84cc16'];
-    return colors[Math.floor(Math.random() * colors.length)];
+  const findItemIndexForActivity = (activityType: string): number => {
+    const normalizedType = String(activityType || '').toLowerCase();
+    const normalizedToken = normalizeActivityToken(normalizedType);
+
+    return items.findIndex(item => {
+      const path = item.path.replace('/', '');
+      const aliases = item.activityTypes || [];
+      const normalizedAliases = [path, ...aliases].map(normalizeActivityToken);
+      return normalizedAliases.some(alias => (
+        alias === normalizedToken
+        || normalizedToken.includes(alias)
+        || alias.includes(normalizedToken)
+      ));
+    });
   };
-
-  // Listen for active conversations
-  useEffect(() => {
-    if (!tenantId) return;
-    
-    let conversations: any[] = [];
-    
-    // Query for open conversations - filter by time in memory to avoid index issues
-    // Query all matching conversations and filter by recent updates in memory
-    const q = query(
-      collection(firestore, 'conversations'),
-      where('tenantId', '==', tenantId),
-      where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
-    );
-
-    const checkActiveChat = () => {
-      // Filter by time in memory to check for recent activity (last 30 seconds)
-      const now = Date.now();
-      const thirtySecondsAgoMs = now - 30 * 1000;
-      const hasActive = conversations.some(doc => {
-        const data = doc.data ? doc.data() : doc;
-        const updatedAt = data.updatedAt;
-        if (!updatedAt) return false;
-        // Handle both Timestamp objects and plain numbers
-        const updatedAtMs = updatedAt.toMillis ? updatedAt.toMillis() : (typeof updatedAt === 'number' ? updatedAt : Date.now());
-        const isRecent = updatedAtMs > thirtySecondsAgoMs;
-        return isRecent;
-      });
-      console.log(`[Dashboard] Active chat check: ${conversations.length} conversations, hasActive=${hasActive}`);
-      setHasActiveChat(hasActive);
-      hasActiveChatRef.current = hasActive;
-    };
-
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        conversations = snap.docs;
-        checkActiveChat();
-      },
-      (error) => {
-        console.error('Error listening to active conversations:', error);
-        conversations = [];
-        setHasActiveChat(false);
-        hasActiveChatRef.current = false;
-      }
-    );
-
-    // Check every 5 seconds to re-evaluate the 30-second timeout
-    // This ensures animations stop even if no Firestore updates occur
-    const intervalId = setInterval(checkActiveChat, 5000);
-
-    return () => {
-      unsub();
-      clearInterval(intervalId);
-    };
-  }, [tenantId]);
-
-  // Simulate communication between nodes
-  const simulateCommunication = () => {
-    if (!hasActiveChatRef.current) {
-      console.log('[Dashboard] No active chat, stopping simulation');
-      setIsSimulating(false);
-      // Return no-op cleanup function
-      return () => {};
-    }
-    
-    console.log('[Dashboard] Starting animation simulation');
-    setIsSimulating(true);
-    
-    const simulationInterval = setInterval(() => {
-      // Check current value via ref to avoid stale closure
-      if (!hasActiveChatRef.current) {
-        console.log('[Dashboard] Active chat ended, stopping interval');
-        setIsSimulating(false);
-        clearInterval(simulationInterval);
-        return;
-      }
-      
-      const sourceIndex = Math.floor(Math.random() * items.length);
-      let targetIndex = Math.floor(Math.random() * items.length);
-      
-      // Avoid self-communication
-      while (targetIndex === sourceIndex) {
-        targetIndex = Math.floor(Math.random() * items.length);
-      }
-
-      const newEvent: CommunicationEvent = {
-        sourceIndex,
-        targetIndex,
-        color: getRandomColor(),
-        startTime: Date.now(),
-        duration: 3000 + Math.random() * 2000 // Reduced speed: 3-5 seconds (was 1.5-2.5)
-      };
-
-      console.log(`[Dashboard] Creating animation event: ${items[sourceIndex].label} -> ${items[targetIndex].label}`);
-      setCommunicationEvents(prev => [...prev, newEvent]);
-
-      // Highlight the nodes
-      setActiveItemIndex(sourceIndex);
-      setTimeout(() => {
-        setActiveItemIndex(targetIndex);
-      }, 600); // Reduced speed: 0.6s (was 0.3s)
-    }, 2000 + Math.random() * 2000); // Reduced frequency: every 2-4 seconds (was 0.8-1.5)
-
-    return () => {
-      console.log('[Dashboard] Cleaning up animation simulation');
-      clearInterval(simulationInterval);
-      setIsSimulating(false);
-    };
-  };
-
-  // Start simulation when there's an active chat so cards/nodes visibly pulse
-  // during live conversations (including WhatsApp conversations).
-  useEffect(() => {
-    const cleanup = simulateCommunication();
-    return () => {
-      if (cleanup) cleanup();
-    };
-  }, [hasActiveChat]);
 
   // Clean up old communication events
   useEffect(() => {
@@ -283,61 +174,67 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       collection(firestore, 'agent_activities'),
       where('tenantId', '==', tenantId),
       orderBy('createdAt', 'desc'),
-      limit(1)
+      limit(20)
     );
 
     const unsub = onSnapshot(
       q,
       (snap) => {
-        if (snap.empty) {
-          console.log('[Dashboard] No agent activities found');
-          return;
-        }
-        
-        const activity = snap.docs[0].data();
-        const activityType = activity.type;
-        const createdAt = activity.createdAt?.toMillis() || 0;
-        
-        console.log(`[Dashboard] Activity detected: type="${activityType}", createdAt=${new Date(createdAt).toISOString()}, age=${Date.now() - createdAt}ms`);
-        
-        // Only trigger if the activity is very recent (within the last 5 seconds)
-        // to avoid triggering on old records when the component mounts
-        if (Date.now() - createdAt > 5000) {
-          console.log(`[Dashboard] Activity too old (${Date.now() - createdAt}ms), ignoring`);
-          return;
-        }
+        if (snap.empty) return;
 
-        const normalizedType = String(activityType || '').toLowerCase();
-        const normalizedToken = normalizeActivityToken(normalizedType);
-        const index = items.findIndex(item => {
-          const path = item.path.replace('/', '');
-          const aliases = item.activityTypes || [];
-          const normalizedAliases = [path, ...aliases].map(normalizeActivityToken);
-          // Map activity types to card paths and aliases, including separator variants
-          const matches = normalizedAliases.includes(normalizedToken);
-          if (matches) {
-            console.log(`[Dashboard] Matched activity "${normalizedType}" to item "${item.label}" (path="${path}", index=${items.indexOf(item)})`);
+        const now = Date.now();
+        const brainIndex = items.findIndex(item => item.label === 'Brain');
+
+        const addedDocs = snap.docChanges().filter(change => change.type === 'added');
+        addedDocs.forEach(change => {
+          if (lastSeenActivityIdsRef.current.has(change.doc.id)) return;
+          lastSeenActivityIdsRef.current.add(change.doc.id);
+
+          const activity = change.doc.data();
+          const activityType = String(activity.type || '');
+          const createdAt = activity.createdAt?.toMillis?.() || 0;
+          const ageMs = createdAt ? now - createdAt : 0;
+
+          if (createdAt && ageMs > 60000) {
+            return;
           }
-          return matches;
+
+          const index = findItemIndexForActivity(activityType);
+          if (index === -1) return;
+
+          setActivityActiveIndex(index);
+          if (activityHighlightTimeoutRef.current) {
+            clearTimeout(activityHighlightTimeoutRef.current);
+          }
+          activityHighlightTimeoutRef.current = setTimeout(() => {
+            setActivityActiveIndex(null);
+          }, 1800);
+
+          if (brainIndex !== -1 && brainIndex !== index) {
+            setCommunicationEvents(prev => [
+              ...prev,
+              {
+                sourceIndex: brainIndex,
+                targetIndex: index,
+                color: items[index].color,
+                startTime: Date.now(),
+                duration: 2000,
+              },
+            ]);
+          }
         });
-        
-        if (index !== -1) {
-          console.log(`[Dashboard] ✅ Agent activity detected: ${activityType}, highlighting item ${index} (${items[index].label})`);
-          setActiveItemIndex(index);
-          setTimeout(() => {
-            console.log(`[Dashboard] Clearing highlight for item ${index}`);
-            setActiveItemIndex(null);
-          }, 3000);
-        } else {
-          console.log(`[Dashboard] ❌ No match found for activity type "${activityType}". Available paths: ${items.map(i => i.path.replace('/', '')).join(', ')}`);
-        }
       },
       (error) => {
         console.error('Error listening to agent activities:', error);
       }
     );
 
-    return () => unsub();
+    return () => {
+      unsub();
+      if (activityHighlightTimeoutRef.current) {
+        clearTimeout(activityHighlightTimeoutRef.current);
+      }
+    };
   }, [tenantId]);
 
   useEffect(() => {
@@ -400,7 +297,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         const targetY = nodeRect.top - containerRect.top; // Connect to top of card
 
         const isHovered = hoveredIndex === index;
-        const isActive = activeItemIndex === index;
+        const isActive = activeItemIndex === index || activityActiveIndex === index;
         const item = items[index];
         
         ctx.beginPath();
@@ -428,8 +325,8 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         ctx.lineCap = 'round';
         ctx.stroke();
 
-        // Pulse particle - only if active chat
-        if (hasActiveChat || isHovered || isActive) {
+        // Pulse particle for hovered/active items
+        if (isHovered || isActive) {
           const t = (time * 0.3 + index * 0.4) % 1; // Reduced speed: 0.3 (was 0.6)
           const px = Math.pow(1-t, 3) * startX + 3 * Math.pow(1-t, 2) * t * cp1x + 3 * (1-t) * Math.pow(t, 2) * cp2x + Math.pow(t, 3) * targetX;
           const py = Math.pow(1-t, 3) * startY + 3 * Math.pow(1-t, 2) * t * cp1y + 3 * (1-t) * Math.pow(t, 2) * cp2y + Math.pow(t, 3) * targetY;
@@ -533,7 +430,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       window.removeEventListener('resize', resizeCanvas);
       cancelAnimationFrame(animationFrameId);
     };
-  }, [dimensions, hoveredIndex, activeItemIndex, communicationEvents, hasActiveChat, pulseBorderOnly]);
+  }, [dimensions, hoveredIndex, activeItemIndex, activityActiveIndex, communicationEvents, pulseBorderOnly]);
 
   return (
     <div 
@@ -606,6 +503,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         {items.map((item, index) => {
           const handoffIndex = items.findIndex(i => i.path === '/handoffs');
           const isHandoffCard = index === handoffIndex;
+          const isHighlighted = hoveredIndex === index || activeItemIndex === index || activityActiveIndex === index;
           return (
           <button
             key={index}
@@ -617,18 +515,18 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
               position: 'relative',
               padding: isMobile ? '10px 6px' : '12px 8px',
               // When pulseBorderOnly is true and this is the handoff card, keep background white
-              background: (pulseBorderOnly && isHandoffCard && activeItemIndex === index) 
+              background: (pulseBorderOnly && isHandoffCard && isHighlighted) 
                 ? '#fff' 
-                : ((hoveredIndex === index || activeItemIndex === index) ? item.color : '#fff'),
-              border: `1.5px solid ${(hoveredIndex === index || activeItemIndex === index) ? item.color : '#e2e8f0'}`,
+                : (isHighlighted ? item.color : '#fff'),
+              border: `1.5px solid ${isHighlighted ? item.color : '#e2e8f0'}`,
               borderRadius: '12px',
               // When pulseBorderOnly is true, keep text color dark
-              color: (pulseBorderOnly && isHandoffCard && activeItemIndex === index)
+              color: (pulseBorderOnly && isHandoffCard && isHighlighted)
                 ? '#475569'
-                : ((hoveredIndex === index || activeItemIndex === index) ? '#fff' : '#475569'),
+                : (isHighlighted ? '#fff' : '#475569'),
               fontSize: isMobile ? '10px' : '12px',
               fontWeight: 600,
-              boxShadow: (hoveredIndex === index || activeItemIndex === index)
+              boxShadow: isHighlighted
                 ? `0 10px 15px -3px ${item.color}44` 
                 : '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
               cursor: 'pointer',
@@ -671,16 +569,16 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
               height: isMobile ? '22px' : '28px', 
               borderRadius: '50%', 
               // When pulseBorderOnly is true, keep icon background light
-              background: (pulseBorderOnly && isHandoffCard && activeItemIndex === index)
+              background: (pulseBorderOnly && isHandoffCard && isHighlighted)
                 ? `${item.color}15`
-                : ((hoveredIndex === index || activeItemIndex === index) ? 'rgba(255,255,255,0.2)' : `${item.color}15`),
+                : (isHighlighted ? 'rgba(255,255,255,0.2)' : `${item.color}15`),
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               // When pulseBorderOnly is true, keep icon color as item color
-              color: (pulseBorderOnly && isHandoffCard && activeItemIndex === index)
+              color: (pulseBorderOnly && isHandoffCard && isHighlighted)
                 ? item.color
-                : ((hoveredIndex === index || activeItemIndex === index) ? '#fff' : item.color),
+                : (isHighlighted ? '#fff' : item.color),
               fontSize: isMobile ? '9px' : '11px'
             }}>
               {item.shortLabel}

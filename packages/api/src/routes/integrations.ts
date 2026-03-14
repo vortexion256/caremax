@@ -25,6 +25,19 @@ import { promisify } from 'util';
 
 const execFile = promisify(execFileCb);
 
+
+async function recordAgentActivity(tenantId: string, type: string): Promise<void> {
+  try {
+    await db.collection('agent_activities').add({
+      tenantId,
+      type,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  } catch (error) {
+    console.warn('[Integrations] Failed to record agent activity:', { tenantId, type, error });
+  }
+}
+
 let googleCloudTtsAccessTokenClient: { getAccessToken: () => Promise<string | { token?: string | null } | null> } | null | undefined;
 
 async function getGoogleCloudTtsAccessTokenClient(): Promise<{ getAccessToken: () => Promise<string | { token?: string | null } | null> } | null> {
@@ -1133,6 +1146,9 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       createdAt: FieldValue.serverTimestamp(),
     });
 
+    void recordAgentActivity(tenantId, 'whatsapp-received');
+    void recordAgentActivity(tenantId, 'twilio');
+
     try {
       const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
       const configData = agentConfigDoc.data();
@@ -1431,6 +1447,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
         if (voiceUrl) {
           payload.set('MediaUrl', voiceUrl);
           hasVoiceReply = true;
+          void recordAgentActivity(tenantId, resolvedTtsProvider);
         }
       } catch (error) {
         console.warn('Failed to generate WhatsApp voice reply:', error);
@@ -1485,6 +1502,9 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       channel: 'whatsapp',
       createdAt: FieldValue.serverTimestamp(),
     });
+
+    void recordAgentActivity(tenantId, 'whatsapp-sent');
+    void recordAgentActivity(tenantId, 'twilio');
 
     const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
     if (requestHandoff) {
@@ -1696,6 +1716,10 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             createdAt: FieldValue.serverTimestamp(),
           });
 
+          void recordAgentActivity(tenantId, 'whatsapp-meta-received');
+          void recordAgentActivity(tenantId, 'whatsapp-received');
+          void recordAgentActivity(tenantId, 'meta');
+
           const historySnap = await db.collection('messages')
             .where('conversationId', '==', conversationRef.id)
             .orderBy('createdAt', 'desc')
@@ -1763,6 +1787,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
                   mediaUrl: voiceUrl,
                 });
                 voiceReplySent = true;
+                void recordAgentActivity(tenantId, resolvedTtsProvider);
               }
             } catch (error) {
               console.warn('Failed to generate/send Meta WhatsApp voice reply:', error);
@@ -1786,6 +1811,10 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             channel: 'whatsapp_meta',
             createdAt: FieldValue.serverTimestamp(),
           });
+
+          void recordAgentActivity(tenantId, 'whatsapp-meta-sent');
+          void recordAgentActivity(tenantId, 'whatsapp-sent');
+          void recordAgentActivity(tenantId, 'meta');
 
           const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
           if (requestHandoff) {
