@@ -13,6 +13,7 @@ interface Item {
   shortLabel: string;
   path: string;
   color: string;
+  activityTypes?: string[];
 }
 
 interface CommunicationEvent {
@@ -41,12 +42,19 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
   const { tenantId } = useTenant();
 
   const items: Item[] = [
-    { label: 'Knowledge', shortLabel: 'KB', path: '/rag', color: '#3b82f6' },
-    { label: 'Brain', shortLabel: 'AB', path: '/agent-brain', color: '#8b5cf6' },
-    { label: 'Notes', shortLabel: 'NT', path: '/agent-notes', color: '#ec4899' },
-    { label: 'Handoffs', shortLabel: 'HO', path: '/handoffs', color: '#f43f5e' },
-    { label: 'Integrations', shortLabel: 'IN', path: '/integrations', color: '#10b981' },
-    { label: 'Config', shortLabel: 'AC', path: '/agent', color: '#f59e0b' }
+    { label: 'Knowledge', shortLabel: 'KB', path: '/rag', color: '#3b82f6', activityTypes: ['rag', 'knowledge', 'knowledge-base'] },
+    { label: 'Brain', shortLabel: 'AB', path: '/agent-brain', color: '#8b5cf6', activityTypes: ['agent-brain', 'brain', 'orchestrator'] },
+    { label: 'Notes', shortLabel: 'NT', path: '/agent-notes', color: '#ec4899', activityTypes: ['agent-notes', 'notes'] },
+    { label: 'Handoffs', shortLabel: 'HO', path: '/handoffs', color: '#f43f5e', activityTypes: ['handoffs', 'handoff', 'human-handoff'] },
+    { label: 'Integrations', shortLabel: 'IN', path: '/integrations', color: '#10b981', activityTypes: ['integrations', 'integration'] },
+    { label: 'WhatsApp', shortLabel: 'WA', path: '/integrations', color: '#22c55e', activityTypes: ['whatsapp', 'wa'] },
+    { label: 'Twilio', shortLabel: 'TW', path: '/integrations', color: '#ef4444', activityTypes: ['twilio'] },
+    { label: 'Meta', shortLabel: 'MT', path: '/integrations', color: '#2563eb', activityTypes: ['meta', 'facebook', 'graph-api'] },
+    { label: 'Gemini', shortLabel: 'GM', path: '/integrations', color: '#0ea5e9', activityTypes: ['gemini', 'google-gemini'] },
+    { label: 'Sunbird', shortLabel: 'SB', path: '/integrations', color: '#f97316', activityTypes: ['sunbird', 'sun-bird', 'sunbrd'] },
+    { label: 'Google TTS', shortLabel: 'GT', path: '/integrations', color: '#f59e0b', activityTypes: ['google-cloud-tts', 'gcp-tts', 'google-tts'] },
+    { label: 'ElevenLabs', shortLabel: 'EL', path: '/integrations', color: '#7c3aed', activityTypes: ['elevenlabs', 'eleven-labs'] },
+    { label: 'Config', shortLabel: 'AC', path: '/agent', color: '#14b8a6', activityTypes: ['agent', 'config'] }
   ];
 
   // Generate random color
@@ -297,14 +305,14 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
           return;
         }
 
+        const normalizedType = String(activityType || '').toLowerCase();
         const index = items.findIndex(item => {
           const path = item.path.replace('/', '');
-          // Map activity types to card paths
-          const matches = path === activityType || 
-                 (activityType === 'rag' && path === 'rag') ||
-                 (activityType === 'agent-brain' && path === 'agent-brain');
+          const aliases = item.activityTypes || [];
+          // Map activity types to card paths and explicit aliases
+          const matches = path === normalizedType || aliases.includes(normalizedType);
           if (matches) {
-            console.log(`[Dashboard] Matched activity "${activityType}" to item "${item.label}" (path="${path}", index=${items.indexOf(item)})`);
+            console.log(`[Dashboard] Matched activity "${normalizedType}" to item "${item.label}" (path="${path}", index=${items.indexOf(item)})`);
           }
           return matches;
         });
@@ -584,7 +592,7 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(6, 1fr)',
+          gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(6, minmax(0, 1fr))',
           gap: isMobile ? '8px' : '14px',
           width: '100%',
           zIndex: 10,
