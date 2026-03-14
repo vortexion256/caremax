@@ -375,13 +375,31 @@ function isGreetingLikeTurn(text: string): boolean {
 function isGratitudeLikeTurn(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
-  return /\b(thanks|thank you|ok thanks|okay thanks|nice|great|cool|got it)\b/i.test(normalized);
+  return /\b(thanks|thank you|ok|okay|ok thanks|okay thanks|nice|great|cool|got it)\b/i.test(normalized);
 }
 
 function isHealthTopicTurn(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
   return /\b(health|healthy|symptom|symptoms|pain|fever|headache|doctor|medicine|medication|diagnos|triage|treatment|wellness|hospital|clinic)\b/i.test(normalized);
+}
+
+function looksLikeShortCasualTurn(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized) return false;
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  return wordCount <= 7;
+}
+
+function recentlyGaveGenericHealthTips(history: { role: string; content: string }[]): boolean {
+  const lastAssistant = [...history].reverse().find((m) => m.role === 'assistant');
+  if (!lastAssistant?.content) return false;
+  const content = lastAssistant.content.toLowerCase();
+  const hasHydration = content.includes('stay hydrated') || content.includes('hydration');
+  const hasNutrition = content.includes('balanced diet') || content.includes('nutrition');
+  const hasSleep = content.includes('sleep');
+  const hasExercise = content.includes('exercise') || content.includes('physical activity');
+  return (hasHydration && hasNutrition && hasSleep) || (hasNutrition && hasExercise && hasSleep);
 }
 
 export async function runAgent(
@@ -437,7 +455,9 @@ If your need is urgent, please call your care team or 911 in an emergency.`;
     return { text: handoffMessage, requestHandoff: true };
   }
 
-  const smallTalkOnlyTurn = (isGreetingLikeTurn(lastUserContent) || isGratitudeLikeTurn(lastUserContent)) && !isHealthTopicTurn(lastUserContent);
+  const smallTalkOnlyTurn =
+    ((isGreetingLikeTurn(lastUserContent) || isGratitudeLikeTurn(lastUserContent)) && !isHealthTopicTurn(lastUserContent))
+    || (looksLikeShortCasualTurn(lastUserContent) && !isHealthTopicTurn(lastUserContent) && recentlyGaveGenericHealthTips(history));
   if (smallTalkOnlyTurn) {
     const normalized = lastUserContent.trim().toLowerCase();
     if (isGratitudeLikeTurn(normalized)) {
@@ -546,14 +566,8 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
     }
   }
 
-  const lastUserMessage = history.filter((m) => m.role === 'user').pop()?.content ?? '';
-  const greetingLikeTurn = isGreetingLikeTurn(lastUserMessage);
-  const historyForModel = greetingLikeTurn ? history.slice(-3) : history;
-  if (greetingLikeTurn) {
-    systemContent += `
-
-Latest-turn priority rule: The user's latest message is a greeting/small-talk. Respond directly to that greeting in 1 short sentence, then offer help. Do not continue or repeat prior medical guidance unless the user asks for it.`;
-  }
+  // Send only the latest 15 messages to keep context bounded while preserving recent conversational flow.
+  const historyForModel = history.slice(-15);
 
   const langChainHistory = await toLangChainMessages(historyForModel);
   const messages: BaseMessage[] = [
