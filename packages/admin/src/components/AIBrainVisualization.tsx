@@ -16,6 +16,8 @@ interface Item {
   activityTypes?: string[];
 }
 
+const normalizeActivityToken = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
 interface CommunicationEvent {
   sourceIndex: number;
   targetIndex: number;
@@ -306,11 +308,13 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
         }
 
         const normalizedType = String(activityType || '').toLowerCase();
+        const normalizedToken = normalizeActivityToken(normalizedType);
         const index = items.findIndex(item => {
           const path = item.path.replace('/', '');
           const aliases = item.activityTypes || [];
-          // Map activity types to card paths and explicit aliases
-          const matches = path === normalizedType || aliases.includes(normalizedType);
+          const normalizedAliases = [path, ...aliases].map(normalizeActivityToken);
+          // Map activity types to card paths and aliases, including separator variants
+          const matches = normalizedAliases.includes(normalizedToken);
           if (matches) {
             console.log(`[Dashboard] Matched activity "${normalizedType}" to item "${item.label}" (path="${path}", index=${items.indexOf(item)})`);
           }
