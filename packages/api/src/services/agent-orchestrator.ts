@@ -950,6 +950,8 @@ export class AgentOrchestrator {
               remindAtIso: toolCall.args.remindAtIso,
               timezone: typeof toolCall.args.timezone === 'string' ? toolCall.args.timezone : undefined,
               externalUserId,
+              targetExternalUserId: typeof toolCall.args.targetExternalUserId === 'string' ? toolCall.args.targetExternalUserId : undefined,
+              targetType: toolCall.args.targetType === 'next_of_kin' ? 'next_of_kin' : 'self',
               userId,
               conversationId,
               channel,

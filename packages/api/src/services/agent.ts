@@ -944,11 +944,23 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
       message: z.string().describe('The reminder message to send at the due time.'),
       remindAtIso: z.string().describe('Reminder datetime in ISO format, e.g. 2026-03-20T14:30:00+03:00'),
       timezone: z.string().optional().describe('IANA timezone, e.g. Africa/Kampala'),
+      targetType: z.enum(['self', 'next_of_kin']).optional().describe('Who should receive the reminder. Use next_of_kin only when the user clearly asks for this.'),
+      targetExternalUserId: z.string().optional().describe('Optional explicit recipient WhatsApp id/phone. If omitted, defaults to the current user.'),
     }),
-    func: async ({ message, remindAtIso, timezone }) => {
+    func: async ({ message, remindAtIso, timezone, targetType, targetExternalUserId }) => {
       const isWhatsAppChannel = options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta';
       if (!isWhatsAppChannel || !options?.externalUserId) {
         return 'Reminders are currently available only for WhatsApp conversations.';
+      }
+
+      const profile = await getXPersonProfile({ tenantId, userId: options.userId, externalUserId: options.externalUserId });
+      const attributes = profile?.attributes && typeof profile.attributes === 'object' ? profile.attributes : {};
+      const nextOfKinPhone = normalizeContactPhone(attributes?.next_of_kin_phone);
+      const resolvedTargetType = targetType === 'next_of_kin' ? 'next_of_kin' : 'self';
+      const resolvedTargetExternalUserId = targetExternalUserId?.trim() || (resolvedTargetType === 'next_of_kin' ? nextOfKinPhone : options.externalUserId);
+
+      if (resolvedTargetType === 'next_of_kin' && !resolvedTargetExternalUserId) {
+        return 'Cannot schedule next-of-kin reminder: next_of_kin_phone is missing in the user profile. Save it first via xperson_profile upsert.';
       }
 
       const created = await createWhatsAppReminder({
@@ -957,6 +969,8 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         remindAtIso,
         timezone,
         externalUserId: options.externalUserId,
+        targetExternalUserId: resolvedTargetExternalUserId,
+        targetType: resolvedTargetType,
         userId: options.userId,
         conversationId: options.conversationId,
         channel: options.channel === 'whatsapp_meta' ? 'whatsapp_meta' : 'whatsapp',

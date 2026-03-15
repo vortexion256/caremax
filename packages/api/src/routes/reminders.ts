@@ -13,6 +13,8 @@ const createReminderBody = z.object({
   remindAtIso: z.string().min(1),
   timezone: z.string().optional(),
   externalUserId: z.string().optional(),
+  targetExternalUserId: z.string().optional(),
+  targetType: z.enum(['self', 'next_of_kin']).optional(),
   conversationId: z.string().optional(),
   channel: z.enum(['whatsapp', 'whatsapp_meta']).optional(),
 });
@@ -32,6 +34,8 @@ reminderRouter.post('/', requireAuth, async (req, res) => {
       remindAtIso: parsed.data.remindAtIso,
       timezone: parsed.data.timezone,
       externalUserId: parsed.data.externalUserId,
+      targetExternalUserId: parsed.data.targetExternalUserId,
+      targetType: parsed.data.targetType,
       userId: res.locals.uid as string | undefined,
       conversationId: parsed.data.conversationId,
       channel: parsed.data.channel,

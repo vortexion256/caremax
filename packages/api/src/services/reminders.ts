@@ -15,7 +15,10 @@ export type ReminderRecord = {
   tenantId: string;
   conversationId?: string;
   userId?: string;
+  ownerExternalUserId?: string;
   externalUserId: string;
+  targetExternalUserId?: string;
+  targetType?: 'self' | 'next_of_kin';
   channel: WhatsAppChannel;
   message: string;
   dueAt: Timestamp;
@@ -25,6 +28,8 @@ export type ReminderRecord = {
   updatedAt?: FirebaseFirestore.FieldValue;
   sentAt?: FirebaseFirestore.FieldValue;
   failedAt?: FirebaseFirestore.FieldValue;
+  ownerNotifiedAt?: FirebaseFirestore.FieldValue;
+  ownerNotifyError?: string;
   error?: string;
 };
 
@@ -42,6 +47,8 @@ export async function createWhatsAppReminder(params: {
   remindAtIso: string;
   timezone?: string;
   externalUserId?: string;
+  targetExternalUserId?: string;
+  targetType?: 'self' | 'next_of_kin';
   userId?: string;
   conversationId?: string;
   channel?: WhatsAppChannel;
@@ -63,7 +70,10 @@ export async function createWhatsAppReminder(params: {
     tenantId: params.tenantId,
     conversationId: params.conversationId,
     userId: params.userId,
+    ownerExternalUserId: params.externalUserId,
     externalUserId: params.externalUserId,
+    targetExternalUserId: params.targetExternalUserId?.trim() || params.externalUserId,
+    targetType: params.targetType === 'next_of_kin' ? 'next_of_kin' : 'self',
     channel: params.channel ?? 'whatsapp',
     message: params.message.trim(),
     dueAt: Timestamp.fromDate(dueAtDate),
@@ -80,7 +90,7 @@ export async function createWhatsAppReminder(params: {
 export async function dispatchDueReminders(options?: {
   now?: Date;
   limit?: number;
-}): Promise<{ processed: number; sent: number; failed: number }> {
+}): Promise<{ processed: number; sent: number; failed: number; ownerNotified: number; ownerNotifyFailed: number }> {
   const now = options?.now ?? new Date();
   const limit = options?.limit ?? 25;
   const dueSnap = await db
@@ -93,22 +103,55 @@ export async function dispatchDueReminders(options?: {
 
   let sent = 0;
   let failed = 0;
+  let ownerNotified = 0;
+  let ownerNotifyFailed = 0;
 
   for (const doc of dueSnap.docs) {
     const data = doc.data() as Partial<ReminderRecord>;
     const channel = data.channel === 'whatsapp_meta' ? 'whatsapp_meta' : 'whatsapp';
 
     try {
-      if (!data.tenantId || !data.externalUserId || !data.message) {
+      const recipientExternalUserId = typeof data.targetExternalUserId === 'string' && data.targetExternalUserId.trim()
+        ? data.targetExternalUserId.trim()
+        : data.externalUserId;
+
+      if (!data.tenantId || !recipientExternalUserId || !data.message) {
         throw new Error('Reminder data is incomplete.');
       }
 
       await sendWhatsAppOutboundMessage({
         tenantId: data.tenantId,
-        to: data.externalUserId,
+        to: recipientExternalUserId,
         body: data.message,
         preferredChannel: channel,
       });
+
+      const shouldNotifyOwner =
+        data.targetType === 'next_of_kin'
+        && typeof data.ownerExternalUserId === 'string'
+        && data.ownerExternalUserId.trim().length > 0
+        && data.ownerExternalUserId.trim() !== recipientExternalUserId;
+
+      if (shouldNotifyOwner) {
+        try {
+          await sendWhatsAppOutboundMessage({
+            tenantId: data.tenantId,
+            to: data.ownerExternalUserId!.trim(),
+            body: `✅ Your reminder to your next of kin has been sent: "${data.message}"`,
+            preferredChannel: channel,
+          });
+          ownerNotified += 1;
+          await doc.ref.update({
+            ownerNotifiedAt: FieldValue.serverTimestamp(),
+            ownerNotifyError: FieldValue.delete(),
+          });
+        } catch (ownerNotifyError) {
+          ownerNotifyFailed += 1;
+          await doc.ref.update({
+            ownerNotifyError: ownerNotifyError instanceof Error ? ownerNotifyError.message : 'Unknown owner notify error',
+          });
+        }
+      }
 
       await doc.ref.update({
         status: 'sent',
@@ -132,6 +175,8 @@ export async function dispatchDueReminders(options?: {
     processed: dueSnap.size,
     sent,
     failed,
+    ownerNotified,
+    ownerNotifyFailed,
   };
 }
 
