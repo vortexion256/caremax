@@ -215,6 +215,7 @@ export async function routeNokRelayReply(params: {
   nokExternalUserId: string;
   inboundBody: string;
   preferredRelayTicketId?: string;
+  requireExplicitSelection?: boolean;
 }): Promise<
 { type: 'no_ticket' }
 | { type: 'ambiguous'; prompt: string }
@@ -235,8 +236,6 @@ export async function routeNokRelayReply(params: {
         prompt: 'That reply is linked to an inactive CareMax request. Please reply with the current reference code from the latest alert.',
       };
     }
-  } else if (tickets.length === 1) {
-    selected = tickets[0];
   } else if (providedCode) {
     selected = tickets.find((ticket) => ticket.relayTicketId.toUpperCase() === providedCode) ?? null;
     if (!selected) {
@@ -245,6 +244,8 @@ export async function routeNokRelayReply(params: {
         prompt: 'We could not match that reference code. Please reply with a valid code like CMX-7KQ2 from the alert message.',
       };
     }
+  } else if (tickets.length === 1 && !params.requireExplicitSelection) {
+    selected = tickets[0];
   } else {
     return {
       type: 'ambiguous',
