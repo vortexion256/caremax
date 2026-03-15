@@ -7,6 +7,7 @@ const RELAY_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const RELAY_TICKET_TTL_HOURS = 24;
 
 export type RelayReason = 'emergency' | 'user_request';
+export type RelayMessageProvider = 'meta' | 'twilio';
 
 export type RelayTicket = {
   id: string;
@@ -97,6 +98,64 @@ export async function markRelayTicketSendFailed(params: { ticketId: string; erro
   }, { merge: true });
 }
 
+function buildRelayMessageLinkId(params: { tenantId: string; provider: RelayMessageProvider; providerMessageId: string }): string {
+  return `${params.tenantId}:${params.provider}:${params.providerMessageId}`;
+}
+
+export async function storeRelayTicketOutboundMessageLink(params: {
+  tenantId: string;
+  relayTicketId: string;
+  provider: RelayMessageProvider;
+  providerMessageId: string;
+  nokExternalUserId: string;
+}): Promise<void> {
+  const normalizedMessageId = params.providerMessageId.trim();
+  if (!normalizedMessageId) return;
+
+  const linkRef = db.collection('relay_ticket_message_links').doc(buildRelayMessageLinkId({
+    tenantId: params.tenantId,
+    provider: params.provider,
+    providerMessageId: normalizedMessageId,
+  }));
+
+  await linkRef.set({
+    tenantId: params.tenantId,
+    relayTicketId: params.relayTicketId,
+    provider: params.provider,
+    providerMessageId: normalizedMessageId,
+    nokExternalUserId: params.nokExternalUserId,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+}
+
+export async function resolveRelayTicketIdFromReplyContext(params: {
+  tenantId: string;
+  provider: RelayMessageProvider;
+  providerMessageId: string;
+  nokExternalUserId: string;
+}): Promise<string | null> {
+  const normalizedMessageId = params.providerMessageId.trim();
+  if (!normalizedMessageId) return null;
+
+  const linkRef = db.collection('relay_ticket_message_links').doc(buildRelayMessageLinkId({
+    tenantId: params.tenantId,
+    provider: params.provider,
+    providerMessageId: normalizedMessageId,
+  }));
+  const linkDoc = await linkRef.get();
+  if (!linkDoc.exists) return null;
+
+  const linkData = linkDoc.data() ?? {};
+  const relayTicketId = typeof linkData.relayTicketId === 'string' ? linkData.relayTicketId : '';
+  const linkedNokExternalUserId = typeof linkData.nokExternalUserId === 'string' ? linkData.nokExternalUserId : '';
+  if (!relayTicketId || (linkedNokExternalUserId && linkedNokExternalUserId !== params.nokExternalUserId)) {
+    return null;
+  }
+
+  return relayTicketId;
+}
+
 export async function claimTwilioWebhookMessage(tenantId: string, messageId: string): Promise<boolean> {
   const dedupRef = db.collection('twilio_whatsapp_webhook_events').doc(`${tenantId}:${messageId}`);
   try {
@@ -155,6 +214,7 @@ export async function routeNokRelayReply(params: {
   tenantId: string;
   nokExternalUserId: string;
   inboundBody: string;
+  preferredRelayTicketId?: string;
 }): Promise<
 { type: 'no_ticket' }
 | { type: 'ambiguous'; prompt: string }
@@ -167,7 +227,15 @@ export async function routeNokRelayReply(params: {
   const providedCode = extractRelayCode(params.inboundBody);
   let selected: RelayTicket | null = null;
 
-  if (tickets.length === 1) {
+  if (params.preferredRelayTicketId) {
+    selected = tickets.find((ticket) => ticket.relayTicketId === params.preferredRelayTicketId) ?? null;
+    if (!selected) {
+      return {
+        type: 'invalid_code',
+        prompt: 'That reply is linked to an inactive CareMax request. Please reply with the current reference code from the latest alert.',
+      };
+    }
+  } else if (tickets.length === 1) {
     selected = tickets[0];
   } else if (providedCode) {
     selected = tickets.find((ticket) => ticket.relayTicketId.toUpperCase() === providedCode) ?? null;

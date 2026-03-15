@@ -14,7 +14,7 @@ import { createTenantNotification } from '../services/tenant-notifications.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
 import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, upsertXPersonProfile } from '../services/xperson-profile.js';
-import { claimTwilioWebhookMessage, routeNokRelayReply } from '../services/whatsapp-relay.js';
+import { claimTwilioWebhookMessage, resolveRelayTicketIdFromReplyContext, routeNokRelayReply } from '../services/whatsapp-relay.js';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
 import { google } from 'googleapis';
@@ -1661,6 +1661,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
 
           let body = '';
           let cameFromVoiceNote = false;
+          const repliedToMessageId = typeof incoming?.context?.id === 'string' ? incoming.context.id.trim() : '';
 
           if (incoming?.type === 'text' && typeof incoming?.text?.body === 'string') {
             body = incoming.text.body.trim();
@@ -1719,6 +1720,14 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             tenantId,
             nokExternalUserId: identity.externalUserId,
             inboundBody: body,
+            preferredRelayTicketId: repliedToMessageId
+              ? await resolveRelayTicketIdFromReplyContext({
+                tenantId,
+                provider: 'meta',
+                providerMessageId: repliedToMessageId,
+                nokExternalUserId: identity.externalUserId,
+              }) ?? undefined
+              : undefined,
           });
 
           if (relayRoute.type === 'routed') {

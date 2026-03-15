@@ -1,6 +1,10 @@
 import { db } from '../config/firebase.js';
 
 export type WhatsAppChannel = 'whatsapp' | 'whatsapp_meta';
+export type WhatsAppOutboundSendResult = {
+  channel: WhatsAppChannel;
+  providerMessageId?: string;
+};
 
 function toTwilioWhatsAppAddress(value: string): string {
   const trimmed = value.trim();
@@ -21,7 +25,7 @@ async function sendTwilioMessage(params: {
   whatsappNumber?: string;
   to: string;
   body: string;
-}): Promise<void> {
+}): Promise<string | undefined> {
   const payload = new URLSearchParams({
     To: toTwilioWhatsAppAddress(params.to),
     Body: params.body,
@@ -50,6 +54,13 @@ async function sendTwilioMessage(params: {
     const details = await response.text();
     throw new Error(`Twilio send failed (${response.status}): ${details}`);
   }
+
+  try {
+    const payload = await response.json() as { sid?: unknown };
+    return typeof payload.sid === 'string' ? payload.sid : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function sendMetaMessage(params: {
@@ -57,7 +68,7 @@ async function sendMetaMessage(params: {
   accessToken: string;
   to: string;
   body: string;
-}): Promise<void> {
+}): Promise<string | undefined> {
   const response = await fetch(`https://graph.facebook.com/v22.0/${encodeURIComponent(params.phoneNumberId)}/messages`, {
     method: 'POST',
     headers: {
@@ -77,6 +88,14 @@ async function sendMetaMessage(params: {
     const details = await response.text();
     throw new Error(`Meta WhatsApp send failed (${response.status}): ${details}`);
   }
+
+  try {
+    const payload = await response.json() as { messages?: Array<{ id?: unknown }> };
+    const firstId = payload.messages?.[0]?.id;
+    return typeof firstId === 'string' ? firstId : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function sendWhatsAppOutboundMessage(params: {
@@ -84,7 +103,7 @@ export async function sendWhatsAppOutboundMessage(params: {
   to: string;
   body: string;
   preferredChannel?: WhatsAppChannel;
-}): Promise<WhatsAppChannel> {
+}): Promise<WhatsAppOutboundSendResult> {
   const integrationDoc = await db.collection('tenant_integrations').doc(params.tenantId).get();
   const data = integrationDoc.data() ?? {};
 
@@ -104,7 +123,7 @@ export async function sendWhatsAppOutboundMessage(params: {
       throw new Error('Twilio credentials are incomplete.');
     }
 
-    await sendTwilioMessage({
+    const providerMessageId = await sendTwilioMessage({
       accountSid,
       authToken,
       messagingServiceSid: messagingServiceSid || undefined,
@@ -113,7 +132,7 @@ export async function sendWhatsAppOutboundMessage(params: {
       body: params.body,
     });
 
-    return 'whatsapp' as const;
+    return { channel: 'whatsapp' as const, providerMessageId };
   };
 
   const tryMeta = async () => {
@@ -123,8 +142,8 @@ export async function sendWhatsAppOutboundMessage(params: {
       throw new Error('Meta WhatsApp credentials are incomplete.');
     }
 
-    await sendMetaMessage({ phoneNumberId, accessToken, to: params.to, body: params.body });
-    return 'whatsapp_meta' as const;
+    const providerMessageId = await sendMetaMessage({ phoneNumberId, accessToken, to: params.to, body: params.body });
+    return { channel: 'whatsapp_meta' as const, providerMessageId };
   };
 
   if (params.preferredChannel === 'whatsapp_meta' && metaConnected) return tryMeta();

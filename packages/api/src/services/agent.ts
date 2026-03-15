@@ -13,7 +13,7 @@ import { createNote, listNotes as listAgentNotes, updateNoteContent, getNote } f
 import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
 import { createWhatsAppReminder, deleteUserReminder, editUserReminder, listUserReminders } from './reminders.js';
 import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
-import { buildNokRelayOutboundMessage, createRelayTicket, markRelayTicketSendFailed } from './whatsapp-relay.js';
+import { buildNokRelayOutboundMessage, createRelayTicket, markRelayTicketSendFailed, storeRelayTicketOutboundMessageLink } from './whatsapp-relay.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
@@ -909,11 +909,22 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
 
       let sentVia: 'whatsapp' | 'whatsapp_meta';
       try {
-        sentVia = await sendWhatsAppOutboundMessage({
+        const sendResult = await sendWhatsAppOutboundMessage({
           tenantId,
           to: nextOfKinPhone,
           body: relayMessage,
         });
+        sentVia = sendResult.channel;
+
+        if (sendResult.providerMessageId) {
+          await storeRelayTicketOutboundMessageLink({
+            tenantId,
+            relayTicketId: relayTicket.relayTicketId,
+            provider: sentVia === 'whatsapp_meta' ? 'meta' : 'twilio',
+            providerMessageId: sendResult.providerMessageId,
+            nokExternalUserId: relayTicket.nokExternalUserId,
+          });
+        }
       } catch (error) {
         await markRelayTicketSendFailed({
           ticketId: relayTicket.id,
