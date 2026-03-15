@@ -361,6 +361,10 @@ export async function runAgentV2(
 4. VERIFICATION: Only confirm bookings if the tool returned success=true AND verification passed.
 5. Trust the database and conversation notes, not your internal memory. Always verify state from tool results and the provided notes context.\n\n`;
 
+    if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
+      systemContent += `Reminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.\n\n`;
+    }
+
     // Add RAG records if enabled
     if (config.ragEnabled) {
       const existingRecords = await listRecords(tenantId, { userId: options?.userId, externalUserId: options?.externalUserId });
@@ -508,7 +512,7 @@ export async function runAgentV2(
           message: z.string(),
           remindAtIso: z.string(),
           timezone: z.string().optional(),
-          targetType: z.enum(['self', 'next_of_kin']).optional(),
+          targetType: z.enum(['self', 'next_of_kin']),
           targetExternalUserId: z.string().optional(),
         }),
         func: async () => 'Reminder scheduling requested.',

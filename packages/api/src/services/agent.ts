@@ -627,6 +627,9 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   }
 
   let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}${reminderSnapshotContext}`;
+  if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
+    systemContent += `\n\nReminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.`;
+  }
   if (config.ragEnabled) {
     const lastUser = history.filter((m) => m.role === 'user').pop();
     // Add timeout for RAG context retrieval (5 seconds)
@@ -944,7 +947,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
       message: z.string().describe('The reminder message to send at the due time.'),
       remindAtIso: z.string().describe('Reminder datetime in ISO format, e.g. 2026-03-20T14:30:00+03:00'),
       timezone: z.string().optional().describe('IANA timezone, e.g. Africa/Kampala'),
-      targetType: z.enum(['self', 'next_of_kin']).optional().describe('Who should receive the reminder. Use next_of_kin only when the user clearly asks for this.'),
+      targetType: z.enum(['self', 'next_of_kin']).describe('REQUIRED: who should receive the reminder. Use next_of_kin whenever the user asks to remind someone else (e.g., next of kin or a named contact). Use self only for reminders to the current user.'),
       targetExternalUserId: z.string().optional().describe('Optional explicit recipient WhatsApp id/phone. If omitted, defaults to the current user.'),
     }),
     func: async ({ message, remindAtIso, timezone, targetType, targetExternalUserId }) => {
@@ -1244,11 +1247,13 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         }
       } else if (tc.name === 'set_reminder' && (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta')) {
         try {
-          content = await setReminderTool.invoke({
+          content = String(await setReminderTool.invoke({
             message: typeof tc.args?.message === 'string' ? tc.args.message : '',
             remindAtIso: typeof tc.args?.remindAtIso === 'string' ? tc.args.remindAtIso : '',
             timezone: typeof tc.args?.timezone === 'string' ? tc.args.timezone : undefined,
-          });
+            targetType: tc.args?.targetType === 'next_of_kin' ? 'next_of_kin' : 'self',
+            targetExternalUserId: typeof tc.args?.targetExternalUserId === 'string' ? tc.args.targetExternalUserId : undefined,
+          }));
         } catch (e) {
           console.error('set_reminder error:', e);
           content = e instanceof Error ? e.message : 'Failed to create reminder.';

@@ -108,6 +108,21 @@ export interface CreateNoteResult extends ToolResult {
   timestamp?: Date;
 }
 
+function normalizeContactPhone(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const digits = trimmed.replace(/[^\d]/g, '');
+  if (!digits) return undefined;
+
+  if (digits.startsWith('256') && digits.length === 12) return digits;
+  if (digits.startsWith('0') && digits.length === 10) return `256${digits.slice(1)}`;
+  if (digits.startsWith('7') && digits.length === 9) return `256${digits}`;
+
+  return undefined;
+}
+
 // ============================================================================
 // TOOL EXECUTOR - Deterministic execution with strict contracts
 // ============================================================================
@@ -944,14 +959,40 @@ export class AgentOrchestrator {
 
           const channel = toolCall.args.channel === 'whatsapp_meta' ? 'whatsapp_meta' : 'whatsapp';
           try {
+            const requestedTargetType = toolCall.args.targetType === 'next_of_kin' ? 'next_of_kin' : 'self';
+            let targetExternalUserId = typeof toolCall.args.targetExternalUserId === 'string'
+              ? toolCall.args.targetExternalUserId.trim()
+              : '';
+
+            if (requestedTargetType === 'next_of_kin' && !targetExternalUserId) {
+              const profile = await getXPersonProfile({
+                tenantId: this.tenantId,
+                externalUserId,
+                userId,
+              });
+              const profileNextOfKin = normalizeContactPhone(
+                profile?.attributes?.next_of_kin_phone
+              );
+
+              if (!profileNextOfKin) {
+                result = {
+                  success: false,
+                  error: 'Cannot schedule next-of-kin reminder: next_of_kin_phone is missing in the user profile. Save it first via xperson_profile upsert.',
+                };
+                break;
+              }
+
+              targetExternalUserId = profileNextOfKin;
+            }
+
             const reminder = await createWhatsAppReminder({
               tenantId: this.tenantId,
               message: toolCall.args.message,
               remindAtIso: toolCall.args.remindAtIso,
               timezone: typeof toolCall.args.timezone === 'string' ? toolCall.args.timezone : undefined,
               externalUserId,
-              targetExternalUserId: typeof toolCall.args.targetExternalUserId === 'string' ? toolCall.args.targetExternalUserId : undefined,
-              targetType: toolCall.args.targetType === 'next_of_kin' ? 'next_of_kin' : 'self',
+              targetExternalUserId: targetExternalUserId || undefined,
+              targetType: requestedTargetType,
               userId,
               conversationId,
               channel,
