@@ -1716,18 +1716,21 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             continue;
           }
 
+          const linkedRelayTicketId = repliedToMessageId
+            ? await resolveRelayTicketIdFromReplyContext({
+              tenantId,
+              provider: 'meta',
+              providerMessageId: repliedToMessageId,
+              nokExternalUserId: identity.externalUserId,
+            }) ?? undefined
+            : undefined;
+
           const relayRoute = await routeNokRelayReply({
             tenantId,
             nokExternalUserId: identity.externalUserId,
             inboundBody: body,
-            preferredRelayTicketId: repliedToMessageId
-              ? await resolveRelayTicketIdFromReplyContext({
-                tenantId,
-                provider: 'meta',
-                providerMessageId: repliedToMessageId,
-                nokExternalUserId: identity.externalUserId,
-              }) ?? undefined
-              : undefined,
+            preferredRelayTicketId: linkedRelayTicketId,
+            requireExplicitSelection: !linkedRelayTicketId,
           });
 
           if (relayRoute.type === 'routed') {
