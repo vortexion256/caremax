@@ -12,6 +12,7 @@ type Message = {
   role: 'user' | 'assistant' | 'human_agent';
   content: string;
   imageUrls?: string[];
+  metadata?: { source?: string };
   createdAt: number | null;
 };
 
@@ -46,6 +47,7 @@ export default function HandoffChat() {
             role: data.role as Message['role'],
             content: data.content ?? '',
             imageUrls: data.imageUrls,
+            metadata: data.metadata as { source?: string } | undefined,
             createdAt: data.createdAt?.toMillis?.() ?? null,
           };
         });
@@ -173,7 +175,7 @@ export default function HandoffChat() {
               marginLeft: m.role === 'user' ? 4 : 0,
               marginRight: m.role === 'user' ? 0 : 4
             }}>
-              {m.role === 'user' ? 'User' : m.role === 'human_agent' ? 'You (Agent)' : 'AI Assistant'}
+              {m.metadata?.source === 'nok_relay' ? 'Next of Kin' : m.role === 'user' ? 'User' : m.role === 'human_agent' ? 'You (Agent)' : 'AI Assistant'}
             </span>
             <div
               style={{

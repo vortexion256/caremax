@@ -13,6 +13,7 @@ type Message = {
   role: 'user' | 'assistant' | 'human_agent';
   content: string;
   imageUrls?: string[];
+  metadata?: { source?: string };
   createdAt: number | null;
 };
 
@@ -23,6 +24,7 @@ function messageFromDoc(d: { id: string; data: () => Record<string, unknown> }):
     role: (data.role as Message['role']) ?? 'assistant',
     content: (data.content as string) ?? '',
     imageUrls: data.imageUrls as string[] | undefined,
+    metadata: data.metadata as { source?: string } | undefined,
     createdAt: data.createdAt && typeof (data.createdAt as { toMillis?: () => number }).toMillis === 'function'
       ? (data.createdAt as { toMillis: () => number }).toMillis()
       : null,
@@ -236,7 +238,13 @@ export default function ConversationView() {
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, padding: '0 4px' }}>
                   <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>
-                    {msg.role === 'user' ? 'User' : msg.role === 'human_agent' ? 'Human Agent' : 'AI Assistant'}
+                    {msg.metadata?.source === 'nok_relay'
+                      ? 'Next of Kin'
+                      : msg.role === 'user'
+                        ? 'User'
+                        : msg.role === 'human_agent'
+                          ? 'Human Agent'
+                          : 'AI Assistant'}
                   </span>
                   {msg.createdAt && (
                     <span style={{ fontSize: 10, color: '#cbd5e1' }}>

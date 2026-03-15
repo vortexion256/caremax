@@ -265,13 +265,11 @@ export async function routeNokRelayReply(params: {
     };
   }
 
-  const relayUserContent = `Reply from next of kin (${selected.relayTicketId}): ${params.inboundBody}`;
-
   await db.collection('messages').add({
     conversationId: selected.patientConversationId,
     tenantId: params.tenantId,
-    role: 'user',
-    content: relayUserContent,
+    role: 'assistant',
+    content: `Reply from your next of kin: ${params.inboundBody}`,
     channel: 'whatsapp',
     inputType: 'text',
     metadata: {
