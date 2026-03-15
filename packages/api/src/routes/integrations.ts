@@ -1073,6 +1073,11 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
 
     const incomingBody = typeof req.body?.Body === 'string' ? req.body.Body.trim() : '';
     const providerMessageId = typeof req.body?.MessageSid === 'string' ? req.body.MessageSid.trim() : '';
+    const repliedToMessageId = [
+      req.body?.OriginalRepliedMessageSid,
+      req.body?.OriginalRepliedMessageSid0,
+      req.body?.InReplyTo,
+    ].find((value) => typeof value === 'string' && value.trim().length > 0)?.trim() ?? '';
 
     if (providerMessageId) {
       const claimed = await claimTwilioWebhookMessage(tenantId, providerMessageId);
@@ -1084,10 +1089,20 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     }
 
     if (incomingBody) {
+      const linkedRelayTicketId = repliedToMessageId
+        ? await resolveRelayTicketIdFromReplyContext({
+          tenantId,
+          provider: 'twilio',
+          providerMessageId: repliedToMessageId,
+          nokExternalUserId: identity.externalUserId,
+        }) ?? undefined
+        : undefined;
+
       const relayRoute = await routeNokRelayReply({
         tenantId,
         nokExternalUserId: identity.externalUserId,
         inboundBody: incomingBody,
+        preferredRelayTicketId: linkedRelayTicketId,
         allowGeneralChatFallback: false,
       });
 
