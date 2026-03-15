@@ -985,6 +985,14 @@ export class AgentOrchestrator {
               targetExternalUserId = profileNextOfKin;
             }
 
+            const profile = await getXPersonProfile({
+              tenantId: this.tenantId,
+              externalUserId,
+              userId,
+            });
+            const profileAttributes = profile?.attributes && typeof profile.attributes === 'object' ? profile.attributes : {};
+            const ownerLabel = (profileAttributes?.full_name || profileAttributes?.name || externalUserId || '').toString().trim();
+
             const reminder = await createWhatsAppReminder({
               tenantId: this.tenantId,
               message: toolCall.args.message,
@@ -996,6 +1004,7 @@ export class AgentOrchestrator {
               userId,
               conversationId,
               channel,
+              ownerLabel: ownerLabel || undefined,
             });
             result = {
               success: true,

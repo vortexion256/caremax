@@ -1,6 +1,11 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
 import { sendWhatsAppOutboundMessage, type WhatsAppChannel } from './whatsapp-outbound.js';
+import {
+  buildAutoTimedReminderRelayMessage,
+  createRelayTicket,
+  storeRelayTicketOutboundMessageLink,
+} from './whatsapp-relay.js';
 
 export type ReminderStatus = 'pending' | 'sent' | 'failed' | 'cancelled';
 
@@ -16,6 +21,7 @@ export type ReminderRecord = {
   conversationId?: string;
   userId?: string;
   ownerExternalUserId?: string;
+  ownerLabel?: string;
   externalUserId: string;
   targetExternalUserId?: string;
   targetType?: 'self' | 'next_of_kin';
@@ -52,6 +58,7 @@ export async function createWhatsAppReminder(params: {
   userId?: string;
   conversationId?: string;
   channel?: WhatsAppChannel;
+  ownerLabel?: string;
 }): Promise<{ reminderId: string; dueAtIso: string }> {
   if (!params.externalUserId) {
     throw new Error('Missing externalUserId for WhatsApp reminder.');
@@ -71,6 +78,7 @@ export async function createWhatsAppReminder(params: {
     conversationId: params.conversationId,
     userId: params.userId,
     ownerExternalUserId: params.externalUserId,
+    ownerLabel: params.ownerLabel?.trim() || undefined,
     externalUserId: params.externalUserId,
     targetExternalUserId: params.targetExternalUserId?.trim() || params.externalUserId,
     targetType: params.targetType === 'next_of_kin' ? 'next_of_kin' : 'self',
@@ -119,18 +127,51 @@ export async function dispatchDueReminders(options?: {
         throw new Error('Reminder data is incomplete.');
       }
 
-      await sendWhatsAppOutboundMessage({
-        tenantId: data.tenantId,
-        to: recipientExternalUserId,
-        body: data.message,
-        preferredChannel: channel,
-      });
-
-      const shouldNotifyOwner =
+      const shouldRelayNokReply =
         data.targetType === 'next_of_kin'
         && typeof data.ownerExternalUserId === 'string'
         && data.ownerExternalUserId.trim().length > 0
         && data.ownerExternalUserId.trim() !== recipientExternalUserId;
+
+      let outboundBody = data.message;
+      let relayTicketId: string | null = null;
+
+      if (shouldRelayNokReply) {
+        const relayTicket = await createRelayTicket({
+          tenantId: data.tenantId,
+          patientConversationId: data.conversationId,
+          patientUserId: data.userId,
+          patientExternalUserId: data.ownerExternalUserId?.trim(),
+          nokPhone: recipientExternalUserId,
+          reason: 'user_request',
+        });
+        relayTicketId = relayTicket.relayTicketId;
+        outboundBody = buildAutoTimedReminderRelayMessage({
+          senderLabel: data.ownerLabel || data.ownerExternalUserId,
+          relayTicketId,
+          message: data.message,
+        });
+      }
+
+      const outboundResult = await sendWhatsAppOutboundMessage({
+        tenantId: data.tenantId,
+        to: recipientExternalUserId,
+        body: outboundBody,
+        preferredChannel: channel,
+      });
+
+      if (relayTicketId && outboundResult.providerMessageId) {
+        await storeRelayTicketOutboundMessageLink({
+          tenantId: data.tenantId,
+          relayTicketId,
+          provider: outboundResult.channel === 'whatsapp_meta' ? 'meta' : 'twilio',
+          providerMessageId: outboundResult.providerMessageId,
+          nokExternalUserId: recipientExternalUserId,
+        });
+      }
+
+      const shouldNotifyOwner =
+        shouldRelayNokReply;
 
       if (shouldNotifyOwner) {
         try {
