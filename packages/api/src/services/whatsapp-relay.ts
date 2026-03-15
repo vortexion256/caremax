@@ -307,7 +307,7 @@ export async function routeNokRelayReply(params: {
       await sendWhatsAppOutboundMessage({
         tenantId: params.tenantId,
         to: patientExternalUserId,
-        body: `Your next of kin replied: "${normalizedInboundBody}"\n\nIs there anything else you'd like to talk about or need help with?`,
+        body: `Your next of kin replied: "${normalizedInboundBody}"`,
         preferredChannel,
       });
       relayedToPatient = true;
@@ -325,6 +325,6 @@ export async function routeNokRelayReply(params: {
 }
 
 export function buildNokRelayOutboundMessage(params: { senderLabel?: string | null; relayTicketId: string; message: string }): string {
-  const sender = params.senderLabel?.trim() || 'your CareMax contact';
-  return `Msg from "${sender}". Ref: ${params.relayTicketId}. Reply in this thread and include the ref so we can route your response correctly.\n\n${params.message.trim()}`;
+  const sender = params.senderLabel?.trim() || 'Name/phone No.';
+  return `Msg from ${sender}. Ref: ${params.relayTicketId}. Comment in this thread to reply.\n\n${params.message.trim()}`;
 }
