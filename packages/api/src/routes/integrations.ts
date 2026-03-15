@@ -1715,6 +1715,32 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             continue;
           }
 
+          const relayRoute = await routeNokRelayReply({
+            tenantId,
+            nokExternalUserId: identity.externalUserId,
+            inboundBody: body,
+          });
+
+          if (relayRoute.type === 'routed') {
+            await sendMetaWhatsAppTextMessage({
+              phoneNumberId,
+              accessToken,
+              to: identity.externalUserId,
+              body: `Thanks. We have forwarded your message to the patient (ref ${relayRoute.relayTicketId}).`,
+            });
+            continue;
+          }
+
+          if (relayRoute.type === 'ambiguous' || relayRoute.type === 'invalid_code') {
+            await sendMetaWhatsAppTextMessage({
+              phoneNumberId,
+              accessToken,
+              to: identity.externalUserId,
+              body: relayRoute.prompt,
+            });
+            continue;
+          }
+
           const conversationsRef = db.collection('conversations');
           const existingConversationSnap = await conversationsRef
             .where('tenantId', '==', tenantId)
