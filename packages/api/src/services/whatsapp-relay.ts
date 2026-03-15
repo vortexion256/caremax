@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
 import { normalizeWhatsAppExternalUserId } from './user-identity.js';
+import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
 
 const RELAY_CODE_PREFIX = 'CMX-';
 const RELAY_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -221,7 +222,7 @@ export async function routeNokRelayReply(params: {
 { type: 'no_ticket' }
 | { type: 'ambiguous'; prompt: string }
 | { type: 'invalid_code'; prompt: string }
-| { type: 'routed'; relayTicketId: string; patientConversationId: string }
+| { type: 'routed'; relayTicketId: string; patientConversationId: string; relayedToPatient: boolean }
 > {
   const tickets = await listActiveRelayTickets(params.tenantId, params.nokExternalUserId);
   if (tickets.length === 0) return { type: 'no_ticket' };
@@ -265,18 +266,20 @@ export async function routeNokRelayReply(params: {
     };
   }
 
+  const normalizedInboundBody = params.inboundBody.trim();
+
   await db.collection('messages').add({
     conversationId: selected.patientConversationId,
     tenantId: params.tenantId,
     role: 'assistant',
-    content: `Reply from your next of kin: ${params.inboundBody}`,
+    content: `Your next of kin replied: "${normalizedInboundBody}"`,
     channel: 'whatsapp',
     inputType: 'text',
     metadata: {
       source: 'nok_relay',
       relayTicketId: selected.relayTicketId,
       nokExternalUserId: params.nokExternalUserId,
-      relayedContent: params.inboundBody,
+      relayedContent: normalizedInboundBody,
     },
     createdAt: FieldValue.serverTimestamp(),
   });
@@ -290,10 +293,38 @@ export async function routeNokRelayReply(params: {
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
 
-  return { type: 'routed', relayTicketId: selected.relayTicketId, patientConversationId: selected.patientConversationId };
+  let relayedToPatient = false;
+  try {
+    const patientConversationDoc = await db.collection('conversations').doc(selected.patientConversationId).get();
+    const patientConversation = patientConversationDoc.data() ?? {};
+    const patientChannel = typeof patientConversation.channel === 'string' ? patientConversation.channel : '';
+    const patientExternalUserId = typeof patientConversation.externalUserId === 'string'
+      ? patientConversation.externalUserId.trim()
+      : selected.patientExternalUserId?.trim() ?? '';
+
+    if ((patientChannel === 'whatsapp' || patientChannel === 'whatsapp_meta') && patientExternalUserId) {
+      const preferredChannel = patientChannel === 'whatsapp_meta' ? 'whatsapp_meta' : 'whatsapp';
+      await sendWhatsAppOutboundMessage({
+        tenantId: params.tenantId,
+        to: patientExternalUserId,
+        body: `Your next of kin replied: "${normalizedInboundBody}"\n\nIs there anything else you'd like to talk about or need help with?`,
+        preferredChannel,
+      });
+      relayedToPatient = true;
+    }
+  } catch (error) {
+    console.warn('Failed to mirror next-of-kin relay reply to patient WhatsApp:', error);
+  }
+
+  return {
+    type: 'routed',
+    relayTicketId: selected.relayTicketId,
+    patientConversationId: selected.patientConversationId,
+    relayedToPatient,
+  };
 }
 
-export function buildNokRelayOutboundMessage(params: { patientLabel?: string | null; relayTicketId: string; message: string }): string {
-  const patientPart = params.patientLabel?.trim() ? ` on behalf of ${params.patientLabel.trim()}` : '';
-  return `CareMax alert${patientPart}. Reference code: ${params.relayTicketId}. Reply in this thread and include the code so we can route your response correctly.\n\n${params.message.trim()}`;
+export function buildNokRelayOutboundMessage(params: { senderLabel?: string | null; relayTicketId: string; message: string }): string {
+  const sender = params.senderLabel?.trim() || 'your CareMax contact';
+  return `Msg from "${sender}". Ref: ${params.relayTicketId}. Reply in this thread and include the ref so we can route your response correctly.\n\n${params.message.trim()}`;
 }

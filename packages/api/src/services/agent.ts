@@ -903,6 +903,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
       });
 
       const relayMessage = buildNokRelayOutboundMessage({
+        senderLabel: (attributes?.full_name || attributes?.name || options?.externalUserId || '').toString(),
         relayTicketId: relayTicket.relayTicketId,
         message,
       });
