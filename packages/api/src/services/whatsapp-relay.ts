@@ -1,6 +1,6 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
-import { normalizeWhatsAppExternalUserId } from './user-identity.js';
+import { buildScopedUserId, normalizeWhatsAppExternalUserId } from './user-identity.js';
 import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
 
 const RELAY_CODE_PREFIX = 'CMX-';
@@ -112,6 +112,7 @@ export async function storeRelayTicketOutboundMessageLink(params: {
 }): Promise<void> {
   const normalizedMessageId = params.providerMessageId.trim();
   if (!normalizedMessageId) return;
+  const normalizedNokExternalUserId = normalizeWhatsAppExternalUserId(params.nokExternalUserId) ?? params.nokExternalUserId.trim();
 
   const linkRef = db.collection('relay_ticket_message_links').doc(buildRelayMessageLinkId({
     tenantId: params.tenantId,
@@ -124,7 +125,7 @@ export async function storeRelayTicketOutboundMessageLink(params: {
     relayTicketId: params.relayTicketId,
     provider: params.provider,
     providerMessageId: normalizedMessageId,
-    nokExternalUserId: params.nokExternalUserId,
+    nokExternalUserId: normalizedNokExternalUserId,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
@@ -138,6 +139,7 @@ export async function resolveRelayTicketIdFromReplyContext(params: {
 }): Promise<string | null> {
   const normalizedMessageId = params.providerMessageId.trim();
   if (!normalizedMessageId) return null;
+  const normalizedNokExternalUserId = normalizeWhatsAppExternalUserId(params.nokExternalUserId) ?? params.nokExternalUserId.trim();
 
   const linkRef = db.collection('relay_ticket_message_links').doc(buildRelayMessageLinkId({
     tenantId: params.tenantId,
@@ -150,11 +152,68 @@ export async function resolveRelayTicketIdFromReplyContext(params: {
   const linkData = linkDoc.data() ?? {};
   const relayTicketId = typeof linkData.relayTicketId === 'string' ? linkData.relayTicketId : '';
   const linkedNokExternalUserId = typeof linkData.nokExternalUserId === 'string' ? linkData.nokExternalUserId : '';
-  if (!relayTicketId || (linkedNokExternalUserId && linkedNokExternalUserId !== params.nokExternalUserId)) {
+  if (!relayTicketId || (linkedNokExternalUserId && linkedNokExternalUserId !== normalizedNokExternalUserId)) {
     return null;
   }
 
   return relayTicketId;
+}
+
+async function resolvePatientConversationForRelay(params: {
+  tenantId: string;
+  ticket: RelayTicket;
+}): Promise<{ conversationId: string; channel: 'whatsapp' | 'whatsapp_meta'; externalUserId: string } | null> {
+  if (params.ticket.patientConversationId) {
+    const conversationDoc = await db.collection('conversations').doc(params.ticket.patientConversationId).get();
+    if (conversationDoc.exists) {
+      const data = conversationDoc.data() ?? {};
+      const channel = data.channel === 'whatsapp_meta' ? 'whatsapp_meta' : 'whatsapp';
+      const externalUserId = typeof data.externalUserId === 'string' && data.externalUserId.trim().length > 0
+        ? data.externalUserId.trim()
+        : params.ticket.patientExternalUserId?.trim() ?? '';
+      if (externalUserId) {
+        return { conversationId: conversationDoc.id, channel, externalUserId };
+      }
+    }
+  }
+
+  const normalizedPatientExternalUserId = normalizeWhatsAppExternalUserId(params.ticket.patientExternalUserId);
+  if (!normalizedPatientExternalUserId) return null;
+
+  for (const channel of ['whatsapp_meta', 'whatsapp'] as const) {
+    const existingConversationSnap = await db.collection('conversations')
+      .where('tenantId', '==', params.tenantId)
+      .where('channel', '==', channel)
+      .where('externalUserId', '==', normalizedPatientExternalUserId)
+      .where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
+      .orderBy('updatedAt', 'desc')
+      .limit(1)
+      .get();
+
+    if (!existingConversationSnap.empty) {
+      return {
+        conversationId: existingConversationSnap.docs[0].id,
+        channel,
+        externalUserId: normalizedPatientExternalUserId,
+      };
+    }
+  }
+
+  const conversationRef = await db.collection('conversations').add({
+    tenantId: params.tenantId,
+    userId: buildScopedUserId('whatsapp', normalizedPatientExternalUserId),
+    externalUserId: normalizedPatientExternalUserId,
+    channel: 'whatsapp',
+    status: 'open',
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  return {
+    conversationId: conversationRef.id,
+    channel: 'whatsapp',
+    externalUserId: normalizedPatientExternalUserId,
+  };
 }
 
 export async function claimTwilioWebhookMessage(tenantId: string, messageId: string): Promise<boolean> {
@@ -224,7 +283,8 @@ export async function routeNokRelayReply(params: {
 | { type: 'invalid_code'; prompt: string }
 | { type: 'routed'; relayTicketId: string; patientConversationId: string; relayedToPatient: boolean }
 > {
-  const tickets = await listActiveRelayTickets(params.tenantId, params.nokExternalUserId);
+  const normalizedNokExternalUserId = normalizeWhatsAppExternalUserId(params.nokExternalUserId) ?? params.nokExternalUserId.trim();
+  const tickets = await listActiveRelayTickets(params.tenantId, normalizedNokExternalUserId);
   if (tickets.length === 0) return { type: 'no_ticket' };
 
   const providedCode = extractRelayCode(params.inboundBody);
@@ -259,54 +319,52 @@ export async function routeNokRelayReply(params: {
     };
   }
 
-  if (!selected?.patientConversationId) {
+  const patientConversation = selected
+    ? await resolvePatientConversationForRelay({ tenantId: params.tenantId, ticket: selected })
+    : null;
+
+  if (!patientConversation) {
     return {
       type: 'invalid_code',
-      prompt: 'We could not find an active patient conversation for that request. Please contact CareMax support.',
+      prompt: 'We could not find an active patient contact for that request. Please contact CareMax support.',
     };
   }
 
   const normalizedInboundBody = params.inboundBody.trim();
 
   await db.collection('messages').add({
-    conversationId: selected.patientConversationId,
+    conversationId: patientConversation.conversationId,
     tenantId: params.tenantId,
     role: 'assistant',
     content: `Your next of kin replied: "${normalizedInboundBody}"`,
-    channel: 'whatsapp',
+    channel: patientConversation.channel,
     inputType: 'text',
     metadata: {
       source: 'nok_relay',
       relayTicketId: selected.relayTicketId,
-      nokExternalUserId: params.nokExternalUserId,
+      nokExternalUserId: normalizedNokExternalUserId,
       relayedContent: normalizedInboundBody,
     },
     createdAt: FieldValue.serverTimestamp(),
   });
 
   await db.collection('relay_tickets').doc(selected.id).set({
+    patientConversationId: patientConversation.conversationId,
     lastActivityAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
 
-  await db.collection('conversations').doc(selected.patientConversationId).set({
+  await db.collection('conversations').doc(patientConversation.conversationId).set({
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
 
   let relayedToPatient = false;
   try {
-    const patientConversationDoc = await db.collection('conversations').doc(selected.patientConversationId).get();
-    const patientConversation = patientConversationDoc.data() ?? {};
-    const patientChannel = typeof patientConversation.channel === 'string' ? patientConversation.channel : '';
-    const patientExternalUserId = typeof patientConversation.externalUserId === 'string'
-      ? patientConversation.externalUserId.trim()
-      : selected.patientExternalUserId?.trim() ?? '';
-
-    if ((patientChannel === 'whatsapp' || patientChannel === 'whatsapp_meta') && patientExternalUserId) {
-      const preferredChannel = patientChannel === 'whatsapp_meta' ? 'whatsapp_meta' : 'whatsapp';
+    if (patientConversation.externalUserId) {
+      const preferredChannel = patientConversation.channel === 'whatsapp_meta' ? 'whatsapp_meta' : 'whatsapp';
       await sendWhatsAppOutboundMessage({
         tenantId: params.tenantId,
-        to: patientExternalUserId,
+        to: patientConversation.externalUserId,
         body: `Your next of kin replied: "${normalizedInboundBody}"`,
         preferredChannel,
       });
@@ -319,7 +377,7 @@ export async function routeNokRelayReply(params: {
   return {
     type: 'routed',
     relayTicketId: selected.relayTicketId,
-    patientConversationId: selected.patientConversationId,
+    patientConversationId: patientConversation.conversationId,
     relayedToPatient,
   };
 }

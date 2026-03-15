@@ -6,6 +6,7 @@ import {
   createRelayTicket,
   storeRelayTicketOutboundMessageLink,
 } from './whatsapp-relay.js';
+import { buildScopedUserId } from './user-identity.js';
 
 export type ReminderStatus = 'pending' | 'sent' | 'failed' | 'cancelled';
 
@@ -38,6 +39,53 @@ export type ReminderRecord = {
   ownerNotifyError?: string;
   error?: string;
 };
+
+
+
+async function resolveOrCreatePatientConversation(params: {
+  tenantId: string;
+  externalUserId: string;
+  preferredChannel: WhatsAppChannel;
+}): Promise<{ conversationId: string; userId?: string; channel: WhatsAppChannel }> {
+  const normalizedExternalUserId = params.externalUserId.trim();
+
+  for (const channel of [params.preferredChannel, params.preferredChannel === 'whatsapp_meta' ? 'whatsapp' : 'whatsapp_meta'] as const) {
+    const existingConversationSnap = await db.collection('conversations')
+      .where('tenantId', '==', params.tenantId)
+      .where('channel', '==', channel)
+      .where('externalUserId', '==', normalizedExternalUserId)
+      .where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
+      .orderBy('updatedAt', 'desc')
+      .limit(1)
+      .get();
+
+    if (!existingConversationSnap.empty) {
+      const doc = existingConversationSnap.docs[0];
+      const data = doc.data() ?? {};
+      return {
+        conversationId: doc.id,
+        userId: typeof data.userId === 'string' ? data.userId : undefined,
+        channel,
+      };
+    }
+  }
+
+  const createdRef = await db.collection('conversations').add({
+    tenantId: params.tenantId,
+    userId: buildScopedUserId(params.preferredChannel, normalizedExternalUserId),
+    externalUserId: normalizedExternalUserId,
+    channel: params.preferredChannel,
+    status: 'open',
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  return {
+    conversationId: createdRef.id,
+    userId: buildScopedUserId(params.preferredChannel, normalizedExternalUserId),
+    channel: params.preferredChannel,
+  };
+}
 
 function parseReminderDateTime(input: string): Date | null {
   const parsed = new Date(input);
@@ -137,11 +185,18 @@ export async function dispatchDueReminders(options?: {
       let relayTicketId: string | null = null;
 
       if (shouldRelayNokReply) {
+        const ownerExternalUserId = data.ownerExternalUserId?.trim() ?? '';
+        const patientConversation = await resolveOrCreatePatientConversation({
+          tenantId: data.tenantId,
+          externalUserId: ownerExternalUserId,
+          preferredChannel: channel,
+        });
+
         const relayTicket = await createRelayTicket({
           tenantId: data.tenantId,
-          patientConversationId: data.conversationId,
-          patientUserId: data.userId,
-          patientExternalUserId: data.ownerExternalUserId?.trim(),
+          patientConversationId: patientConversation.conversationId,
+          patientUserId: data.userId ?? patientConversation.userId,
+          patientExternalUserId: ownerExternalUserId,
           nokPhone: recipientExternalUserId,
           reason: 'user_request',
         });
