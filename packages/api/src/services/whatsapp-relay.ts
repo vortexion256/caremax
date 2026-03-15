@@ -216,6 +216,7 @@ export async function routeNokRelayReply(params: {
   inboundBody: string;
   preferredRelayTicketId?: string;
   requireExplicitSelection?: boolean;
+  allowGeneralChatFallback?: boolean;
 }): Promise<
 { type: 'no_ticket' }
 | { type: 'ambiguous'; prompt: string }
@@ -247,6 +248,10 @@ export async function routeNokRelayReply(params: {
   } else if (tickets.length === 1 && !params.requireExplicitSelection) {
     selected = tickets[0];
   } else {
+    if (params.allowGeneralChatFallback) {
+      return { type: 'no_ticket' };
+    }
+
     return {
       type: 'ambiguous',
       prompt: 'We found multiple active CareMax requests tied to this number. Please reply with your reference code (e.g., CMX-7KQ2).',
