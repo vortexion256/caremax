@@ -958,6 +958,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
 
       const profile = await getXPersonProfile({ tenantId, userId: options.userId, externalUserId: options.externalUserId });
       const attributes = profile?.attributes && typeof profile.attributes === 'object' ? profile.attributes : {};
+      const ownerLabel = (attributes?.full_name || attributes?.name || options.externalUserId || '').toString().trim();
       const nextOfKinPhone = normalizeContactPhone(attributes?.next_of_kin_phone);
       const resolvedTargetType = targetType === 'next_of_kin' ? 'next_of_kin' : 'self';
       const resolvedTargetExternalUserId = targetExternalUserId?.trim() || (resolvedTargetType === 'next_of_kin' ? nextOfKinPhone : options.externalUserId);
@@ -977,6 +978,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         userId: options.userId,
         conversationId: options.conversationId,
         channel: options.channel === 'whatsapp_meta' ? 'whatsapp_meta' : 'whatsapp',
+        ownerLabel: ownerLabel || undefined,
       });
 
       return `Reminder scheduled successfully (id=${created.reminderId}) for ${created.dueAtIso}.`;
