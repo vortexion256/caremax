@@ -508,6 +508,8 @@ export async function runAgentV2(
           message: z.string(),
           remindAtIso: z.string(),
           timezone: z.string().optional(),
+          targetType: z.enum(['self', 'next_of_kin']).optional(),
+          targetExternalUserId: z.string().optional(),
         }),
         func: async () => 'Reminder scheduling requested.',
       });
