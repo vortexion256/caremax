@@ -414,42 +414,6 @@ function hasMultipleUserTurns(history: { role: string }[]): boolean {
   return history.filter((m) => m.role === 'user').length >= 2;
 }
 
-function isGreetingLikeTurn(text: string): boolean {
-  const normalized = text.trim().toLowerCase();
-  if (!normalized) return false;
-  return /^(hi|hi there|hello|hello there|hey|hey there|good\s+(morning|afternoon|evening)|how are you|what'?s up|morning|evening)[.!?,\s]*$/i.test(normalized);
-}
-
-
-function isGratitudeLikeTurn(text: string): boolean {
-  const normalized = text.trim().toLowerCase();
-  if (!normalized) return false;
-  return /^(thanks|thank you|ok|okay|ok thanks|okay thanks|nice|great|cool|got it)[.!?,\s]*$/i.test(normalized);
-}
-
-function isHealthTopicTurn(text: string): boolean {
-  const normalized = text.trim().toLowerCase();
-  if (!normalized) return false;
-  return /\b(health|healthy|symptom|symptoms|pain|fever|headache|doctor|medicine|medication|diagnos|triage|treatment|wellness|hospital|clinic)\b/i.test(normalized);
-}
-
-function looksLikeShortCasualTurn(text: string): boolean {
-  const normalized = text.trim();
-  if (!normalized) return false;
-  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
-  return wordCount <= 7;
-}
-
-function recentlyGaveGenericHealthTips(history: { role: string; content: string }[]): boolean {
-  const lastAssistant = [...history].reverse().find((m) => m.role === 'assistant');
-  if (!lastAssistant?.content) return false;
-  const content = lastAssistant.content.toLowerCase();
-  const hasHydration = content.includes('stay hydrated') || content.includes('hydration');
-  const hasNutrition = content.includes('balanced diet') || content.includes('nutrition');
-  const hasSleep = content.includes('sleep');
-  const hasExercise = content.includes('exercise') || content.includes('physical activity');
-  return (hasHydration && hasNutrition && hasSleep) || (hasNutrition && hasExercise && hasSleep);
-}
 
 export async function runAgent(
   tenantId: string,
@@ -502,20 +466,6 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
 
 If your need is urgent, please call your care team or 911 in an emergency.`;
     return { text: handoffMessage, requestHandoff: true };
-  }
-
-  const smallTalkOnlyTurn =
-    ((isGreetingLikeTurn(lastUserContent) || isGratitudeLikeTurn(lastUserContent)) && !isHealthTopicTurn(lastUserContent))
-    || (looksLikeShortCasualTurn(lastUserContent) && !isHealthTopicTurn(lastUserContent) && recentlyGaveGenericHealthTips(history));
-  if (smallTalkOnlyTurn) {
-    const normalized = lastUserContent.trim().toLowerCase();
-    if (isGratitudeLikeTurn(normalized)) {
-      return { text: 'You’re welcome! If you want, I can help with any health question.' };
-    }
-    if (/\bhow are you\b|\bwhat'?s up\b/i.test(normalized)) {
-      return { text: 'I’m doing well, thanks. How can I help you today?' };
-    }
-    return { text: 'Good to hear from you! How can I help you today?' };
   }
 
   // Get existing notes for this conversation to prevent duplicates
