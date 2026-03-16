@@ -223,6 +223,7 @@ export async function dispatchDueReminders(options?: {
           provider: outboundResult.channel === 'whatsapp_meta' ? 'meta' : 'twilio',
           providerMessageId: outboundResult.providerMessageId,
           nokExternalUserId: recipientExternalUserId,
+          outboundBody,
         });
       }
 
