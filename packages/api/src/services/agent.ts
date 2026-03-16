@@ -14,6 +14,7 @@ import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
 import { createWhatsAppReminder, deleteUserReminder, editUserReminder, listUserReminders } from './reminders.js';
 import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
 import { buildNokRelayOutboundMessage, createRelayTicket, markRelayTicketSendFailed, storeRelayTicketOutboundMessageLink } from './whatsapp-relay.js';
+import { normalizeWhatsAppExternalUserId } from './user-identity.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
@@ -553,6 +554,7 @@ XPersonProfile (Persons/Pipo) is ENABLED for this tenant.
 - Keep profile capture invisible to the user: do not say you updated/saved/recorded their profile unless they explicitly ask about profile memory.
 - If you need to check known user details, call xperson_profile with operation="get" before asking repeated questions.
 - For emergencies or when the user explicitly asks to notify next of kin, use the send_next_of_kin_message tool.
+- For emergencies or when the user explicitly asks to notify next of kin (or another explicitly provided WhatsApp number), use the send_next_of_kin_message tool.
 ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${config.xPersonProfileCustomFields.map((f) => f.description ? `${f.field} (${f.description})` : f.field).join(', ')}\n` : ''}- Always keep conversation_duration_last_conversation_seconds updated based on the user's latest total conversation time across widget or WhatsApp.\nCurrent profile snapshot: ${currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.'}`;
     } catch (e) {
       console.warn('[Agent] Failed to load XPersonProfile context:', e);
@@ -882,18 +884,26 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
 
   const sendNextOfKinMessageTool = new DynamicStructuredTool({
     name: 'send_next_of_kin_message',
-    description: 'Send a WhatsApp message to the current user\'s saved next of kin phone number for emergencies or explicit user requests.',
+    description: 'Send a WhatsApp message for emergencies or explicit user requests. By default it uses the current user\'s saved next_of_kin_phone, but can target an explicitly provided WhatsApp number.',
     schema: z.object({
       message: z.string().min(5).max(1000).describe('The exact message to send to the next of kin.'),
       reason: z.enum(['emergency', 'user_request']).describe('Why the next of kin notification is being sent.'),
+      targetWhatsAppNumber: z.string().optional().describe('Optional explicit WhatsApp number/id to contact for this message (e.g. +2567XXXXXXXX or whatsapp:+2567XXXXXXXX). When omitted, next_of_kin_phone from profile is used.'),
     }),
-    func: async ({ message, reason }) => {
+    func: async ({ message, reason, targetWhatsAppNumber }) => {
       const profile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId });
       const attributes = profile?.attributes && typeof profile.attributes === 'object' ? profile.attributes : {};
       const nextOfKinPhone = normalizeContactPhone(attributes?.next_of_kin_phone);
+      const explicitTarget = typeof targetWhatsAppNumber === 'string' ? normalizeWhatsAppExternalUserId(targetWhatsAppNumber) : null;
 
-      if (!nextOfKinPhone) {
-        return 'Cannot send message: next_of_kin_phone is missing in the user profile. Ask the user to save it first via xperson_profile upsert.';
+      if (targetWhatsAppNumber && !explicitTarget) {
+        return 'Cannot send message: targetWhatsAppNumber is invalid. Share a valid WhatsApp number such as +2567XXXXXXXX.';
+      }
+
+      const destination = explicitTarget ?? nextOfKinPhone;
+
+      if (!destination) {
+        return 'Cannot send message: next_of_kin_phone is missing in the user profile and no targetWhatsAppNumber was provided. Ask the user to save next_of_kin_phone via xperson_profile upsert or provide a WhatsApp number.';
       }
 
       const relayTicket = await createRelayTicket({
@@ -901,7 +911,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         patientConversationId: options?.conversationId,
         patientUserId: options?.userId,
         patientExternalUserId: options?.externalUserId,
-        nokPhone: nextOfKinPhone,
+        nokPhone: destination,
         reason,
       });
 
@@ -915,7 +925,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
       try {
         const sendResult = await sendWhatsAppOutboundMessage({
           tenantId,
-          to: nextOfKinPhone,
+          to: destination,
           body: relayMessage,
         });
         sentVia = sendResult.channel;
