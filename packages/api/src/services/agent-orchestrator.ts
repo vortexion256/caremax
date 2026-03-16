@@ -23,6 +23,7 @@ import { db } from '../config/firebase.js';
 import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
 import { createWhatsAppReminder, deleteUserReminder, editUserReminder, listUserReminders } from './reminders.js';
 import { FieldValue } from 'firebase-admin/firestore';
+import { getHealthProfile, logVitals } from './health-tools.js';
 
 // Record agent activity for dashboard visualization
 async function recordActivity(tenantId: string, type: string): Promise<void> {
@@ -946,6 +947,46 @@ export class AgentOrchestrator {
         }
         break;
 
+
+
+      case 'logVitals':
+        if (
+          typeof toolCall.args.userId === 'string' &&
+          typeof toolCall.args.type === 'string' &&
+          typeof toolCall.args.value === 'number'
+        ) {
+          const logged = await logVitals({
+            userId: toolCall.args.userId,
+            type: toolCall.args.type,
+            value: toolCall.args.value,
+            unit: typeof toolCall.args.unit === 'string' ? toolCall.args.unit : undefined,
+            timestamp: typeof toolCall.args.timestamp === 'string' ? toolCall.args.timestamp : undefined,
+          });
+
+          result = logged.success
+            ? { success: true, data: logged, action: 'write' }
+            : { success: false, error: logged.error ?? logged.message ?? 'Failed to record vital' };
+        } else {
+          result = {
+            success: false,
+            error: 'Invalid arguments for logVitals',
+          };
+        }
+        break;
+
+      case 'getHealthProfile':
+        if (typeof toolCall.args.userId === 'string') {
+          const profile = await getHealthProfile({ userId: toolCall.args.userId });
+          result = profile.success
+            ? { success: true, data: profile, action: 'read' }
+            : { success: false, error: profile.error ?? profile.message ?? 'Failed to fetch health profile' };
+        } else {
+          result = {
+            success: false,
+            error: 'Invalid arguments for getHealthProfile',
+          };
+        }
+        break;
 
       case 'set_reminder':
         if (typeof toolCall.args.message === 'string' && typeof toolCall.args.remindAtIso === 'string') {

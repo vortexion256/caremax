@@ -33,6 +33,7 @@ import { decomposeQuestion, DecomposedQuestion } from './agent-decomposer.js';
 import { extractTokenUsage, recordUsage, type UsageMetadata } from './token-usage.js';
 import { extractDefaultProfileFields } from './xperson-profile.js';
 import { listUserReminders } from './reminders.js';
+import { getHealthProfile, logVitals } from './health-tools.js';
 import {
   decideIfNeedsPlanning,
   createExecutionPlan,
@@ -563,6 +564,36 @@ export async function runAgentV2(
       });
       tools.push(deleteReminderTool);
     }
+
+    const logVitalsTool = new DynamicStructuredTool({
+      name: 'logVitals',
+      description: "Store a user's vital signs for health monitoring.",
+      schema: z.object({
+        userId: z.string(),
+        type: z.enum(['temperature', 'blood_pressure', 'heart_rate', 'blood_sugar', 'oxygen', 'weight']),
+        value: z.number(),
+        unit: z.string().optional(),
+        timestamp: z.string().optional(),
+      }),
+      func: async ({ userId, type, value, unit, timestamp }) => {
+        const result = await logVitals({ userId, type, value, unit, timestamp });
+        return JSON.stringify(result);
+      },
+    });
+    tools.push(logVitalsTool);
+
+    const getHealthProfileTool = new DynamicStructuredTool({
+      name: 'getHealthProfile',
+      description: "Retrieve a user's health profile from storage.",
+      schema: z.object({
+        userId: z.string(),
+      }),
+      func: async ({ userId }) => {
+        const result = await getHealthProfile({ userId });
+        return JSON.stringify(result);
+      },
+    });
+    tools.push(getHealthProfileTool);
 
     // Google Sheets tools
     if (sheetsEnabled && googleSheetsList.length > 0) {

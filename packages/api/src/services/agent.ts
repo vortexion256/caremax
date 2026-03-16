@@ -15,6 +15,7 @@ import { createWhatsAppReminder, deleteUserReminder, editUserReminder, listUserR
 import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
 import { buildNokRelayOutboundMessage, createRelayTicket, markRelayTicketSendFailed, storeRelayTicketOutboundMessageLink } from './whatsapp-relay.js';
 import { normalizeWhatsAppExternalUserId } from './user-identity.js';
+import { getHealthProfile, logVitals } from './health-tools.js';
 
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
@@ -1106,6 +1107,34 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
     },
   });
 
+  const logVitalsTool = new DynamicStructuredTool({
+    name: 'logVitals',
+    description: "Store a user's vital signs for health monitoring.",
+    schema: z.object({
+      userId: z.string(),
+      type: z.enum(['temperature', 'blood_pressure', 'heart_rate', 'blood_sugar', 'oxygen', 'weight']),
+      value: z.number(),
+      unit: z.string().optional(),
+      timestamp: z.string().optional(),
+    }),
+    func: async ({ userId, type, value, unit, timestamp }) => {
+      const result = await logVitals({ userId, type, value, unit, timestamp });
+      return JSON.stringify(result);
+    },
+  });
+
+  const getHealthProfileTool = new DynamicStructuredTool({
+    name: 'getHealthProfile',
+    description: "Retrieve a user's health profile from storage.",
+    schema: z.object({
+      userId: z.string(),
+    }),
+    func: async ({ userId }) => {
+      const result = await getHealthProfile({ userId });
+      return JSON.stringify(result);
+    },
+  });
+
 
   const tools: unknown[] = [];
   // Always include notebook tools - essential for tracking analytics, insights, and patterns
@@ -1114,6 +1143,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
   if (config.xPersonProfileEnabled) tools.push(xPersonProfileTool);
   if (config.xPersonProfileEnabled) tools.push(sendNextOfKinMessageTool);
+  tools.push(logVitalsTool, getHealthProfileTool);
   if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
     tools.push(sendWhatsAppMessageToContactTool, setReminderTool, listUserRemindersTool, getUpcomingRemindersTool, editReminderTool, deleteReminderTool);
   }
@@ -1331,6 +1361,30 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         } catch (e) {
           console.error('delete_reminder error:', e);
           content = e instanceof Error ? e.message : 'Failed to delete reminder.';
+        }
+      } else if (tc.name === 'logVitals') {
+        try {
+          const result = await logVitals({
+            userId: typeof tc.args?.userId === 'string' ? tc.args.userId : '',
+            type: typeof tc.args?.type === 'string' ? tc.args.type : '',
+            value: typeof tc.args?.value === 'number' ? tc.args.value : Number.NaN,
+            unit: typeof tc.args?.unit === 'string' ? tc.args.unit : undefined,
+            timestamp: typeof tc.args?.timestamp === 'string' ? tc.args.timestamp : undefined,
+          });
+          content = JSON.stringify(result);
+        } catch (e) {
+          console.error('logVitals error:', e);
+          content = e instanceof Error ? e.message : 'Failed to record vital.';
+        }
+      } else if (tc.name === 'getHealthProfile') {
+        try {
+          const result = await getHealthProfile({
+            userId: typeof tc.args?.userId === 'string' ? tc.args.userId : '',
+          });
+          content = JSON.stringify(result);
+        } catch (e) {
+          console.error('getHealthProfile error:', e);
+          content = e instanceof Error ? e.message : 'Failed to fetch health profile.';
         }
       } else if (tc.name === 'xperson_profile' && config.xPersonProfileEnabled) {
         try {
