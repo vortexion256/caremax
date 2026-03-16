@@ -17,6 +17,14 @@ type Message = {
   createdAt: number | null;
 };
 
+type VitalLog = {
+  id: string;
+  type: string;
+  value: number;
+  unit: string | null;
+  recordedAt: number | null;
+};
+
 function messageFromDoc(d: { id: string; data: () => Record<string, unknown> }): Message {
   const data = d.data();
   return {
@@ -40,6 +48,9 @@ export default function ConversationView() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>('open');
+  const [userId, setUserId] = useState<string>('');
+  const [vitalLogs, setVitalLogs] = useState<VitalLog[]>([]);
+  const [vitalsLoading, setVitalsLoading] = useState(false);
   const [lastDoc, setLastDoc] = useState<DocumentSnapshot | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
@@ -55,6 +66,7 @@ export default function ConversationView() {
       .then((convDoc) => {
         if (convDoc.exists()) {
           setStatus(convDoc.data().status ?? 'open');
+          setUserId((convDoc.data().userId as string) ?? '');
         }
       })
       .catch(() => {});
@@ -81,6 +93,45 @@ export default function ConversationView() {
         setLoading(false);
       });
   }, [conversationId, tenantId]);
+
+  useEffect(() => {
+    if (!userId) {
+      setVitalLogs([]);
+      return;
+    }
+
+    setVitalsLoading(true);
+    const vitalsRef = collection(firestore, 'vitals');
+    const vitalsQuery = query(
+      vitalsRef,
+      where('userId', '==', userId),
+      orderBy('recordedAt', 'desc'),
+      limit(20)
+    );
+
+    getDocs(vitalsQuery)
+      .then((snap) => {
+        const logs = snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            type: (data.type as string) ?? 'unknown',
+            value: typeof data.value === 'number' ? data.value : Number(data.value ?? 0),
+            unit: typeof data.unit === 'string' ? data.unit : null,
+            recordedAt: data.recordedAt && typeof (data.recordedAt as { toMillis?: () => number }).toMillis === 'function'
+              ? (data.recordedAt as { toMillis: () => number }).toMillis()
+              : null,
+          } satisfies VitalLog;
+        });
+        setVitalLogs(logs);
+      })
+      .catch(() => {
+        setVitalLogs([]);
+      })
+      .finally(() => {
+        setVitalsLoading(false);
+      });
+  }, [userId]);
 
   const loadOlder = () => {
     if (!conversationId || !lastDoc || loadingMore || !hasMore) return;
@@ -183,6 +234,34 @@ export default function ConversationView() {
 
       <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16, fontFamily: 'monospace' }}>
         ID: {conversationId}
+      </div>
+
+      <div style={{ marginBottom: 16, border: '1px solid #e2e8f0', borderRadius: 12, padding: isMobile ? 12 : 16, background: '#fff' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 14, color: '#0f172a' }}>Vitals logs (user)</h3>
+          {userId && <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace' }}>User: {userId}</span>}
+        </div>
+        {vitalsLoading ? (
+          <p style={{ margin: '10px 0 0', fontSize: 12, color: '#64748b' }}>Loading vitals...</p>
+        ) : vitalLogs.length === 0 ? (
+          <p style={{ margin: '10px 0 0', fontSize: 12, color: '#64748b' }}>No vitals saved for this user yet.</p>
+        ) : (
+          <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+            {vitalLogs.map((vital) => (
+              <div key={vital.id} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', background: '#f8fafc' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <strong style={{ color: '#0f172a', fontSize: 13 }}>{vital.type.replace(/_/g, ' ')}</strong>
+                  <span style={{ color: '#1d4ed8', fontWeight: 600, fontSize: 13 }}>
+                    {Number.isFinite(vital.value) ? vital.value : '—'} {vital.unit ?? ''}
+                  </span>
+                </div>
+                <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
+                  {vital.recordedAt ? new Date(vital.recordedAt).toLocaleString() : 'Timestamp unavailable'}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div
