@@ -554,7 +554,7 @@ XPersonProfile (Persons/Pipo) is ENABLED for this tenant.
 - Keep profile capture invisible to the user: do not say you updated/saved/recorded their profile unless they explicitly ask about profile memory.
 - If you need to check known user details, call xperson_profile with operation="get" before asking repeated questions.
 - For emergencies or when the user explicitly asks to notify next of kin, use the send_next_of_kin_message tool.
-- For emergencies or when the user explicitly asks to notify next of kin (or another explicitly provided WhatsApp number), use the send_next_of_kin_message tool.
+- If the user explicitly asks to message a non-next-of-kin contact, use send_whatsapp_message_to_contact and require explicit confirmation text before sending.
 ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${config.xPersonProfileCustomFields.map((f) => f.description ? `${f.field} (${f.description})` : f.field).join(', ')}\n` : ''}- Always keep conversation_duration_last_conversation_seconds updated based on the user's latest total conversation time across widget or WhatsApp.\nCurrent profile snapshot: ${currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.'}`;
     } catch (e) {
       console.warn('[Agent] Failed to load XPersonProfile context:', e);
@@ -884,26 +884,18 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
 
   const sendNextOfKinMessageTool = new DynamicStructuredTool({
     name: 'send_next_of_kin_message',
-    description: 'Send a WhatsApp message for emergencies or explicit user requests. By default it uses the current user\'s saved next_of_kin_phone, but can target an explicitly provided WhatsApp number.',
+    description: 'Send a WhatsApp message to the current user\'s saved next_of_kin_phone for emergencies or explicit user requests.',
     schema: z.object({
       message: z.string().min(5).max(1000).describe('The exact message to send to the next of kin.'),
       reason: z.enum(['emergency', 'user_request']).describe('Why the next of kin notification is being sent.'),
-      targetWhatsAppNumber: z.string().optional().describe('Optional explicit WhatsApp number/id to contact for this message (e.g. +2567XXXXXXXX or whatsapp:+2567XXXXXXXX). When omitted, next_of_kin_phone from profile is used.'),
     }),
-    func: async ({ message, reason, targetWhatsAppNumber }) => {
+    func: async ({ message, reason }) => {
       const profile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId });
       const attributes = profile?.attributes && typeof profile.attributes === 'object' ? profile.attributes : {};
       const nextOfKinPhone = normalizeContactPhone(attributes?.next_of_kin_phone);
-      const explicitTarget = typeof targetWhatsAppNumber === 'string' ? normalizeWhatsAppExternalUserId(targetWhatsAppNumber) : null;
 
-      if (targetWhatsAppNumber && !explicitTarget) {
-        return 'Cannot send message: targetWhatsAppNumber is invalid. Share a valid WhatsApp number such as +2567XXXXXXXX.';
-      }
-
-      const destination = explicitTarget ?? nextOfKinPhone;
-
-      if (!destination) {
-        return 'Cannot send message: next_of_kin_phone is missing in the user profile and no targetWhatsAppNumber was provided. Ask the user to save next_of_kin_phone via xperson_profile upsert or provide a WhatsApp number.';
+      if (!nextOfKinPhone) {
+        return 'Cannot send message: next_of_kin_phone is missing in the user profile. Ask the user to save next_of_kin_phone via xperson_profile upsert.';
       }
 
       const relayTicket = await createRelayTicket({
@@ -911,7 +903,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         patientConversationId: options?.conversationId,
         patientUserId: options?.userId,
         patientExternalUserId: options?.externalUserId,
-        nokPhone: destination,
+        nokPhone: nextOfKinPhone,
         reason,
       });
 
@@ -925,7 +917,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
       try {
         const sendResult = await sendWhatsAppOutboundMessage({
           tenantId,
-          to: destination,
+          to: nextOfKinPhone,
           body: relayMessage,
         });
         sentVia = sendResult.channel;
@@ -948,6 +940,45 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
       }
 
       return `Next-of-kin message sent successfully via ${sentVia} (${reason}). Reference code: ${relayTicket.relayTicketId}.`;
+    },
+  });
+
+  const sendWhatsAppMessageToContactTool = new DynamicStructuredTool({
+    name: 'send_whatsapp_message_to_contact',
+    description: 'Send a WhatsApp message to an explicitly provided contact number that is not necessarily next of kin. Requires explicit user confirmation phrase before sending.',
+    schema: z.object({
+      message: z.string().min(5).max(1000).describe('The exact message body to send to the provided contact.'),
+      targetWhatsAppNumber: z.string().describe('Required recipient WhatsApp number/id (e.g. +2567XXXXXXXX or whatsapp:+2567XXXXXXXX).'),
+      consentConfirmation: z.string().describe('REQUIRED explicit consent text from the user confirming they want this message sent to the provided contact.'),
+    }),
+    func: async ({ message, targetWhatsAppNumber, consentConfirmation }) => {
+      const isWhatsAppChannel = options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta';
+      if (!isWhatsAppChannel || !options?.externalUserId) {
+        return 'Contact messaging is currently available only for WhatsApp conversations.';
+      }
+
+      const destination = normalizeWhatsAppExternalUserId(targetWhatsAppNumber);
+      if (!destination) {
+        return 'Cannot send message: targetWhatsAppNumber is invalid. Share a valid WhatsApp number such as +2567XXXXXXXX.';
+      }
+
+      const normalizedConsent = consentConfirmation.trim().toLowerCase();
+      const hasConsent =
+        normalizedConsent.includes('i confirm')
+        || normalizedConsent.includes('i consent')
+        || normalizedConsent.includes('send this message');
+
+      if (!hasConsent) {
+        return 'Cannot send message: explicit consent is required. Ask the user to reply with a clear confirmation like "I confirm" before using this tool.';
+      }
+
+      const sendResult = await sendWhatsAppOutboundMessage({
+        tenantId,
+        to: destination,
+        body: message,
+      });
+
+      return `Message sent to contact successfully via ${sendResult.channel}.`;
     },
   });
   const setReminderTool = new DynamicStructuredTool({
@@ -1093,7 +1124,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   if (config.xPersonProfileEnabled) tools.push(xPersonProfileTool);
   if (config.xPersonProfileEnabled) tools.push(sendNextOfKinMessageTool);
   if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
-    tools.push(setReminderTool, listUserRemindersTool, getUpcomingRemindersTool, editReminderTool, deleteReminderTool);
+    tools.push(sendWhatsAppMessageToContactTool, setReminderTool, listUserRemindersTool, getUpcomingRemindersTool, editReminderTool, deleteReminderTool);
   }
   const modelWithTools = tools.length ? model.bindTools(tools as Parameters<typeof model.bindTools>[0]) : model;
   let currentMessages: BaseMessage[] = messages;
@@ -1338,6 +1369,17 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         } catch (e) {
           console.error('send_next_of_kin_message error:', e);
           content = e instanceof Error ? e.message : 'Failed to send next-of-kin message.';
+        }
+      } else if (tc.name === 'send_whatsapp_message_to_contact' && (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta')) {
+        try {
+          content = await sendWhatsAppMessageToContactTool.invoke({
+            message: typeof tc.args?.message === 'string' ? tc.args.message : '',
+            targetWhatsAppNumber: typeof tc.args?.targetWhatsAppNumber === 'string' ? tc.args.targetWhatsAppNumber : '',
+            consentConfirmation: typeof tc.args?.consentConfirmation === 'string' ? tc.args.consentConfirmation : '',
+          });
+        } catch (e) {
+          console.error('send_whatsapp_message_to_contact error:', e);
+          content = e instanceof Error ? e.message : 'Failed to send contact message.';
         }
       } else {
         content = 'Invalid arguments.';
