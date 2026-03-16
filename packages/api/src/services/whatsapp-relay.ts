@@ -473,5 +473,5 @@ export function buildNokRelayOutboundMessage(params: { senderLabel?: string | nu
 export function buildAutoTimedReminderRelayMessage(params: { senderLabel?: string | null; relayTicketId: string; message: string }): string {
   const sender = params.senderLabel?.trim() || 'Name/phone No.';
   const reminderMessage = params.message.trim();
-  return `Auto timed msg from "${sender}". Ref: ${params.relayTicketId}. Comment in this thread to reply.\n\n"${reminderMessage}"`;
+  return `Auto Msg from : "${sender}" Comment to this thread to reply.\n\n"${reminderMessage}"`;
 }

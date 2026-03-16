@@ -1109,7 +1109,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
 
       if (relayRoute.type === 'routed') {
         res.set('Content-Type', 'text/xml');
-        res.status(200).send(xmlResponse(`Thanks. We have forwarded your message to the patient (ref ${relayRoute.relayTicketId}).`));
+        res.status(200).send(xmlResponse('Thanks. We have forwarded your reply'));
         return;
       }
 
@@ -1756,7 +1756,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
               phoneNumberId,
               accessToken,
               to: identity.externalUserId,
-              body: `Thanks. We have forwarded your message to the patient (ref ${relayRoute.relayTicketId}).`,
+              body: 'Thanks. We have forwarded your reply',
             });
             continue;
           }
