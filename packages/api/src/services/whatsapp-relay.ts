@@ -2,6 +2,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
 import { buildScopedUserId, normalizeWhatsAppExternalUserId } from './user-identity.js';
 import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
+import { getXPersonProfile } from './xperson-profile.js';
 
 const RELAY_CODE_PREFIX = 'CMX-';
 const RELAY_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -156,6 +157,7 @@ export async function storeRelayTicketOutboundMessageLink(params: {
   provider: RelayMessageProvider;
   providerMessageId: string;
   nokExternalUserId: string;
+  outboundBody?: string;
 }): Promise<void> {
   const normalizedMessageId = params.providerMessageId.trim();
   if (!normalizedMessageId) return;
@@ -173,9 +175,49 @@ export async function storeRelayTicketOutboundMessageLink(params: {
     provider: params.provider,
     providerMessageId: normalizedMessageId,
     nokExternalUserId: normalizedNokExternalUserId,
+    ...(typeof params.outboundBody === 'string' && params.outboundBody.trim()
+      ? { outboundBody: params.outboundBody.trim().slice(0, 500) }
+      : {}),
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
+}
+
+export async function resolveRelayReplyQuotedContext(params: {
+  tenantId: string;
+  provider: RelayMessageProvider;
+  providerMessageId: string;
+  nokExternalUserId: string;
+}): Promise<string | null> {
+  const normalizedMessageId = params.providerMessageId.trim();
+  if (!normalizedMessageId) return null;
+  const normalizedNokExternalUserId = normalizeWhatsAppExternalUserId(params.nokExternalUserId) ?? params.nokExternalUserId.trim();
+
+  const linkRef = db.collection('relay_ticket_message_links').doc(buildRelayMessageLinkId({
+    tenantId: params.tenantId,
+    provider: params.provider,
+    providerMessageId: normalizedMessageId,
+  }));
+  const linkDoc = await linkRef.get();
+  if (!linkDoc.exists) return null;
+
+  const linkData = linkDoc.data() ?? {};
+  const linkedNokExternalUserId = typeof linkData.nokExternalUserId === 'string' ? linkData.nokExternalUserId : '';
+  const linkedNokDigits = normalizeWhatsAppDigits(linkedNokExternalUserId);
+  const incomingNokDigits = normalizeWhatsAppDigits(normalizedNokExternalUserId);
+  const nokMatches = !linkedNokExternalUserId
+    || linkedNokExternalUserId === normalizedNokExternalUserId
+    || (linkedNokDigits !== null && incomingNokDigits !== null && linkedNokDigits === incomingNokDigits);
+  if (!nokMatches) return null;
+
+  const outboundBody = typeof linkData.outboundBody === 'string' ? linkData.outboundBody.trim() : '';
+  return outboundBody || null;
+}
+
+function formatRelayResponderLabel(params: { profileName?: string; externalUserId: string }): string {
+  const preferredName = params.profileName?.trim();
+  if (preferredName) return preferredName;
+  return params.externalUserId.replace(/^whatsapp:/i, '');
 }
 
 export async function resolveRelayTicketIdFromReplyContext(params: {
@@ -340,6 +382,7 @@ export async function routeNokRelayReply(params: {
   preferredRelayTicketId?: string;
   requireExplicitSelection?: boolean;
   allowGeneralChatFallback?: boolean;
+  quotedOriginalMessage?: string;
 }): Promise<
 { type: 'no_ticket' }
 | { type: 'ambiguous'; prompt: string }
@@ -414,19 +457,32 @@ export async function routeNokRelayReply(params: {
   }
 
   const normalizedInboundBody = params.inboundBody.trim();
+  const responderProfile = await getXPersonProfile({
+    tenantId: params.tenantId,
+    externalUserId: normalizedNokExternalUserId,
+  });
+  const responderLabel = formatRelayResponderLabel({
+    profileName: responderProfile?.name,
+    externalUserId: normalizedNokExternalUserId,
+  });
+  const quotedOriginalMessage = params.quotedOriginalMessage?.trim();
+  const contextSuffix = quotedOriginalMessage ? ` (in reply to: "${quotedOriginalMessage.slice(0, 200)}")` : '';
+  const relayNarration = `${responderLabel} replied: "${normalizedInboundBody}"${contextSuffix}`;
 
   await db.collection('messages').add({
     conversationId: patientConversation.conversationId,
     tenantId: params.tenantId,
     role: 'assistant',
-    content: `Your next of kin replied: "${normalizedInboundBody}"`,
+    content: relayNarration,
     channel: patientConversation.channel,
     inputType: 'text',
     metadata: {
       source: 'nok_relay',
       relayTicketId: selected.relayTicketId,
       nokExternalUserId: normalizedNokExternalUserId,
+      responderLabel,
       relayedContent: normalizedInboundBody,
+      quotedOriginalMessage: quotedOriginalMessage ?? null,
     },
     createdAt: FieldValue.serverTimestamp(),
   });
@@ -448,7 +504,7 @@ export async function routeNokRelayReply(params: {
       await sendWhatsAppOutboundMessage({
         tenantId: params.tenantId,
         to: patientConversation.externalUserId,
-        body: `Your next of kin replied: "${normalizedInboundBody}"`,
+        body: relayNarration,
         preferredChannel,
       });
       relayedToPatient = true;

@@ -929,6 +929,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
             provider: sentVia === 'whatsapp_meta' ? 'meta' : 'twilio',
             providerMessageId: sendResult.providerMessageId,
             nokExternalUserId: relayTicket.nokExternalUserId,
+            outboundBody: relayMessage,
           });
         }
       } catch (error) {
@@ -1007,6 +1008,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
             provider: sentVia === 'whatsapp_meta' ? 'meta' : 'twilio',
             providerMessageId: sendResult.providerMessageId,
             nokExternalUserId: relayTicket.nokExternalUserId,
+            outboundBody: relayMessage,
           });
         }
       } catch (error) {

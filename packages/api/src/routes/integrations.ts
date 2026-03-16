@@ -14,7 +14,7 @@ import { createTenantNotification } from '../services/tenant-notifications.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
 import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, upsertXPersonProfile } from '../services/xperson-profile.js';
-import { claimTwilioWebhookMessage, resolveRelayTicketIdFromReplyContext, routeNokRelayReply } from '../services/whatsapp-relay.js';
+import { claimTwilioWebhookMessage, resolveRelayReplyQuotedContext, resolveRelayTicketIdFromReplyContext, routeNokRelayReply } from '../services/whatsapp-relay.js';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
 import { google } from 'googleapis';
@@ -1097,6 +1097,14 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
           nokExternalUserId: identity.externalUserId,
         }) ?? undefined
         : undefined;
+      const quotedOriginalMessage = repliedToMessageId
+        ? await resolveRelayReplyQuotedContext({
+          tenantId,
+          provider: 'twilio',
+          providerMessageId: repliedToMessageId,
+          nokExternalUserId: identity.externalUserId,
+        }) ?? undefined
+        : undefined;
 
       const relayRoute = await routeNokRelayReply({
         tenantId,
@@ -1105,6 +1113,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         preferredRelayTicketId: linkedRelayTicketId,
         requireExplicitSelection: !linkedRelayTicketId,
         allowGeneralChatFallback: true,
+        quotedOriginalMessage,
       });
 
       if (relayRoute.type === 'routed') {
@@ -1741,6 +1750,14 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
               nokExternalUserId: identity.externalUserId,
             }) ?? undefined
             : undefined;
+          const quotedOriginalMessage = repliedToMessageId
+            ? await resolveRelayReplyQuotedContext({
+              tenantId,
+              provider: 'meta',
+              providerMessageId: repliedToMessageId,
+              nokExternalUserId: identity.externalUserId,
+            }) ?? undefined
+            : undefined;
 
           const relayRoute = await routeNokRelayReply({
             tenantId,
@@ -1749,6 +1766,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             preferredRelayTicketId: linkedRelayTicketId,
             requireExplicitSelection: !linkedRelayTicketId,
             allowGeneralChatFallback: true,
+            quotedOriginalMessage,
           });
 
           if (relayRoute.type === 'routed') {
