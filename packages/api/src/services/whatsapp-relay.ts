@@ -21,7 +21,31 @@ export type RelayTicket = {
   reason: RelayReason;
   status: 'open' | 'closed' | 'expired' | 'send_failed';
   expiresAt?: Timestamp | null;
+  createdAtMillis?: number | null;
+  lastActivityAtMillis?: number | null;
 };
+
+function normalizeWhatsAppDigits(raw: string | undefined | null): string | null {
+  const normalized = normalizeWhatsAppExternalUserId(raw);
+  if (!normalized) return null;
+  const digits = normalized.replace(/[^\d]/g, '');
+  return digits || null;
+}
+
+function buildNormalizedWhatsAppIdCandidates(raw: string | undefined | null): string[] {
+  const normalized = normalizeWhatsAppExternalUserId(raw);
+  if (!normalized) return [];
+
+  const withoutPrefix = normalized.replace(/^whatsapp:/i, '');
+  const withPlus = withoutPrefix.startsWith('+') ? withoutPrefix : `+${withoutPrefix}`;
+  const withoutPlus = withoutPrefix.replace(/^\+/, '');
+
+  return Array.from(new Set([
+    normalized,
+    `whatsapp:${withPlus}`,
+    `whatsapp:${withoutPlus}`,
+  ]));
+}
 
 function generateRelayTicketId(): string {
   let code = '';
@@ -51,6 +75,7 @@ export async function createRelayTicket(params: {
   patientExternalUserId?: string;
   nokPhone: string;
   reason: RelayReason;
+  supersedeOpenTicketsForPair?: boolean;
 }): Promise<RelayTicket> {
   const nokExternalUserId = normalizeWhatsAppExternalUserId(params.nokPhone);
   if (!nokExternalUserId) {
@@ -61,6 +86,28 @@ export async function createRelayTicket(params: {
   const relayTicketId = generateRelayTicketId();
   const now = Date.now();
   const expiresAt = Timestamp.fromMillis(now + RELAY_TICKET_TTL_HOURS * 60 * 60 * 1000);
+
+  if (params.supersedeOpenTicketsForPair && params.patientExternalUserId) {
+    const existingOpenTickets = await db.collection('relay_tickets')
+      .where('tenantId', '==', params.tenantId)
+      .where('nokExternalUserId', '==', nokExternalUserId)
+      .where('patientExternalUserId', '==', params.patientExternalUserId)
+      .where('status', '==', 'open')
+      .limit(20)
+      .get();
+
+    if (!existingOpenTickets.empty) {
+      const batch = db.batch();
+      for (const existingTicketDoc of existingOpenTickets.docs) {
+        batch.set(existingTicketDoc.ref, {
+          status: 'closed',
+          closedReason: 'superseded',
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+      await batch.commit();
+    }
+  }
 
   await ticketRef.set({
     relayTicketId,
@@ -152,7 +199,13 @@ export async function resolveRelayTicketIdFromReplyContext(params: {
   const linkData = linkDoc.data() ?? {};
   const relayTicketId = typeof linkData.relayTicketId === 'string' ? linkData.relayTicketId : '';
   const linkedNokExternalUserId = typeof linkData.nokExternalUserId === 'string' ? linkData.nokExternalUserId : '';
-  if (!relayTicketId || (linkedNokExternalUserId && linkedNokExternalUserId !== normalizedNokExternalUserId)) {
+  const linkedNokDigits = normalizeWhatsAppDigits(linkedNokExternalUserId);
+  const incomingNokDigits = normalizeWhatsAppDigits(normalizedNokExternalUserId);
+  const nokMatches = !linkedNokExternalUserId
+    || linkedNokExternalUserId === normalizedNokExternalUserId
+    || (linkedNokDigits !== null && incomingNokDigits !== null && linkedNokDigits === incomingNokDigits);
+
+  if (!relayTicketId || !nokMatches) {
     return null;
   }
 
@@ -235,16 +288,24 @@ export async function claimTwilioWebhookMessage(tenantId: string, messageId: str
 }
 
 async function listActiveRelayTickets(tenantId: string, nokExternalUserId: string): Promise<RelayTicket[]> {
-  const snap = await db.collection('relay_tickets')
-    .where('tenantId', '==', tenantId)
-    .where('nokExternalUserId', '==', nokExternalUserId)
-    .where('status', '==', 'open')
-    .limit(10)
-    .get();
+  const nokCandidates = buildNormalizedWhatsAppIdCandidates(nokExternalUserId);
+  const querySnapshots = await Promise.all((nokCandidates.length > 0 ? nokCandidates : [nokExternalUserId])
+    .slice(0, 3)
+    .map((candidate) => db.collection('relay_tickets')
+      .where('tenantId', '==', tenantId)
+      .where('nokExternalUserId', '==', candidate)
+      .where('status', '==', 'open')
+      .limit(10)
+      .get()));
+
+  const docsById = new Map<string, FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>>();
+  for (const snap of querySnapshots) {
+    for (const doc of snap.docs) docsById.set(doc.id, doc);
+  }
 
   const now = Date.now();
   const tickets: RelayTicket[] = [];
-  for (const doc of snap.docs) {
+  for (const doc of docsById.values()) {
     const data = doc.data() ?? {};
     const expiresAtRaw = data.expiresAt;
     const expiresAtMillis = timestampToMillis(expiresAtRaw);
@@ -264,6 +325,8 @@ async function listActiveRelayTickets(tenantId: string, nokExternalUserId: strin
       reason: (data.reason === 'emergency' ? 'emergency' : 'user_request'),
       status: 'open',
       expiresAt: expiresAtRaw && typeof expiresAtRaw === 'object' ? expiresAtRaw as Timestamp : null,
+      createdAtMillis: timestampToMillis(data.createdAt),
+      lastActivityAtMillis: timestampToMillis(data.lastActivityAt),
     });
   }
 
@@ -293,10 +356,14 @@ export async function routeNokRelayReply(params: {
   if (params.preferredRelayTicketId) {
     selected = tickets.find((ticket) => ticket.relayTicketId === params.preferredRelayTicketId) ?? null;
     if (!selected) {
-      return {
-        type: 'invalid_code',
-        prompt: 'That reply is linked to an inactive CareMax request. Please reply with the current reference code from the latest alert.',
-      };
+      if (tickets.length === 1 && !params.requireExplicitSelection) {
+        selected = tickets[0];
+      } else {
+        return {
+          type: 'invalid_code',
+          prompt: 'That reply is linked to an inactive CareMax request. Please reply with the current reference code from the latest alert.',
+        };
+      }
     }
   } else if (providedCode) {
     selected = tickets.find((ticket) => ticket.relayTicketId.toUpperCase() === providedCode) ?? null;
@@ -309,14 +376,30 @@ export async function routeNokRelayReply(params: {
   } else if (tickets.length === 1 && !params.requireExplicitSelection) {
     selected = tickets[0];
   } else {
-    if (params.allowGeneralChatFallback) {
-      return { type: 'no_ticket' };
+    const allTicketsForSamePatient = tickets.length > 1 && tickets.every((ticket) => {
+      const baseline = tickets[0]?.patientExternalUserId ?? tickets[0]?.patientConversationId ?? null;
+      const current = ticket.patientExternalUserId ?? ticket.patientConversationId ?? null;
+      return baseline !== null && current === baseline;
+    });
+
+    if (allTicketsForSamePatient && !params.requireExplicitSelection) {
+      selected = [...tickets].sort((a, b) => {
+        const aScore = a.lastActivityAtMillis ?? a.createdAtMillis ?? 0;
+        const bScore = b.lastActivityAtMillis ?? b.createdAtMillis ?? 0;
+        return bScore - aScore;
+      })[0] ?? null;
     }
 
-    return {
-      type: 'ambiguous',
-      prompt: 'We found multiple active CareMax requests tied to this number. Please reply with your reference code (e.g., CMX-7KQ2).',
-    };
+    if (selected) {
+      // Selected using same-patient heuristic.
+    } else if (params.allowGeneralChatFallback) {
+      return { type: 'no_ticket' };
+    } else {
+      return {
+        type: 'ambiguous',
+        prompt: 'We found multiple active CareMax requests tied to this number. Please reply with your reference code (e.g., CMX-7KQ2).',
+      };
+    }
   }
 
   const patientConversation = selected
