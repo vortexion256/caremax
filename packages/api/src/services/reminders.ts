@@ -199,6 +199,7 @@ export async function dispatchDueReminders(options?: {
           patientExternalUserId: ownerExternalUserId,
           nokPhone: recipientExternalUserId,
           reason: 'user_request',
+          supersedeOpenTicketsForPair: true,
         });
         relayTicketId = relayTicket.relayTicketId;
         outboundBody = buildAutoTimedReminderRelayMessage({
