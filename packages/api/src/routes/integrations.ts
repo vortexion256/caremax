@@ -1103,7 +1103,8 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         nokExternalUserId: identity.externalUserId,
         inboundBody: incomingBody,
         preferredRelayTicketId: linkedRelayTicketId,
-        allowGeneralChatFallback: false,
+        requireExplicitSelection: !linkedRelayTicketId,
+        allowGeneralChatFallback: true,
       });
 
       if (relayRoute.type === 'routed') {
@@ -1746,7 +1747,8 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             nokExternalUserId: identity.externalUserId,
             inboundBody: body,
             preferredRelayTicketId: linkedRelayTicketId,
-            allowGeneralChatFallback: false,
+            requireExplicitSelection: !linkedRelayTicketId,
+            allowGeneralChatFallback: true,
           });
 
           if (relayRoute.type === 'routed') {
