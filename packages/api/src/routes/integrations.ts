@@ -200,12 +200,16 @@ const WHATSAPP_MAX_AUDIO_BYTES = 6 * 1024 * 1024;
 const WHATSAPP_TRANSCRIPTION_DOWNLOAD_TIMEOUT_MS = 35_000;
 const WHATSAPP_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 45_000;
 const WHATSAPP_AI_RESPONSE_TIMEOUT_MS = 45_000;
+const WHATSAPP_IMAGE_DOWNLOAD_TIMEOUT_MS = 40_000;
 const WHATSAPP_TTS_REQUEST_TIMEOUT_MS = 120_000;
 const WHATSAPP_TTS_AUDIO_DOWNLOAD_TIMEOUT_MS = 40_000;
 const WHATSAPP_LUGANDA_TTS_CLEAN_TIMEOUT_MS = Number(process.env.WHATSAPP_LUGANDA_TTS_CLEAN_TIMEOUT_MS ?? 35_000);
 const WHATSAPP_ENGLISH_TTS_CLEAN_TIMEOUT_MS = Number(process.env.WHATSAPP_ENGLISH_TTS_CLEAN_TIMEOUT_MS ?? 20_000);
 const WHATSAPP_VOICE_NOTE_SAMPLE_RATE = 16_000;
 const WHATSAPP_VOICE_NOTE_BITRATE = '16k';
+const WHATSAPP_MAX_IMAGE_COUNT = Number(process.env.WHATSAPP_MAX_IMAGE_COUNT ?? 4);
+const WHATSAPP_MAX_IMAGE_BYTES = Number(process.env.WHATSAPP_MAX_IMAGE_BYTES ?? (8 * 1024 * 1024));
+const WHATSAPP_ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 function normalizeTextForSunbirdTts(text: string): string {
   const normalized = text
@@ -573,6 +577,114 @@ function getWhatsAppAudioDurationSeconds(payload: Request['body']): number | nul
 
   if (durationCandidates.length === 0) return null;
   return durationCandidates[0];
+}
+
+function normalizeMimeType(value: string | null | undefined): string {
+  return (value ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+}
+
+function inferImageExtensionFromMimeType(mimeType: string): string {
+  switch (mimeType) {
+    case 'image/png':
+      return 'png';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    case 'image/jpeg':
+    default:
+      return 'jpg';
+  }
+}
+
+async function storeIncomingWhatsAppImage(params: {
+  tenantId: string;
+  channel: 'whatsapp' | 'whatsapp_meta';
+  mediaUrl: string;
+  mimeType: string;
+  authHeader?: string;
+}): Promise<string | null> {
+  if (!bucket) return null;
+
+  const normalizedMimeType = normalizeMimeType(params.mimeType);
+  if (!WHATSAPP_ALLOWED_IMAGE_MIME_TYPES.has(normalizedMimeType)) {
+    return null;
+  }
+
+  try {
+    const mediaRes = await fetch(params.mediaUrl, {
+      headers: params.authHeader ? { Authorization: params.authHeader } : undefined,
+      signal: AbortSignal.timeout(WHATSAPP_IMAGE_DOWNLOAD_TIMEOUT_MS),
+    });
+    if (!mediaRes.ok) return null;
+
+    const contentType = normalizeMimeType(mediaRes.headers.get('content-type')) || normalizedMimeType;
+    if (!WHATSAPP_ALLOWED_IMAGE_MIME_TYPES.has(contentType)) {
+      return null;
+    }
+
+    const contentLength = reqNumberHeader(mediaRes.headers.get('content-length'), params.mediaUrl);
+    if (contentLength !== null && contentLength > WHATSAPP_MAX_IMAGE_BYTES) {
+      return null;
+    }
+
+    const mediaBuf = Buffer.from(await mediaRes.arrayBuffer());
+    if (mediaBuf.length > WHATSAPP_MAX_IMAGE_BYTES) {
+      return null;
+    }
+
+    const extension = inferImageExtensionFromMimeType(contentType);
+    const path = `tenants/${params.tenantId}/whatsapp-inbound-images/${params.channel}/${randomUUID()}.${extension}`;
+    const fileRef = bucket.file(path);
+    await fileRef.save(mediaBuf, { metadata: { contentType } });
+    const [signedUrl] = await fileRef.getSignedUrl({
+      action: 'read',
+      expires: Date.now() + 1000 * 60 * 60 * 24 * 7,
+    });
+    return signedUrl;
+  } catch (error) {
+    console.warn('Failed to store incoming WhatsApp image:', {
+      tenantId: params.tenantId,
+      channel: params.channel,
+      mediaUrl: params.mediaUrl,
+      error,
+    });
+    return null;
+  }
+}
+
+async function extractTwilioInboundImageUrls(params: {
+  tenantId: string;
+  payload: Request['body'];
+  authHeader?: string;
+}): Promise<string[]> {
+  const numMedia = Number.parseInt(String(params.payload?.NumMedia ?? '0'), 10);
+  if (!Number.isFinite(numMedia) || numMedia <= 0) return [];
+
+  const imageUrls: string[] = [];
+  const maxImages = Math.max(0, WHATSAPP_MAX_IMAGE_COUNT);
+  for (let i = 0; i < numMedia && imageUrls.length < maxImages; i += 1) {
+    const mediaUrl = typeof params.payload?.[`MediaUrl${i}`] === 'string' ? params.payload[`MediaUrl${i}`].trim() : '';
+    const mediaContentTypeRaw = typeof params.payload?.[`MediaContentType${i}`] === 'string' ? params.payload[`MediaContentType${i}`].trim() : '';
+    const mediaContentType = normalizeMimeType(mediaContentTypeRaw);
+
+    if (!mediaUrl || !mediaContentType.startsWith('image/')) continue;
+    if (!WHATSAPP_ALLOWED_IMAGE_MIME_TYPES.has(mediaContentType)) continue;
+
+    const storedUrl = await storeIncomingWhatsAppImage({
+      tenantId: params.tenantId,
+      channel: 'whatsapp',
+      mediaUrl,
+      mimeType: mediaContentType,
+      authHeader: params.authHeader,
+    });
+
+    if (storedUrl) {
+      imageUrls.push(storedUrl);
+    }
+  }
+
+  return imageUrls;
 }
 
 async function runAgentWithRetry(
@@ -1132,6 +1244,17 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     const mediaUrl = typeof req.body?.MediaUrl0 === 'string' ? req.body.MediaUrl0.trim() : '';
     const mediaContentType = typeof req.body?.MediaContentType0 === 'string' ? req.body.MediaContentType0.trim() : '';
 
+    const accountSid = typeof whatsapp.accountSid === 'string' ? whatsapp.accountSid.trim() : '';
+    const authToken = typeof whatsapp.authToken === 'string' ? whatsapp.authToken.trim() : '';
+    const twilioAuthHeader = accountSid && authToken
+      ? twilioBasicAuthHeader(accountSid, authToken)
+      : undefined;
+    const imageUrls = await extractTwilioInboundImageUrls({
+      tenantId,
+      payload: req.body,
+      authHeader: twilioAuthHeader,
+    });
+
     let body = incomingBody;
     let cameFromVoiceNote = false;
     if (!body && isLikelyWhatsAppVoiceNote(req.body) && mediaUrl && mediaContentType) {
@@ -1142,14 +1265,11 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         return;
       }
 
-      const accountSid = typeof whatsapp.accountSid === 'string' ? whatsapp.accountSid.trim() : '';
-      const authToken = typeof whatsapp.authToken === 'string' ? whatsapp.authToken.trim() : '';
-
-      if (accountSid && authToken) {
+      if (twilioAuthHeader) {
         const { transcript, rejectedForLength } = await transcribeWhatsAppAudio({
           mediaUrl,
           contentType: mediaContentType,
-          authHeader: twilioBasicAuthHeader(accountSid, authToken),
+          authHeader: twilioAuthHeader,
         });
 
         if (rejectedForLength) {
@@ -1165,9 +1285,15 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       }
     }
 
-    if (!body) {
+    if (Number.parseInt(String(req.body?.NumMedia ?? '0'), 10) > 0 && imageUrls.length === 0 && !body && !isLikelyWhatsAppVoiceNote(req.body)) {
       res.set('Content-Type', 'text/xml');
-      res.status(200).send(xmlResponse('We could not read that message yet. Please send text or a clearer voice note.'));
+      res.status(200).send(xmlResponse('We could not read that image. Please send JPG, PNG, WEBP, or GIF images up to 8MB each.'));
+      return;
+    }
+
+    if (!body && imageUrls.length === 0) {
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlResponse('We could not read that message yet. Please send text, an image, or a clearer voice note.'));
       return;
     }
 
@@ -1199,6 +1325,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       tenantId,
       role: 'user',
       content: body,
+      imageUrls,
       channel: 'whatsapp',
       inputType: cameFromVoiceNote ? 'voice' : 'text',
       createdAt: FieldValue.serverTimestamp(),
@@ -1687,6 +1814,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
 
           let body = '';
           let cameFromVoiceNote = false;
+          const imageUrls: string[] = [];
           const repliedToMessageId = typeof incoming?.context?.id === 'string' ? incoming.context.id.trim() : '';
 
           if (incoming?.type === 'text' && typeof incoming?.text?.body === 'string') {
@@ -1722,7 +1850,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
                     phoneNumberId,
                     accessToken,
                     to: identity.externalUserId,
-                    body: 'We could not read that message yet. Please send text or a clearer voice note.',
+                    body: 'We could not read that message yet. Please send text, an image, or a clearer voice note.',
                   });
                   continue;
                 }
@@ -1731,14 +1859,48 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
                   phoneNumberId,
                   accessToken,
                   to: identity.externalUserId,
-                  body: 'We could not read that message yet. Please send text or a clearer voice note.',
+                  body: 'We could not read that message yet. Please send text, an image, or a clearer voice note.',
                 });
                 continue;
               }
             }
           }
 
-          if (!body) {
+          if (incoming?.type === 'image' && typeof incoming?.image?.id === 'string') {
+            const mediaId = incoming.image.id.trim();
+            if (mediaId) {
+              const mediaInfo = await getMetaWhatsAppMediaDownloadInfo({ mediaId, accessToken });
+              const mimeType = normalizeMimeType(mediaInfo?.mimeType);
+              if (mediaInfo?.url && WHATSAPP_ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) {
+                const storedImageUrl = await storeIncomingWhatsAppImage({
+                  tenantId,
+                  channel: 'whatsapp_meta',
+                  mediaUrl: mediaInfo.url,
+                  mimeType,
+                  authHeader: `Bearer ${accessToken}`,
+                });
+                if (storedImageUrl) {
+                  imageUrls.push(storedImageUrl);
+                }
+              }
+            }
+
+            if (typeof incoming?.image?.caption === 'string' && incoming.image.caption.trim().length > 0) {
+              body = incoming.image.caption.trim();
+            }
+
+            if (imageUrls.length === 0 && !body) {
+              await sendMetaWhatsAppTextMessage({
+                phoneNumberId,
+                accessToken,
+                to: identity.externalUserId,
+                body: 'We could not read that image. Please send JPG, PNG, WEBP, or GIF images up to 8MB each.',
+              });
+              continue;
+            }
+          }
+
+          if (!body && imageUrls.length === 0) {
             continue;
           }
 
@@ -1816,6 +1978,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             tenantId,
             role: 'user',
             content: body,
+            imageUrls,
             channel: 'whatsapp_meta',
             providerMessageId: messageId,
             ...(cameFromVoiceNote ? { metadata: { source: 'voice_note' } } : {}),
