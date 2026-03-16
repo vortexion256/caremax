@@ -945,7 +945,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
 
   const sendWhatsAppMessageToContactTool = new DynamicStructuredTool({
     name: 'send_whatsapp_message_to_contact',
-    description: 'Send a WhatsApp message to an explicitly provided contact number that is not necessarily next of kin. Requires explicit user confirmation phrase before sending.',
+    description: 'Send a WhatsApp message to an explicitly provided contact number that is not necessarily next of kin. Uses relay threading so recipient replies route back to the patient. Requires explicit user confirmation phrase before sending.',
     schema: z.object({
       message: z.string().min(5).max(1000).describe('The exact message body to send to the provided contact.'),
       targetWhatsAppNumber: z.string().describe('Required recipient WhatsApp number/id (e.g. +2567XXXXXXXX or whatsapp:+2567XXXXXXXX).'),
@@ -972,13 +972,52 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         return 'Cannot send message: explicit consent is required. Ask the user to reply with a clear confirmation like "I confirm" before using this tool.';
       }
 
-      const sendResult = await sendWhatsAppOutboundMessage({
+      const profile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId });
+      const attributes = profile?.attributes && typeof profile.attributes === 'object' ? profile.attributes : {};
+      const senderLabel = (attributes?.full_name || attributes?.name || options?.externalUserId || '').toString();
+
+      const relayTicket = await createRelayTicket({
         tenantId,
-        to: destination,
-        body: message,
+        patientConversationId: options?.conversationId,
+        patientUserId: options?.userId,
+        patientExternalUserId: options?.externalUserId,
+        nokPhone: destination,
+        reason: 'user_request',
       });
 
-      return `Message sent to contact successfully via ${sendResult.channel}.`;
+      const relayMessage = buildNokRelayOutboundMessage({
+        senderLabel,
+        relayTicketId: relayTicket.relayTicketId,
+        message,
+      });
+
+      let sentVia: 'whatsapp' | 'whatsapp_meta';
+      try {
+        const sendResult = await sendWhatsAppOutboundMessage({
+          tenantId,
+          to: destination,
+          body: relayMessage,
+        });
+        sentVia = sendResult.channel;
+
+        if (sendResult.providerMessageId) {
+          await storeRelayTicketOutboundMessageLink({
+            tenantId,
+            relayTicketId: relayTicket.relayTicketId,
+            provider: sentVia === 'whatsapp_meta' ? 'meta' : 'twilio',
+            providerMessageId: sendResult.providerMessageId,
+            nokExternalUserId: relayTicket.nokExternalUserId,
+          });
+        }
+      } catch (error) {
+        await markRelayTicketSendFailed({
+          ticketId: relayTicket.id,
+          errorMessage: error instanceof Error ? error.message : 'Unknown outbound send failure',
+        });
+        throw error;
+      }
+
+      return `Message sent to contact successfully via ${sentVia}. Reference code: ${relayTicket.relayTicketId}.`;
     },
   });
   const setReminderTool = new DynamicStructuredTool({
