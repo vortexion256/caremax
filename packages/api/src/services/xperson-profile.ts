@@ -219,6 +219,57 @@ export async function upsertXPersonProfile(params: {
   return { profileId, created: !existing.exists };
 }
 
+
+
+export async function updateXPersonProfileById(params: {
+  tenantId: string;
+  profileId: string;
+  details?: Partial<Pick<XPersonProfileData, 'name' | 'phone' | 'location'>>;
+  attributes?: Record<string, string>;
+}): Promise<{ updated: boolean }> {
+  const profileId = clean(params.profileId);
+  if (!profileId) return { updated: false };
+
+  const ref = db.collection('xperson_profiles').doc(`${params.tenantId}__${profileId}`);
+  const existing = await ref.get();
+  if (!existing.exists) return { updated: false };
+
+  const existingAttributes = (existing.data()?.attributes && typeof existing.data()?.attributes === 'object')
+    ? Object.fromEntries(
+      Object.entries(existing.data()?.attributes as Record<string, unknown>).filter(([, value]) => typeof value === 'string'),
+    ) as Record<string, string>
+    : {};
+
+  const incomingAttributes = params.attributes
+    ? Object.fromEntries(Object.entries(params.attributes).filter(([, value]) => typeof value === 'string'))
+    : undefined;
+
+  const mergedAttributes = incomingAttributes
+    ? { ...existingAttributes, ...incomingAttributes }
+    : undefined;
+
+  await ref.set({
+    ...(params.details?.name !== undefined ? { name: clean(params.details.name) ?? null } : {}),
+    ...(params.details?.phone !== undefined ? { phone: normalizePhone(params.details.phone) ?? null } : {}),
+    ...(params.details?.location !== undefined ? { location: clean(params.details.location) ?? null } : {}),
+    ...(mergedAttributes ? { attributes: mergedAttributes } : {}),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  return { updated: true };
+}
+
+export async function deleteXPersonProfileById(params: { tenantId: string; profileId: string }): Promise<{ deleted: boolean }> {
+  const profileId = clean(params.profileId);
+  if (!profileId) return { deleted: false };
+
+  const ref = db.collection('xperson_profiles').doc(`${params.tenantId}__${profileId}`);
+  const existing = await ref.get();
+  if (!existing.exists) return { deleted: false };
+
+  await ref.delete();
+  return { deleted: true };
+}
 export async function getXPersonProfile(params: {
   tenantId: string;
   userId?: string;
