@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireAdmin, requireTenantParam } from '../middleware/auth.js';
-import { getXPersonProfile, listXPersonProfiles, upsertXPersonProfile } from '../services/xperson-profile.js';
+import { deleteXPersonProfileById, getXPersonProfile, listXPersonProfiles, updateXPersonProfileById, upsertXPersonProfile } from '../services/xperson-profile.js';
 
 export const xPersonProfileRouter: Router = Router({ mergeParams: true });
 
@@ -45,4 +45,51 @@ xPersonProfileRouter.post('/upsert', async (req, res) => {
 
   const result = await upsertXPersonProfile({ tenantId, ...parsed.data });
   res.json({ ok: true, ...result });
+});
+
+
+const updateSchema = z.object({
+  details: z.object({
+    name: z.string().optional(),
+    phone: z.string().optional(),
+    location: z.string().optional(),
+  }).optional(),
+  attributes: z.record(z.string()).optional(),
+});
+
+xPersonProfileRouter.patch('/:profileId', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const profileId = typeof req.params.profileId === 'string' ? req.params.profileId : '';
+  const parsed = updateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+
+  const result = await updateXPersonProfileById({
+    tenantId,
+    profileId,
+    details: parsed.data.details,
+    attributes: parsed.data.attributes,
+  });
+
+  if (!result.updated) {
+    res.status(404).json({ error: 'Profile not found' });
+    return;
+  }
+
+  res.json({ ok: true });
+});
+
+xPersonProfileRouter.delete('/:profileId', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const profileId = typeof req.params.profileId === 'string' ? req.params.profileId : '';
+  const result = await deleteXPersonProfileById({ tenantId, profileId });
+
+  if (!result.deleted) {
+    res.status(404).json({ error: 'Profile not found' });
+    return;
+  }
+
+  res.status(204).send();
 });
