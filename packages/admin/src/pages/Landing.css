@@ -158,7 +158,7 @@ main {
 
 .landing-features-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 20px; }
 @media (min-width: 760px) { .landing-features-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (min-width: 1120px) { .landing-features-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 1120px) { .landing-features-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
 .feature-card {
   position: relative;

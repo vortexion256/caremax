@@ -110,37 +110,37 @@ export default function Landing() {
       icon: '🧠',
       title: 'Intelligent Symptom Assessment',
       description:
-        'Patients describe symptoms in natural language. CareMax asks structured follow-up questions, gathers clinical context, and guides patients through safe triage pathways so teams can assess urgency early.',
+        'Patients describe symptoms naturally, and CareMax asks focused follow-up questions to quickly capture clinical context.',
     },
     {
       icon: '🩺',
       title: 'Clinical Triage Workflows',
       description:
-        'CareMax evaluates symptoms and routes patients toward the right level of care, including self-care guidance, clinic visits, telemedicine consultations, or urgent medical care based on configurable protocols.',
+        'CareMax directs patients to the right next step: self-care, clinic visit, telemedicine, or urgent care using configurable protocols.',
     },
     {
       icon: '🤖',
       title: 'Personal AI Health Assistant',
       description:
-        'Patients receive an always-on assistant that explains common symptoms, answers health questions, helps prepare for appointments, and provides general care guidance to reduce routine workload.',
+        'An always-on assistant answers common health questions, explains symptoms, and helps patients prepare for appointments.',
     },
     {
       icon: '🤝',
       title: 'Seamless Human Handoff',
       description:
-        'When clinical intervention is needed, CareMax transfers conversations with full context including reported symptoms, triage responses, and conversation history for faster informed decisions.',
+        'When clinician input is needed, conversations are handed off with full symptom and triage context for faster decisions.',
     },
     {
       icon: '🔐',
       title: 'Designed for Healthcare Environments',
       description:
-        'Built with strong access control, secure integrations, and clear audit visibility to support trusted healthcare operations.',
+        'Built for healthcare teams with strong access controls, secure integrations, and clear audit visibility.',
     },
     {
       icon: '📊',
       title: 'Operational & Patient Insights',
       description:
-        'Track common patient concerns, triage outcomes, response quality, and service demand patterns to continuously improve care access and delivery.',
+        'Track demand patterns, triage outcomes, and response quality to continuously improve care delivery.',
     },
   ];
 
@@ -248,12 +248,7 @@ export default function Landing() {
               <span>and Personal Health Guidance for Modern Care</span>
             </h2>
             <p>
-              CareMax helps patients understand symptoms, receive safe guidance, and reach the right care faster through
-              clinically-aware AI conversations.
-            </p>
-            <p>
-              Built for clinics, telemedicine providers, and healthcare teams who want to deliver responsive care without
-              overwhelming staff.
+              CareMax helps patients understand symptoms, get safe guidance, and reach the right care faster through clinically-aware AI conversations.
             </p>
             <div className="hero-actions">
               <button onClick={() => navigate('/signup')} disabled={loading} className="cta-primary">Start Free Trial</button>
@@ -267,8 +262,7 @@ export default function Landing() {
             <div className="landing-container">
               <div style={{ textAlign: 'center', marginBottom: 60 }} className="animate-fade-in delay-1">
                 <h3 className="section-title">Deliver Faster Patient Support with Intelligent Triage</h3>
-                <p className="section-subtitle">CareMax combines AI symptom triage, patient guidance, and intelligent care routing to help healthcare organizations manage patient demand safely and efficiently.</p>
-                <p className="section-subtitle">Patients get immediate support while clinicians stay focused on the cases that truly require their expertise.</p>
+                <p className="section-subtitle">CareMax combines AI triage, patient guidance, and smart care routing so teams can support more patients while clinicians focus on higher-risk cases.</p>
               </div>
               <div className="landing-features-grid animate-fade-in delay-2">
                 {capabilities.map((item) => (
