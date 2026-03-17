@@ -82,6 +82,7 @@ export default function ConversationView() {
       });
   }, [conversationId, tenantId]);
 
+
   const loadOlder = () => {
     if (!conversationId || !lastDoc || loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -184,6 +185,7 @@ export default function ConversationView() {
       <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16, fontFamily: 'monospace' }}>
         ID: {conversationId}
       </div>
+
 
       <div
         ref={listRef}
