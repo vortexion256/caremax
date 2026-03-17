@@ -305,10 +305,39 @@ export async function getXPersonProfile(params: {
   userId?: string;
   externalUserId?: string;
 }): Promise<XPersonProfileData | null> {
-  const profileId = buildProfileId({ userId: params.userId, externalUserId: params.externalUserId });
-  const doc = await db.collection('xperson_profiles').doc(`${params.tenantId}__${profileId}`).get();
-  if (!doc.exists) return null;
-  const data = doc.data() ?? {};
+  const candidateProfileIds = [
+    clean(params.userId),
+    clean(params.externalUserId),
+  ].filter((value): value is string => !!value);
+
+  let profileData: FirebaseFirestore.DocumentData | null = null;
+  for (const profileId of candidateProfileIds) {
+    const attempt = await db.collection('xperson_profiles').doc(`${params.tenantId}__${profileId}`).get();
+    if (attempt.exists) {
+      profileData = attempt.data() ?? null;
+      break;
+    }
+  }
+
+  if (!profileData && params.externalUserId) {
+    const normalizedPhone = extractPhoneFromExternalUserId(params.externalUserId);
+    if (normalizedPhone) {
+      const byPhoneSnap = await db
+        .collection('xperson_profiles')
+        .where('tenantId', '==', params.tenantId)
+        .where('phone', '==', normalizedPhone)
+        .limit(1)
+        .get();
+
+      if (!byPhoneSnap.empty) {
+        profileData = byPhoneSnap.docs[0].data();
+      }
+    }
+  }
+
+  if (!profileData) return null;
+
+  const data = profileData;
   return {
     tenantId: data.tenantId,
     profileId: data.profileId,
