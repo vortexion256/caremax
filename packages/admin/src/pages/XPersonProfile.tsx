@@ -3,7 +3,7 @@ import { api } from '../api';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 
-type XPersonProfile = {
+type PatientProfile = {
   profileId: string;
   userId?: string;
   externalUserId?: string;
@@ -28,10 +28,10 @@ const metricCardStyle: CSSProperties = {
   gap: 4,
 };
 
-export default function XPersonProfilePage() {
+export default function PatientProfilePage() {
   const { tenantId } = useTenant();
   const { isMobile } = useIsMobile();
-  const [profiles, setProfiles] = useState<XPersonProfile[]>([]);
+  const [profiles, setProfiles] = useState<PatientProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSlowLoad, setIsSlowLoad] = useState(false);
@@ -40,9 +40,11 @@ export default function XPersonProfilePage() {
   const [savingProfileId, setSavingProfileId] = useState<string | null>(null);
   const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('card');
+  const [creating, setCreating] = useState(false);
+  const [createForm, setCreateForm] = useState({ name: '', phone: '', location: '', attributesText: '' });
   const [editForm, setEditForm] = useState({ name: '', phone: '', location: '', attributesText: '' });
 
-  const inferChannel = (profile: XPersonProfile): XPersonProfile['channel'] => {
+  const inferChannel = (profile: PatientProfile): PatientProfile['channel'] => {
     if (profile.channel === 'widget' || profile.channel === 'whatsapp') return profile.channel;
     const valuesToInspect = [profile.externalUserId, profile.userId, profile.profileId].filter(Boolean).join(' ').toLowerCase();
     if (valuesToInspect.includes('whatsapp')) return 'whatsapp';
@@ -92,7 +94,7 @@ export default function XPersonProfilePage() {
     [normalizedProfiles],
   );
 
-  const deriveProfileName = (profile: XPersonProfile) => {
+  const deriveProfileName = (profile: PatientProfile) => {
     const attributeName = profile.attributes?.full_name || profile.attributes?.name;
     const directName = profile.name?.trim();
     const fallbackName = typeof attributeName === 'string' ? attributeName.trim() : '';
@@ -105,7 +107,7 @@ export default function XPersonProfilePage() {
     return 'Unnamed profile';
   };
 
-  const startEdit = (profile: XPersonProfile) => {
+  const startEdit = (profile: PatientProfile) => {
     setEditingProfileId(profile.profileId);
     setExpandedProfileId(profile.profileId);
     setEditForm({
@@ -169,7 +171,40 @@ export default function XPersonProfilePage() {
     }
   };
 
-  const deleteProfile = async (profile: XPersonProfile) => {
+  const createProfile = async () => {
+    if (!tenantId) return;
+    if (!createForm.phone.trim() && !createForm.name.trim()) {
+      setError('Name or phone is required to create a patient profile.');
+      return;
+    }
+
+    setCreating(true);
+    setError(null);
+
+    try {
+      await api(`/tenants/${tenantId}/xperson-profile/upsert`, {
+        method: 'POST',
+        body: JSON.stringify({
+          details: {
+            name: createForm.name,
+            phone: createForm.phone,
+            location: createForm.location,
+          },
+          attributes: parseAttributesText(createForm.attributesText),
+        }),
+      });
+
+      const res = await api<{ profiles: PatientProfile[] }>(`/tenants/${tenantId}/xperson-profile?limit=200`);
+      setProfiles(res.profiles ?? []);
+      setCreateForm({ name: '', phone: '', location: '', attributesText: '' });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create patient profile');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const deleteProfile = async (profile: PatientProfile) => {
     if (!tenantId) return;
     const ok = window.confirm(`Delete profile ${deriveProfileName(profile)}? This action cannot be undone.`);
     if (!ok) return;
@@ -189,7 +224,7 @@ export default function XPersonProfilePage() {
     }
   };
 
-  const renderProfileDetails = (profile: XPersonProfile) => {
+  const renderProfileDetails = (profile: PatientProfile) => {
     const isEditing = editingProfileId === profile.profileId;
     const customAttributes = Object.entries(profile.attributes ?? {});
 
@@ -237,7 +272,7 @@ export default function XPersonProfilePage() {
           <div>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Custom fields</div>
             {customAttributes.length === 0 ? (
-              <div style={{ color: '#64748b' }}>No custom profile attributes captured yet.</div>
+              <div style={{ color: '#64748b' }}>No custom patient attributes captured yet.</div>
             ) : (
               <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
                 {customAttributes.map(([key, value], index) => (
@@ -263,7 +298,7 @@ export default function XPersonProfilePage() {
     );
   };
 
-  const renderProfileCard = (profile: XPersonProfile) => {
+  const renderProfileCard = (profile: PatientProfile) => {
     const isExpanded = expandedProfileId === profile.profileId;
     const customAttributes = Object.entries(profile.attributes ?? {});
 
@@ -325,9 +360,9 @@ export default function XPersonProfilePage() {
 
     const slowLoadTimer = window.setTimeout(() => setIsSlowLoad(true), 6000);
 
-    api<{ profiles: XPersonProfile[] }>(`/tenants/${tenantId}/xperson-profile?limit=200`)
+    api<{ profiles: PatientProfile[] }>(`/tenants/${tenantId}/xperson-profile?limit=200`)
       .then((res) => setProfiles(res.profiles ?? []))
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load XPersonProfile records'))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load Patient Profile records'))
       .finally(() => {
         window.clearTimeout(slowLoadTimer);
         setLoading(false);
@@ -337,7 +372,7 @@ export default function XPersonProfilePage() {
   return (
     <div style={{ padding: isMobile ? '16px 0' : 0, display: 'grid', gap: 16 }}>
       <div>
-        <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>XPersonProfile</h1>
+        <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Patient Profile</h1>
         <p style={{ color: '#64748b', marginBottom: 0, maxWidth: 920 }}>
           Profiles captured by Persons (Pipo) from widget and WhatsApp conversations. Channels are inferred from IDs when legacy records are missing explicit channel metadata.
         </p>
@@ -349,6 +384,29 @@ export default function XPersonProfilePage() {
         <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>WhatsApp</span><strong>{summary.whatsappProfiles}</strong></div>
         <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Widget</span><strong>{summary.widgetProfiles}</strong></div>
         <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>With custom fields</span><strong>{summary.withCustomFields}</strong></div>
+      </section>
+
+      <section style={{ border: '1px solid #e2e8f0', borderRadius: 12, background: '#fff', padding: 14, display: 'grid', gap: 10 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 18, color: '#0f172a' }}>Add patient</h2>
+          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 13 }}>
+            Add a patient profile manually. If a user later chats with the same phone number, AI will attach chat activity to this profile.
+          </p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+          <label style={{ display: 'grid', gap: 4 }}><span>Name</span><input value={createForm.name} onChange={(e) => setCreateForm((v) => ({ ...v, name: e.target.value }))} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} /></label>
+          <label style={{ display: 'grid', gap: 4 }}><span>Phone</span><input value={createForm.phone} onChange={(e) => setCreateForm((v) => ({ ...v, phone: e.target.value }))} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} /></label>
+          <label style={{ display: 'grid', gap: 4 }}><span>Location</span><input value={createForm.location} onChange={(e) => setCreateForm((v) => ({ ...v, location: e.target.value }))} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} /></label>
+        </div>
+        <label style={{ display: 'grid', gap: 4 }}>
+          <span>Additional details (one per line: key: value)</span>
+          <textarea value={createForm.attributesText} onChange={(e) => setCreateForm((v) => ({ ...v, attributesText: e.target.value }))} rows={4} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px', fontFamily: 'monospace' }} />
+        </label>
+        <div>
+          <button type="button" onClick={createProfile} disabled={creating} style={{ border: '1px solid #2563eb', background: '#2563eb', color: '#fff', borderRadius: 8, padding: '8px 12px' }}>
+            {creating ? 'Creating...' : 'Create patient profile'}
+          </button>
+        </div>
       </section>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -372,14 +430,14 @@ export default function XPersonProfilePage() {
       {error && <div style={{ padding: 12, borderRadius: 8, background: '#fef2f2', color: '#991b1b' }}>{error}</div>}
       {loading ? (
         <div style={{ color: '#64748b', display: 'grid', gap: 8 }}>
-          <div>Loading XPersonProfile data...</div>
+          <div>Loading Patient Profile data...</div>
           {isSlowLoad ? <div style={{ fontSize: 13 }}>Still working — if no records exist yet, an empty state will appear shortly.</div> : null}
         </div>
       ) : null}
 
       {!loading && normalizedProfiles.length === 0 ? (
         <div style={{ padding: 24, border: '1px dashed #cbd5e1', borderRadius: 10, background: '#f8fafc', color: '#64748b' }}>
-          No profiled users yet. Enable the Persons (Pipo) tool in Agent Settings and continue conversations.
+          No patient profiles yet. Add one manually below or enable the Patient Profile tool in Agent Settings to capture profiles from conversations.
         </div>
       ) : null}
 

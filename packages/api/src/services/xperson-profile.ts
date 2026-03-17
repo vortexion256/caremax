@@ -36,6 +36,15 @@ function normalizePhone(value: string | undefined): string | undefined {
   return `${hasPlus ? '+' : ''}${digits}`;
 }
 
+function extractPhoneFromExternalUserId(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized.startsWith('whatsapp:')) {
+    return normalizePhone(value.slice('whatsapp:'.length));
+  }
+  return normalizePhone(value);
+}
+
 export function buildProfileId(params: { userId?: string; externalUserId?: string }): string {
   const userId = clean(params.userId);
   const externalUserId = clean(params.externalUserId);
@@ -187,8 +196,26 @@ export async function upsertXPersonProfile(params: {
   attributes?: Record<string, string>;
 }): Promise<{ profileId: string; created: boolean }> {
   const profileId = buildProfileId({ userId: params.userId, externalUserId: params.externalUserId });
-  const ref = db.collection('xperson_profiles').doc(`${params.tenantId}__${profileId}`);
-  const existing = await ref.get();
+  const defaultRef = db.collection('xperson_profiles').doc(`${params.tenantId}__${profileId}`);
+  const defaultExisting = await defaultRef.get();
+
+  const normalizedPhone = normalizePhone(params.details?.phone) ?? extractPhoneFromExternalUserId(params.externalUserId);
+  let ref = defaultRef;
+  let existing = defaultExisting;
+
+  if (!existing.exists && normalizedPhone) {
+    const byPhoneSnap = await db
+      .collection('xperson_profiles')
+      .where('tenantId', '==', params.tenantId)
+      .where('phone', '==', normalizedPhone)
+      .limit(1)
+      .get();
+
+    if (!byPhoneSnap.empty) {
+      ref = byPhoneSnap.docs[0].ref;
+      existing = byPhoneSnap.docs[0];
+    }
+  }
   const existingAttributes = (existing.data()?.attributes && typeof existing.data()?.attributes === 'object')
     ? Object.fromEntries(
       Object.entries(existing.data()?.attributes as Record<string, unknown>).filter(([, value]) => typeof value === 'string'),
@@ -200,12 +227,12 @@ export async function upsertXPersonProfile(params: {
 
   await ref.set({
     tenantId: params.tenantId,
-    profileId,
+    profileId: existing.data()?.profileId ?? profileId,
     userId: clean(params.userId) ?? null,
     externalUserId: clean(params.externalUserId) ?? null,
     channel: params.channel ?? 'unknown',
     ...(params.details?.name ? { name: params.details.name } : {}),
-    ...(params.details?.phone ? { phone: normalizePhone(params.details.phone) } : {}),
+    ...(normalizedPhone ? { phone: normalizedPhone } : {}),
     ...(params.details?.location ? { location: params.details.location } : {}),
     ...(typeof params.details?.conversationDurationLastConversationSeconds === 'number'
       ? { conversationDurationLastConversationSeconds: Math.max(0, Math.trunc(params.details.conversationDurationLastConversationSeconds)) }
@@ -216,7 +243,10 @@ export async function upsertXPersonProfile(params: {
     ...(existing.exists ? {} : { createdAt: FieldValue.serverTimestamp() }),
   }, { merge: true });
 
-  return { profileId, created: !existing.exists };
+  return {
+    profileId: (existing.data()?.profileId as string | undefined) ?? profileId,
+    created: !existing.exists,
+  };
 }
 
 

@@ -1018,7 +1018,7 @@ export class AgentOrchestrator {
               if (!profileNextOfKin) {
                 result = {
                   success: false,
-                  error: 'Cannot schedule next-of-kin reminder: next_of_kin_phone is missing in the user profile. Save it first via xperson_profile upsert.',
+                  error: 'Cannot schedule next-of-kin reminder: next_of_kin_phone is missing in the user profile. Save it first via patient_profile upsert.',
                 };
                 break;
               }
@@ -1197,6 +1197,7 @@ export class AgentOrchestrator {
         break;
 
       case 'xperson_profile':
+      case 'patient_profile':
         if (toolCall.args.operation === 'get' || toolCall.args.operation === 'upsert') {
           result = await this.toolExecutor.executeXPersonProfile({
             operation: toolCall.args.operation,
@@ -1220,7 +1221,7 @@ export class AgentOrchestrator {
         } else {
           result = {
             success: false,
-            error: 'Invalid arguments for xperson_profile',
+            error: 'Invalid arguments for patient_profile',
           };
         }
         break;

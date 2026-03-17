@@ -592,7 +592,7 @@ export default function AgentSettings() {
                 onChange={(e) => setConfig((c) => (c ? { ...c, xPersonProfileEnabled: e.target.checked } : c))}
                 style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#2563eb' }}
               />
-              Enable Persons (Pipo) / XPersonProfile tool
+              Enable Patient Profile tool
             </label>
             <span style={helperStyle}>
               Off by default. When enabled, the agent can autonomously profile users from widget and WhatsApp conversations using identity details such as phone, external ID, and device/user ID.
@@ -600,7 +600,7 @@ export default function AgentSettings() {
           </div>
 
           <div style={{ marginTop: 16 }}>
-            <label style={labelStyle}>XPersonProfile custom fields</label>
+            <label style={labelStyle}>Patient profile custom fields</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {(config?.xPersonProfileCustomFields ?? []).map((field, i) => (
                 <div key={`${field.field}-${i}`} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr auto', gap: 8 }}>
