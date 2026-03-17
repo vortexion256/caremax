@@ -31,7 +31,7 @@ import { buildAgentContext, formatContextForPrompt, trimConversationHistory } fr
 import { extractIntent, ExtractedIntent } from './agent-intent.js';
 import { decomposeQuestion, DecomposedQuestion } from './agent-decomposer.js';
 import { extractTokenUsage, recordUsage, type UsageMetadata } from './token-usage.js';
-import { extractDefaultProfileFields } from './xperson-profile.js';
+import { extractDefaultProfileFields, getXPersonProfile } from './xperson-profile.js';
 import { listUserReminders } from './reminders.js';
 import { getHealthProfile, logVitals } from './health-tools.js';
 import {
@@ -352,6 +352,14 @@ export async function runAgentV2(
       }
     }
 
+    const currentProfile = config.xPersonProfileEnabled
+      ? await getXPersonProfile({
+          tenantId,
+          userId: options?.userId,
+          externalUserId: options?.externalUserId,
+        })
+      : null;
+
     let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${contextSection}\n${reminderSnapshotContext}\n`;
     
     // Add tool instructions
@@ -380,14 +388,17 @@ export async function runAgentV2(
       systemContent += `Patient Profile tool is enabled:
 `;
       systemContent += `- Use patient_profile to query or upsert user profile data for this conversation identity.\n`;
+      systemContent += `- The profile snapshot for this identity is already preloaded below; use it before asking repeated demographic questions.\n`;
+      systemContent += `- If the snapshot already contains a value (for example name), do NOT claim no details are known and do NOT ask for that same value again unless the user asks to update it.\n`;
       systemContent += `- Treat profile updates as background memory work: do NOT announce that you saved, updated, captured, or recorded profile details unless the user explicitly asks about their profile or what you remembered.\n`;
       systemContent += `- Always keep name, phone, and location updated when new details are provided.\n`;
       if (config.xPersonProfileCustomFields.length > 0) {
         systemContent += `- Custom fields configured by tenant: ${config.xPersonProfileCustomFields.map((f) => f.description ? `${f.field} (${f.description})` : f.field).join(', ')}\n`;
-        systemContent += `- Always keep conversation_duration_last_conversation_seconds updated from the user's latest conversation duration across widget or WhatsApp.\n\n`;
+        systemContent += `- Always keep conversation_duration_last_conversation_seconds updated from the user's latest conversation duration across widget or WhatsApp.\n`;
       } else {
-        systemContent += `- Always keep conversation_duration_last_conversation_seconds updated from the user's latest conversation duration across widget or WhatsApp.\n\n`;
+        systemContent += `- Always keep conversation_duration_last_conversation_seconds updated from the user's latest conversation duration across widget or WhatsApp.\n`;
       }
+      systemContent += `Current profile snapshot: ${currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.'}\n\n`;
     }
 
     // Add Google Sheets instructions

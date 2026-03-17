@@ -503,6 +503,8 @@ Patient Profile is ENABLED for this tenant.
 - Save next_of_kin_phone in Uganda format starting with 256 (example: 2567XXXXXXXX).
 - If user shares new details, call patient_profile with operation="upsert" in the same turn.
 - Keep profile capture invisible to the user: do not say you updated/saved/recorded their profile unless they explicitly ask about profile memory.
+- The profile snapshot for this identity is already preloaded below; use it before asking repeated demographic questions.
+- If the snapshot already contains a value (for example name), do NOT claim no details are known and do NOT ask for that same value again unless the user asks to update it.
 - If you need to check known user details, call patient_profile with operation="get" before asking repeated questions.
 - For emergencies or when the user explicitly asks to notify next of kin, use the send_next_of_kin_message tool.
 - If the user explicitly asks to message a non-next-of-kin contact, use send_whatsapp_message_to_contact and require explicit confirmation text before sending.
