@@ -492,6 +492,7 @@ If your need is urgent, please call your care team or 911 in an emergency.`;
         tenantId,
         userId: options?.userId,
         externalUserId: options?.externalUserId,
+        conversationId: options?.conversationId,
       });
       xPersonProfileContext = `
 
@@ -552,7 +553,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
           conversationId: options?.conversationId,
           attributes: { next_of_kin_phone: extractedNextOfKin },
         });
-        currentProfile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId });
+        currentProfile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId, conversationId: options?.conversationId });
       } catch (e) {
         console.warn('[Agent] Failed to auto-save next_of_kin_phone:', e);
       }
@@ -820,7 +821,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
     }),
     func: async ({ operation, details, attributes }) => {
       if (operation === 'get') {
-        const profile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId });
+        const profile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId, conversationId: options?.conversationId });
         return profile ? JSON.stringify(profile) : 'No profile found for this user identity yet.';
       }
       const result = await upsertXPersonProfile({
@@ -843,7 +844,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
       reason: z.enum(['emergency', 'user_request']).describe('Why the next of kin notification is being sent.'),
     }),
     func: async ({ message, reason }) => {
-      const profile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId });
+      const profile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId, conversationId: options?.conversationId });
       const attributes = profile?.attributes && typeof profile.attributes === 'object' ? profile.attributes : {};
       const nextOfKinPhone = normalizeContactPhone(attributes?.next_of_kin_phone);
 
@@ -926,7 +927,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         return 'Cannot send message: explicit consent is required. Ask the user to reply with a clear confirmation like "I confirm" before using this tool.';
       }
 
-      const profile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId });
+      const profile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId, conversationId: options?.conversationId });
       const attributes = profile?.attributes && typeof profile.attributes === 'object' ? profile.attributes : {};
       const senderLabel = (attributes?.full_name || attributes?.name || options?.externalUserId || '').toString();
 
@@ -991,7 +992,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         return 'Reminders are currently available only for WhatsApp conversations.';
       }
 
-      const profile = await getXPersonProfile({ tenantId, userId: options.userId, externalUserId: options.externalUserId });
+      const profile = await getXPersonProfile({ tenantId, userId: options.userId, externalUserId: options.externalUserId, conversationId: options?.conversationId });
       const attributes = profile?.attributes && typeof profile.attributes === 'object' ? profile.attributes : {};
       const ownerLabel = (attributes?.full_name || attributes?.name || options.externalUserId || '').toString().trim();
       const nextOfKinPhone = normalizeContactPhone(attributes?.next_of_kin_phone);

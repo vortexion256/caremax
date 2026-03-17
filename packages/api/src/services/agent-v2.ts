@@ -357,6 +357,7 @@ export async function runAgentV2(
           tenantId,
           userId: options?.userId,
           externalUserId: options?.externalUserId,
+          conversationId: options?.conversationId,
         })
       : null;
 

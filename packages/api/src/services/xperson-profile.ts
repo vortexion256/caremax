@@ -45,6 +45,20 @@ function extractPhoneFromExternalUserId(value: string | undefined): string | und
   return normalizePhone(value);
 }
 
+function buildPhoneLookupCandidates(value: string | undefined): string[] {
+  const normalized = normalizePhone(value);
+  if (!normalized) return [];
+
+  const withoutPlus = normalized.startsWith('+') ? normalized.slice(1) : normalized;
+  const withPlus = withoutPlus ? `+${withoutPlus}` : normalized;
+
+  return Array.from(new Set([
+    normalized,
+    withPlus,
+    withoutPlus,
+  ].filter((candidate) => candidate.length > 0)));
+}
+
 export function buildProfileId(params: { userId?: string; externalUserId?: string }): string {
   const userId = clean(params.userId);
   const externalUserId = clean(params.externalUserId);
@@ -204,16 +218,19 @@ export async function upsertXPersonProfile(params: {
   let existing = defaultExisting;
 
   if (!existing.exists && normalizedPhone) {
-    const byPhoneSnap = await db
-      .collection('xperson_profiles')
-      .where('tenantId', '==', params.tenantId)
-      .where('phone', '==', normalizedPhone)
-      .limit(1)
-      .get();
+    for (const phoneCandidate of buildPhoneLookupCandidates(normalizedPhone)) {
+      const byPhoneSnap = await db
+        .collection('xperson_profiles')
+        .where('tenantId', '==', params.tenantId)
+        .where('phone', '==', phoneCandidate)
+        .limit(1)
+        .get();
 
-    if (!byPhoneSnap.empty) {
-      ref = byPhoneSnap.docs[0].ref;
-      existing = byPhoneSnap.docs[0];
+      if (!byPhoneSnap.empty) {
+        ref = byPhoneSnap.docs[0].ref;
+        existing = byPhoneSnap.docs[0];
+        break;
+      }
     }
   }
   const existingAttributes = (existing.data()?.attributes && typeof existing.data()?.attributes === 'object')
@@ -304,6 +321,7 @@ export async function getXPersonProfile(params: {
   tenantId: string;
   userId?: string;
   externalUserId?: string;
+  conversationId?: string;
 }): Promise<XPersonProfileData | null> {
   const candidateProfileIds = [
     clean(params.userId),
@@ -322,15 +340,34 @@ export async function getXPersonProfile(params: {
   if (!profileData && params.externalUserId) {
     const normalizedPhone = extractPhoneFromExternalUserId(params.externalUserId);
     if (normalizedPhone) {
-      const byPhoneSnap = await db
+      for (const phoneCandidate of buildPhoneLookupCandidates(normalizedPhone)) {
+        const byPhoneSnap = await db
+          .collection('xperson_profiles')
+          .where('tenantId', '==', params.tenantId)
+          .where('phone', '==', phoneCandidate)
+          .limit(1)
+          .get();
+
+        if (!byPhoneSnap.empty) {
+          profileData = byPhoneSnap.docs[0].data();
+          break;
+        }
+      }
+    }
+  }
+
+  if (!profileData) {
+    const conversationId = clean(params.conversationId);
+    if (conversationId) {
+      const byConversationSnap = await db
         .collection('xperson_profiles')
         .where('tenantId', '==', params.tenantId)
-        .where('phone', '==', normalizedPhone)
+        .where('lastConversationId', '==', conversationId)
         .limit(1)
         .get();
 
-      if (!byPhoneSnap.empty) {
-        profileData = byPhoneSnap.docs[0].data();
+      if (!byConversationSnap.empty) {
+        profileData = byConversationSnap.docs[0].data();
       }
     }
   }
