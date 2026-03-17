@@ -220,7 +220,7 @@ export async function runAgentV2(
       }
       availableTools.push('create_note');
       if (config.xPersonProfileEnabled) {
-        availableTools.push('xperson_profile');
+        availableTools.push('patient_profile');
       }
       if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
         availableTools.push('set_reminder', 'list_user_reminders', 'get_upcoming_reminders', 'edit_reminder', 'delete_reminder');
@@ -377,9 +377,9 @@ export async function runAgentV2(
     }
 
     if (config.xPersonProfileEnabled) {
-      systemContent += `XPersonProfile tool is enabled:
+      systemContent += `Patient Profile tool is enabled:
 `;
-      systemContent += `- Use xperson_profile to query or upsert user profile data for this conversation identity.\n`;
+      systemContent += `- Use patient_profile to query or upsert user profile data for this conversation identity.\n`;
       systemContent += `- Treat profile updates as background memory work: do NOT announce that you saved, updated, captured, or recorded profile details unless the user explicitly asks about their profile or what you remembered.\n`;
       systemContent += `- Always keep name, phone, and location updated when new details are provided.\n`;
       if (config.xPersonProfileCustomFields.length > 0) {
@@ -483,8 +483,8 @@ export async function runAgentV2(
 
     if (config.xPersonProfileEnabled) {
       const xPersonProfileTool = new DynamicStructuredTool({
-        name: 'xperson_profile',
-        description: 'Read or upsert profile data for the current user identity (Persons / Pipo / XPersonProfile).',
+        name: 'patient_profile',
+        description: 'Read or upsert patient profile data for the current user identity (Patient Profile).',
         schema: z.object({
           operation: z.enum(['get', 'upsert']),
           details: z.object({
@@ -497,9 +497,9 @@ export async function runAgentV2(
         func: async (args) => {
           if (args.operation === 'upsert' && args.details) {
             const extracted = extractDefaultProfileFields(`${args.details.name ?? ''} ${args.details.phone ?? ''} ${args.details.location ?? ''}`.trim());
-            return `XPersonProfile upsert requested (${Object.keys(extracted).join(', ') || 'no default fields'}).`;
+            return `Patient profile upsert requested (${Object.keys(extracted).join(', ') || 'no default fields'}).`;
           }
-          return 'XPersonProfile lookup requested.';
+          return 'Patient profile lookup requested.';
         },
       });
       tools.push(xPersonProfileTool);
