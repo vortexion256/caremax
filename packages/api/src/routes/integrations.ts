@@ -13,7 +13,7 @@ import { verifyMarzPayTransaction } from '../services/marzpay.js';
 import { createTenantNotification } from '../services/tenant-notifications.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
-import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, upsertXPersonProfile } from '../services/xperson-profile.js';
+import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, getXPersonProfile, normalizeXPersonCustomFields, upsertXPersonProfile } from '../services/xperson-profile.js';
 import { claimTwilioWebhookMessage, resolveRelayReplyQuotedContext, resolveRelayTicketIdFromReplyContext, routeNokRelayReply } from '../services/whatsapp-relay.js';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
@@ -1298,26 +1298,67 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     }
 
     const conversationsRef = db.collection('conversations');
-    const existingConversationSnap = await conversationsRef
-      .where('tenantId', '==', tenantId)
-      .where('channel', '==', 'whatsapp')
-      .where('externalUserId', '==', identity.externalUserId)
-      .where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
-      .orderBy('updatedAt', 'desc')
-      .limit(1)
-      .get();
+    const linkedProfile = await getXPersonProfile({
+      tenantId,
+      userId: identity.scopedUserId,
+      externalUserId: identity.externalUserId,
+    });
 
-    const conversationRef = existingConversationSnap.empty
-      ? await conversationsRef.add({
+    const conversationLookupExternalIds = Array.from(new Set([
+      identity.externalUserId,
+      typeof linkedProfile?.externalUserId === 'string' ? linkedProfile.externalUserId : undefined,
+    ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)));
+
+    const conversationLookupUserIds = Array.from(new Set([
+      identity.scopedUserId,
+      typeof linkedProfile?.userId === 'string' ? linkedProfile.userId : undefined,
+    ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)));
+
+    let existingConversationRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData> | null = null;
+
+    for (const externalUserId of conversationLookupExternalIds) {
+      const byExternalSnap = await conversationsRef
+        .where('tenantId', '==', tenantId)
+        .where('channel', '==', 'whatsapp')
+        .where('externalUserId', '==', externalUserId)
+        .where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
+        .orderBy('updatedAt', 'desc')
+        .limit(1)
+        .get();
+      if (!byExternalSnap.empty) {
+        existingConversationRef = byExternalSnap.docs[0].ref;
+        break;
+      }
+    }
+
+    if (!existingConversationRef) {
+      for (const userId of conversationLookupUserIds) {
+        const byUserSnap = await conversationsRef
+          .where('tenantId', '==', tenantId)
+          .where('channel', '==', 'whatsapp')
+          .where('userId', '==', userId)
+          .where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
+          .orderBy('updatedAt', 'desc')
+          .limit(1)
+          .get();
+        if (!byUserSnap.empty) {
+          existingConversationRef = byUserSnap.docs[0].ref;
+          break;
+        }
+      }
+    }
+
+    const conversationRef = existingConversationRef
+      ? existingConversationRef
+      : await conversationsRef.add({
         tenantId,
-        userId: identity.scopedUserId,
-        externalUserId: identity.externalUserId,
+        userId: typeof linkedProfile?.userId === 'string' ? linkedProfile.userId : identity.scopedUserId,
+        externalUserId: typeof linkedProfile?.externalUserId === 'string' ? linkedProfile.externalUserId : identity.externalUserId,
         channel: 'whatsapp',
         status: 'open',
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-      })
-      : existingConversationSnap.docs[0].ref;
+      });
 
 
     await db.collection('messages').add({

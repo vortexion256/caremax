@@ -28,7 +28,7 @@ function clean(value: unknown): string | undefined {
   return out || undefined;
 }
 
-function normalizePhone(value: string | undefined): string | undefined {
+export function normalizeXPersonPhone(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const hasPlus = value.trim().startsWith('+');
   const digits = value.replace(/[^\d]/g, '');
@@ -40,13 +40,13 @@ function extractPhoneFromExternalUserId(value: string | undefined): string | und
   if (!value) return undefined;
   const normalized = value.trim().toLowerCase();
   if (normalized.startsWith('whatsapp:')) {
-    return normalizePhone(value.slice('whatsapp:'.length));
+    return normalizeXPersonPhone(value.slice('whatsapp:'.length));
   }
-  return normalizePhone(value);
+  return normalizeXPersonPhone(value);
 }
 
 function buildPhoneLookupCandidates(value: string | undefined): string[] {
-  const normalized = normalizePhone(value);
+  const normalized = normalizeXPersonPhone(value);
   if (!normalized) return [];
 
   const withoutPlus = normalized.startsWith('+') ? normalized.slice(1) : normalized;
@@ -72,7 +72,7 @@ export function extractDefaultProfileFields(text: string): Pick<XPersonProfileDa
   if (!input) return {};
 
   const phoneMatch = input.match(/(?:\+?\d[\d\s().-]{6,}\d)/);
-  const phone = normalizePhone(phoneMatch?.[0]);
+  const phone = normalizeXPersonPhone(phoneMatch?.[0]);
 
   const nameMatch = input.match(/(?:my\s+name\s+is|i\s+am|i'm)\s+([a-z][a-z\s'-]{1,60})/i);
   const name = clean(nameMatch?.[1]);
@@ -213,7 +213,7 @@ export async function upsertXPersonProfile(params: {
   const defaultRef = db.collection('xperson_profiles').doc(`${params.tenantId}__${profileId}`);
   const defaultExisting = await defaultRef.get();
 
-  const normalizedPhone = normalizePhone(params.details?.phone) ?? extractPhoneFromExternalUserId(params.externalUserId);
+  const normalizedPhone = normalizeXPersonPhone(params.details?.phone) ?? extractPhoneFromExternalUserId(params.externalUserId);
   let ref = defaultRef;
   let existing = defaultExisting;
 
@@ -297,7 +297,7 @@ export async function updateXPersonProfileById(params: {
 
   await ref.set({
     ...(params.details?.name !== undefined ? { name: clean(params.details.name) ?? null } : {}),
-    ...(params.details?.phone !== undefined ? { phone: normalizePhone(params.details.phone) ?? null } : {}),
+    ...(params.details?.phone !== undefined ? { phone: normalizeXPersonPhone(params.details.phone) ?? null } : {}),
     ...(params.details?.location !== undefined ? { location: clean(params.details.location) ?? null } : {}),
     ...(mergedAttributes ? { attributes: mergedAttributes } : {}),
     updatedAt: FieldValue.serverTimestamp(),
@@ -329,10 +329,12 @@ export async function getXPersonProfile(params: {
   ].filter((value): value is string => !!value);
 
   let profileData: FirebaseFirestore.DocumentData | null = null;
+  let profileRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData> | null = null;
   for (const profileId of candidateProfileIds) {
     const attempt = await db.collection('xperson_profiles').doc(`${params.tenantId}__${profileId}`).get();
     if (attempt.exists) {
       profileData = attempt.data() ?? null;
+      profileRef = attempt.ref;
       break;
     }
   }
@@ -350,6 +352,7 @@ export async function getXPersonProfile(params: {
 
         if (!byPhoneSnap.empty) {
           profileData = byPhoneSnap.docs[0].data();
+          profileRef = byPhoneSnap.docs[0].ref;
           break;
         }
       }
@@ -368,13 +371,64 @@ export async function getXPersonProfile(params: {
 
       if (!byConversationSnap.empty) {
         profileData = byConversationSnap.docs[0].data();
+        profileRef = byConversationSnap.docs[0].ref;
       }
     }
   }
 
   if (!profileData) return null;
 
+  if (profileRef) {
+    const incomingUserId = clean(params.userId);
+    const incomingExternalUserId = clean(params.externalUserId);
+    const incomingConversationId = clean(params.conversationId);
+    const needsLinkUpdate =
+      (incomingUserId && incomingUserId !== profileData.userId)
+      || (incomingExternalUserId && incomingExternalUserId !== profileData.externalUserId)
+      || (incomingConversationId && incomingConversationId !== profileData.lastConversationId);
+
+    if (needsLinkUpdate) {
+      await profileRef.set({
+        ...(incomingUserId ? { userId: incomingUserId } : {}),
+        ...(incomingExternalUserId ? { externalUserId: incomingExternalUserId } : {}),
+        ...(incomingConversationId ? { lastConversationId: incomingConversationId } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      profileData = {
+        ...profileData,
+        ...(incomingUserId ? { userId: incomingUserId } : {}),
+        ...(incomingExternalUserId ? { externalUserId: incomingExternalUserId } : {}),
+        ...(incomingConversationId ? { lastConversationId: incomingConversationId } : {}),
+      };
+    }
+  }
+
   const data = profileData;
+  return {
+    tenantId: data.tenantId,
+    profileId: data.profileId,
+    userId: data.userId ?? undefined,
+    externalUserId: data.externalUserId ?? undefined,
+    channel: data.channel ?? 'unknown',
+    name: data.name ?? undefined,
+    phone: data.phone ?? undefined,
+    location: data.location ?? undefined,
+    conversationDurationLastConversationSeconds:
+      typeof data.conversationDurationLastConversationSeconds === 'number' ? data.conversationDurationLastConversationSeconds : undefined,
+    attributes: data.attributes ?? {},
+    lastConversationId: data.lastConversationId ?? undefined,
+    updatedAt: data.updatedAt?.toMillis?.() ?? null,
+    createdAt: data.createdAt?.toMillis?.() ?? null,
+  };
+}
+
+export async function getXPersonProfileById(params: { tenantId: string; profileId: string }): Promise<XPersonProfileData | null> {
+  const profileId = clean(params.profileId);
+  if (!profileId) return null;
+  const snap = await db.collection('xperson_profiles').doc(`${params.tenantId}__${profileId}`).get();
+  if (!snap.exists) return null;
+  const data = snap.data() ?? {};
   return {
     tenantId: data.tenantId,
     profileId: data.profileId,
