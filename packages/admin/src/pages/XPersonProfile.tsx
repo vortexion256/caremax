@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { api } from '../api';
+import { firestore } from '../firebase';
 import { useTenant } from '../TenantContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 
@@ -15,6 +17,14 @@ type XPersonProfile = {
   attributes?: Record<string, string>;
   lastConversationId?: string;
   updatedAt?: number | null;
+};
+
+type VitalLog = {
+  id: string;
+  type: string;
+  value: number;
+  unit: string | null;
+  recordedAt: number | null;
 };
 
 const metricCardStyle: CSSProperties = {
@@ -38,6 +48,8 @@ export default function XPersonProfilePage() {
   const [savingProfileId, setSavingProfileId] = useState<string | null>(null);
   const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', phone: '', location: '', attributesText: '' });
+  const [vitalsByProfileId, setVitalsByProfileId] = useState<Record<string, VitalLog[]>>({});
+  const [vitalsLoadingByProfileId, setVitalsLoadingByProfileId] = useState<Record<string, boolean>>({});
 
   const formatDuration = (seconds?: number) => {
     if (typeof seconds !== 'number' || Number.isNaN(seconds)) return '—';
@@ -148,6 +160,54 @@ export default function XPersonProfilePage() {
     }
   };
 
+
+
+  const resolveVitalsUserId = (profile: XPersonProfile) => {
+    const direct = profile.userId?.trim();
+    if (direct) return direct;
+    const external = profile.externalUserId?.trim();
+    if (external) return external;
+    return '';
+  };
+
+  const loadVitalsForProfile = async (profile: XPersonProfile) => {
+    const lookupUserId = resolveVitalsUserId(profile);
+    if (!lookupUserId) {
+      setVitalsByProfileId((current) => ({ ...current, [profile.profileId]: [] }));
+      return;
+    }
+    if (vitalsLoadingByProfileId[profile.profileId]) return;
+    if (vitalsByProfileId[profile.profileId]) return;
+
+    setVitalsLoadingByProfileId((current) => ({ ...current, [profile.profileId]: true }));
+    try {
+      const snap = await getDocs(query(
+        collection(firestore, 'vitals'),
+        where('userId', '==', lookupUserId),
+        orderBy('recordedAt', 'desc'),
+        limit(20),
+      ));
+
+      const logs = snap.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          type: typeof data.type === 'string' ? data.type : 'unknown',
+          value: typeof data.value === 'number' ? data.value : Number(data.value ?? 0),
+          unit: typeof data.unit === 'string' ? data.unit : null,
+          recordedAt: data.recordedAt && typeof (data.recordedAt as { toMillis?: () => number }).toMillis === 'function'
+            ? (data.recordedAt as { toMillis: () => number }).toMillis()
+            : null,
+        } satisfies VitalLog;
+      });
+      setVitalsByProfileId((current) => ({ ...current, [profile.profileId]: logs }));
+    } catch {
+      setVitalsByProfileId((current) => ({ ...current, [profile.profileId]: [] }));
+    } finally {
+      setVitalsLoadingByProfileId((current) => ({ ...current, [profile.profileId]: false }));
+    }
+  };
+
   const deleteProfile = async (profile: XPersonProfile) => {
     if (!tenantId) return;
     const ok = window.confirm(`Delete profile ${deriveProfileName(profile)}? This action cannot be undone.`);
@@ -175,7 +235,13 @@ export default function XPersonProfilePage() {
       <article key={profile.profileId} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
         <button
           type="button"
-          onClick={() => setExpandedProfileId((current) => (current === profile.profileId ? null : profile.profileId))}
+          onClick={() => {
+            const willExpand = expandedProfileId !== profile.profileId;
+            setExpandedProfileId((current) => (current === profile.profileId ? null : profile.profileId));
+            if (willExpand) {
+              void loadVitalsForProfile(profile);
+            }
+          }}
           style={{
             width: '100%',
             border: 'none',
@@ -226,6 +292,36 @@ export default function XPersonProfilePage() {
               <div><strong>External ID:</strong> {profile.externalUserId || '—'}</div>
               <div><strong>User/Device ID:</strong> {profile.userId || '—'}</div>
               <div><strong>Conversation ID:</strong> {profile.lastConversationId || '—'}</div>
+            </div>
+
+
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Vitals logs</div>
+              {vitalsLoadingByProfileId[profile.profileId] ? (
+                <div style={{ color: '#64748b' }}>Loading vitals...</div>
+              ) : (vitalsByProfileId[profile.profileId] ?? []).length === 0 ? (
+                <div style={{ color: '#64748b' }}>No vitals saved for this user yet.</div>
+              ) : (
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+                  {(vitalsByProfileId[profile.profileId] ?? []).map((vital, index) => (
+                    <div
+                      key={vital.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile ? '1fr' : '160px 1fr 180px',
+                        gap: 8,
+                        padding: '8px 10px',
+                        background: index % 2 === 0 ? '#fff' : '#f8fafc',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span style={{ color: '#64748b', fontWeight: 600 }}>{vital.type.replace(/_/g, ' ')}</span>
+                      <span style={{ color: '#0f172a', fontWeight: 600 }}>{Number.isFinite(vital.value) ? vital.value : '—'} {vital.unit ?? ''}</span>
+                      <span style={{ color: '#475569', fontSize: 12 }}>{vital.recordedAt ? new Date(vital.recordedAt).toLocaleString() : 'Timestamp unavailable'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {isEditing ? (
