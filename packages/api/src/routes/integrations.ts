@@ -1326,8 +1326,10 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       role: 'user',
       content: body,
       imageUrls,
+      ...(cameFromVoiceNote && mediaUrl ? { audioUrl: mediaUrl } : {}),
       channel: 'whatsapp',
       inputType: cameFromVoiceNote ? 'voice' : 'text',
+      ...(cameFromVoiceNote ? { metadata: { source: 'voice_note' } } : {}),
       createdAt: FieldValue.serverTimestamp(),
     });
 
@@ -1617,9 +1619,10 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     const shouldCleanVoiceText = voiceThreshold <= 0 || exceedsVoiceThreshold;
 
     let hasVoiceReply = false;
+    let voiceUrl: string | null = null;
     if (shouldTryVoiceReply) {
       try {
-        const voiceUrl = await generateVoiceMediaUrl({
+        voiceUrl = await generateVoiceMediaUrl({
           tenantId,
           text: responseText,
           provider: resolvedTtsProvider,
@@ -1684,6 +1687,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       tenantId,
       role: 'assistant',
       content: responseText,
+      ...(voiceUrl ? { audioUrl: voiceUrl, inputType: 'voice', metadata: { source: 'voice_note' } } : {}),
       channel: 'whatsapp',
       createdAt: FieldValue.serverTimestamp(),
     });
@@ -1814,6 +1818,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
 
           let body = '';
           let cameFromVoiceNote = false;
+          let voiceNoteAudioUrl: string | null = null;
           const imageUrls: string[] = [];
           const repliedToMessageId = typeof incoming?.context?.id === 'string' ? incoming.context.id.trim() : '';
 
@@ -1845,6 +1850,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
                 if (transcript) {
                   body = transcript;
                   cameFromVoiceNote = true;
+                  voiceNoteAudioUrl = mediaInfo.url;
                 } else {
                   await sendMetaWhatsAppTextMessage({
                     phoneNumberId,
@@ -1979,6 +1985,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             role: 'user',
             content: body,
             imageUrls,
+            ...(cameFromVoiceNote && voiceNoteAudioUrl ? { audioUrl: voiceNoteAudioUrl, inputType: 'voice' } : {}),
             channel: 'whatsapp_meta',
             providerMessageId: messageId,
             ...(cameFromVoiceNote ? { metadata: { source: 'voice_note' } } : {}),
@@ -2035,10 +2042,11 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
           const shouldTryVoiceReply = forceVoiceReplies || exceedsVoiceThreshold;
           const shouldCleanVoiceText = voiceThreshold <= 0 || exceedsVoiceThreshold;
           let voiceReplySent = false;
+          let voiceUrl: string | null = null;
 
           if (shouldTryVoiceReply) {
             try {
-              const voiceUrl = await generateVoiceMediaUrl({
+              voiceUrl = await generateVoiceMediaUrl({
                 tenantId,
                 text: responseText,
                 provider: resolvedTtsProvider,
@@ -2077,6 +2085,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             tenantId,
             role: 'assistant',
             content: responseText,
+            ...(voiceReplySent && voiceUrl ? { audioUrl: voiceUrl, inputType: 'voice', metadata: { source: 'voice_note' } } : {}),
             channel: 'whatsapp_meta',
             createdAt: FieldValue.serverTimestamp(),
           });

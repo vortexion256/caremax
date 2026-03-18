@@ -13,7 +13,14 @@ type Message = {
   role: 'user' | 'assistant' | 'human_agent';
   content: string;
   imageUrls?: string[];
-  metadata?: { source?: string };
+  audioUrl?: string;
+  inputType?: 'text' | 'voice';
+  metadata?: {
+    source?: string;
+    reminderId?: string;
+    reminderStatus?: string;
+    reminderTargetType?: string;
+  };
   createdAt: number | null;
 };
 
@@ -24,7 +31,9 @@ function messageFromDoc(d: { id: string; data: () => Record<string, unknown> }):
     role: (data.role as Message['role']) ?? 'assistant',
     content: (data.content as string) ?? '',
     imageUrls: data.imageUrls as string[] | undefined,
-    metadata: data.metadata as { source?: string } | undefined,
+    audioUrl: typeof data.audioUrl === 'string' ? data.audioUrl : undefined,
+    inputType: data.inputType === 'voice' ? 'voice' : 'text',
+    metadata: data.metadata as Message['metadata'] | undefined,
     createdAt: data.createdAt && typeof (data.createdAt as { toMillis?: () => number }).toMillis === 'function'
       ? (data.createdAt as { toMillis: () => number }).toMillis()
       : null,
@@ -225,6 +234,18 @@ export default function ConversationView() {
         ) : (
           messages.map((msg) => {
             const isUser = msg.role === 'user';
+            const isVoiceNote = msg.inputType === 'voice' || msg.metadata?.source === 'voice_note';
+            const isReminderMessage = msg.metadata?.source === 'reminder_dispatch';
+            const speakerLabel = msg.metadata?.source === 'nok_relay'
+              ? 'Next of Kin'
+              : isReminderMessage
+                ? 'Reminder'
+                : msg.role === 'user'
+                  ? 'User'
+                  : msg.role === 'human_agent'
+                    ? 'Human Agent'
+                    : 'AI Assistant';
+
             return (
               <div
                 key={msg.messageId}
@@ -236,16 +257,18 @@ export default function ConversationView() {
                   alignItems: isUser ? 'flex-start' : 'flex-end',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, padding: '0 4px' }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>
-                    {msg.metadata?.source === 'nok_relay'
-                      ? 'Next of Kin'
-                      : msg.role === 'user'
-                        ? 'User'
-                        : msg.role === 'human_agent'
-                          ? 'Human Agent'
-                          : 'AI Assistant'}
-                  </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, padding: '0 4px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>{speakerLabel}</span>
+                  {isVoiceNote && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', background: '#f3e8ff', borderRadius: 999, padding: '2px 8px' }}>
+                      Voice note
+                    </span>
+                  )}
+                  {isReminderMessage && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#0f766e', background: '#ccfbf1', borderRadius: 999, padding: '2px 8px' }}>
+                      Reminder sent
+                    </span>
+                  )}
                   {msg.createdAt && (
                     <span style={{ fontSize: 10, color: '#cbd5e1' }}>
                       {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -258,14 +281,17 @@ export default function ConversationView() {
                     borderRadius: 16,
                     borderTopLeftRadius: isUser ? 4 : 16,
                     borderTopRightRadius: isUser ? 16 : 4,
-                    background: isUser ? '#fff' : msg.role === 'human_agent' ? '#2563eb' : '#e2e8f0',
+                    background: isUser ? '#fff' : msg.role === 'human_agent' ? '#2563eb' : isReminderMessage ? '#ecfeff' : '#e2e8f0',
                     color: msg.role === 'human_agent' ? '#fff' : '#1e293b',
                     fontSize: 14,
                     lineHeight: 1.5,
                     boxShadow: isUser ? '0 1px 2px 0 rgb(0 0 0 / 0.05)' : 'none',
-                    border: isUser ? '1px solid #e2e8f0' : 'none'
+                    border: isUser ? '1px solid #e2e8f0' : isReminderMessage ? '1px solid #99f6e4' : 'none'
                   }}
                 >
+                  {msg.audioUrl && (
+                    <audio controls preload="none" src={msg.audioUrl} style={{ width: '100%', marginBottom: msg.content ? 10 : 0 }} />
+                  )}
                   <ReactMarkdown
                     components={{
                       p: ({ children }) => <p style={{ margin: 0 }}>{children}</p>,
@@ -273,6 +299,13 @@ export default function ConversationView() {
                   >
                     {msg.content}
                   </ReactMarkdown>
+                  {isReminderMessage && (msg.metadata?.reminderStatus || msg.metadata?.reminderTargetType || msg.metadata?.reminderId) && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#0f766e', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      {msg.metadata?.reminderStatus ? <span>Status: {msg.metadata.reminderStatus}</span> : null}
+                      {msg.metadata?.reminderTargetType ? <span>Target: {msg.metadata.reminderTargetType.replace(/_/g, ' ')}</span> : null}
+                      {msg.metadata?.reminderId ? <span>ID: {msg.metadata.reminderId}</span> : null}
+                    </div>
+                  )}
                   {msg.imageUrls && msg.imageUrls.length > 0 && (
                     <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {msg.imageUrls.map((url, idx) => (

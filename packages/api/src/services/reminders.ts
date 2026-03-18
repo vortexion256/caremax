@@ -230,6 +230,29 @@ export async function dispatchDueReminders(options?: {
       const shouldNotifyOwner =
         shouldRelayNokReply;
 
+      if (typeof data.conversationId === 'string' && data.conversationId.trim().length > 0) {
+        await db.collection('messages').add({
+          conversationId: data.conversationId,
+          tenantId: data.tenantId,
+          role: 'assistant',
+          content: outboundBody,
+          channel,
+          inputType: 'text',
+          metadata: {
+            source: 'reminder_dispatch',
+            reminderId: doc.id,
+            reminderStatus: 'sent',
+            reminderTargetType: data.targetType === 'next_of_kin' ? 'next_of_kin' : 'self',
+            ...(relayTicketId ? { relayTicketId } : {}),
+          },
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
+        await db.collection('conversations').doc(data.conversationId).set({
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+
       if (shouldNotifyOwner) {
         try {
           await sendWhatsAppOutboundMessage({
