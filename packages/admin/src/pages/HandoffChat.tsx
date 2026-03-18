@@ -12,7 +12,14 @@ type Message = {
   role: 'user' | 'assistant' | 'human_agent';
   content: string;
   imageUrls?: string[];
-  metadata?: { source?: string };
+  audioUrl?: string;
+  inputType?: 'text' | 'voice';
+  metadata?: {
+    source?: string;
+    reminderId?: string;
+    reminderStatus?: string;
+    reminderTargetType?: string;
+  };
   createdAt: number | null;
 };
 
@@ -47,7 +54,9 @@ export default function HandoffChat() {
             role: data.role as Message['role'],
             content: data.content ?? '',
             imageUrls: data.imageUrls,
-            metadata: data.metadata as { source?: string } | undefined,
+            audioUrl: typeof data.audioUrl === 'string' ? data.audioUrl : undefined,
+            inputType: (data.inputType === 'voice' ? 'voice' : 'text') as Message['inputType'],
+            metadata: data.metadata as Message['metadata'] | undefined,
             createdAt: data.createdAt?.toMillis?.() ?? null,
           };
         });
@@ -156,7 +165,20 @@ export default function HandoffChat() {
           gap: 16,
         }}
       >
-        {messages.map((m) => (
+        {messages.map((m) => {
+          const isVoiceNote = m.inputType === 'voice' || m.metadata?.source === 'voice_note';
+          const isReminderMessage = m.metadata?.source === 'reminder_dispatch';
+          const speakerLabel = m.metadata?.source === 'nok_relay'
+            ? 'Next of Kin'
+            : isReminderMessage
+              ? 'Reminder'
+              : m.role === 'user'
+                ? 'User'
+                : m.role === 'human_agent'
+                  ? 'You (Agent)'
+                  : 'AI Assistant';
+
+          return (
           <div
             key={m.messageId}
             style={{
@@ -167,31 +189,45 @@ export default function HandoffChat() {
               alignItems: m.role === 'user' ? 'flex-start' : 'flex-end',
             }}
           >
-            <span style={{ 
+            <div style={{ 
               fontSize: 11, 
               fontWeight: 500, 
               color: '#64748b', 
               marginBottom: 4, 
               marginLeft: m.role === 'user' ? 4 : 0,
-              marginRight: m.role === 'user' ? 0 : 4
+              marginRight: m.role === 'user' ? 0 : 4,
+              display: 'flex',
+              gap: 8,
+              flexWrap: 'wrap',
+              alignItems: 'center'
             }}>
-              {m.metadata?.source === 'nok_relay' ? 'Next of Kin' : m.role === 'user' ? 'User' : m.role === 'human_agent' ? 'You (Agent)' : 'AI Assistant'}
-            </span>
+              <span>{speakerLabel}</span>
+              {isVoiceNote ? <span style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', background: '#f3e8ff', borderRadius: 999, padding: '2px 8px' }}>Voice note</span> : null}
+              {isReminderMessage ? <span style={{ fontSize: 10, fontWeight: 700, color: '#0f766e', background: '#ccfbf1', borderRadius: 999, padding: '2px 8px' }}>Reminder sent</span> : null}
+            </div>
             <div
               style={{
                 padding: '12px 16px',
                 borderRadius: 16,
                 borderTopLeftRadius: m.role === 'user' ? 4 : 16,
                 borderTopRightRadius: m.role === 'user' ? 16 : 4,
-                backgroundColor: m.role === 'user' ? '#fff' : m.role === 'human_agent' ? '#2563eb' : '#e2e8f0',
+                backgroundColor: m.role === 'user' ? '#fff' : m.role === 'human_agent' ? '#2563eb' : isReminderMessage ? '#ecfeff' : '#e2e8f0',
                 color: m.role === 'human_agent' ? '#fff' : '#1e293b',
                 fontSize: 14,
                 lineHeight: 1.5,
                 boxShadow: m.role === 'user' ? '0 1px 2px 0 rgb(0 0 0 / 0.05)' : 'none',
-                border: m.role === 'user' ? '1px solid #e2e8f0' : 'none'
+                border: m.role === 'user' ? '1px solid #e2e8f0' : isReminderMessage ? '1px solid #99f6e4' : 'none'
               }}
             >
+              {m.audioUrl ? <audio controls preload="none" src={m.audioUrl} style={{ width: '100%', marginBottom: m.content ? 10 : 0 }} /> : null}
               <ReactMarkdown>{m.content}</ReactMarkdown>
+              {isReminderMessage && (m.metadata?.reminderStatus || m.metadata?.reminderTargetType || m.metadata?.reminderId) ? (
+                <div style={{ marginTop: 8, fontSize: 12, color: '#0f766e', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {m.metadata?.reminderStatus ? <span>Status: {m.metadata.reminderStatus}</span> : null}
+                  {m.metadata?.reminderTargetType ? <span>Target: {m.metadata.reminderTargetType.replace(/_/g, ' ')}</span> : null}
+                  {m.metadata?.reminderId ? <span>ID: {m.metadata.reminderId}</span> : null}
+                </div>
+              ) : null}
               {m.imageUrls?.length ? (
                 <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {m.imageUrls.map((url) => (
@@ -206,7 +242,7 @@ export default function HandoffChat() {
               ) : null}
             </div>
           </div>
-        ))}
+        );})}
       </div>
 
       <div style={{ padding: '16px 20px', background: '#fff', borderTop: '1px solid #f1f5f9' }}>
