@@ -597,6 +597,82 @@ function inferImageExtensionFromMimeType(mimeType: string): string {
   }
 }
 
+function inferAudioExtensionFromMimeType(mimeType: string): string {
+  switch (mimeType) {
+    case 'audio/ogg':
+    case 'audio/opus':
+      return 'ogg';
+    case 'audio/webm':
+      return 'webm';
+    case 'audio/mp4':
+    case 'audio/aac':
+      return 'm4a';
+    case 'audio/mpeg':
+      return 'mp3';
+    case 'audio/wav':
+    case 'audio/x-wav':
+      return 'wav';
+    default:
+      return 'bin';
+  }
+}
+
+async function storeIncomingWhatsAppAudio(params: {
+  tenantId: string;
+  channel: 'whatsapp' | 'whatsapp_meta';
+  mediaUrl: string;
+  mimeType: string;
+  authHeader?: string;
+}): Promise<string | null> {
+  if (!bucket) return null;
+
+  const normalizedMimeType = normalizeMimeType(params.mimeType);
+  if (!normalizedMimeType.startsWith('audio/')) {
+    return null;
+  }
+
+  try {
+    const mediaRes = await fetch(params.mediaUrl, {
+      headers: params.authHeader ? { Authorization: params.authHeader } : undefined,
+      signal: AbortSignal.timeout(WHATSAPP_TRANSCRIPTION_DOWNLOAD_TIMEOUT_MS),
+    });
+    if (!mediaRes.ok) return null;
+
+    const contentType = normalizeMimeType(mediaRes.headers.get('content-type')) || normalizedMimeType;
+    if (!contentType.startsWith('audio/')) {
+      return null;
+    }
+
+    const contentLength = reqNumberHeader(mediaRes.headers.get('content-length'), params.mediaUrl);
+    if (contentLength !== null && contentLength > WHATSAPP_MAX_AUDIO_BYTES) {
+      return null;
+    }
+
+    const mediaBuf = Buffer.from(await mediaRes.arrayBuffer());
+    if (mediaBuf.length > WHATSAPP_MAX_AUDIO_BYTES) {
+      return null;
+    }
+
+    const extension = inferAudioExtensionFromMimeType(contentType);
+    const path = `tenants/${params.tenantId}/whatsapp-inbound-audio/${params.channel}/${randomUUID()}.${extension}`;
+    const fileRef = bucket.file(path);
+    await fileRef.save(mediaBuf, { metadata: { contentType } });
+    const [signedUrl] = await fileRef.getSignedUrl({
+      action: 'read',
+      expires: Date.now() + 1000 * 60 * 60 * 24 * 7,
+    });
+    return signedUrl;
+  } catch (error) {
+    console.warn('Failed to store incoming WhatsApp audio:', {
+      tenantId: params.tenantId,
+      channel: params.channel,
+      mediaUrl: params.mediaUrl,
+      error,
+    });
+    return null;
+  }
+}
+
 async function storeIncomingWhatsAppImage(params: {
   tenantId: string;
   channel: 'whatsapp' | 'whatsapp_meta';
@@ -1257,6 +1333,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
 
     let body = incomingBody;
     let cameFromVoiceNote = false;
+    let storedVoiceNoteAudioUrl: string | null = null;
     if (!body && isLikelyWhatsAppVoiceNote(req.body) && mediaUrl && mediaContentType) {
       const mediaDurationSeconds = getWhatsAppAudioDurationSeconds(req.body);
       if (mediaDurationSeconds !== null && mediaDurationSeconds > WHATSAPP_MAX_VOICE_NOTE_DURATION_SECONDS) {
@@ -1281,6 +1358,13 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         if (transcript) {
           body = transcript;
           cameFromVoiceNote = true;
+          storedVoiceNoteAudioUrl = await storeIncomingWhatsAppAudio({
+            tenantId,
+            channel: 'whatsapp',
+            mediaUrl,
+            mimeType: mediaContentType,
+            authHeader: twilioAuthHeader,
+          });
         }
       }
     }
@@ -1326,7 +1410,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       role: 'user',
       content: body,
       imageUrls,
-      ...(cameFromVoiceNote && mediaUrl ? { audioUrl: mediaUrl } : {}),
+      ...(cameFromVoiceNote && storedVoiceNoteAudioUrl ? { audioUrl: storedVoiceNoteAudioUrl } : {}),
       channel: 'whatsapp',
       inputType: cameFromVoiceNote ? 'voice' : 'text',
       ...(cameFromVoiceNote ? { metadata: { source: 'voice_note' } } : {}),
@@ -1850,7 +1934,13 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
                 if (transcript) {
                   body = transcript;
                   cameFromVoiceNote = true;
-                  voiceNoteAudioUrl = mediaInfo.url;
+                  voiceNoteAudioUrl = await storeIncomingWhatsAppAudio({
+                    tenantId,
+                    channel: 'whatsapp_meta',
+                    mediaUrl: mediaInfo.url,
+                    mimeType: mediaInfo.mimeType,
+                    authHeader: `Bearer ${accessToken}`,
+                  });
                 } else {
                   await sendMetaWhatsAppTextMessage({
                     phoneNumberId,
