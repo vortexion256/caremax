@@ -348,7 +348,7 @@ const tenantAdminSettingsSchema = z.object({
   showUsageByApiFlow: z.boolean().optional(),
   maxTokensPerUser: z.number().int().positive().optional(),
   maxSpendUgxPerUser: z.number().positive().optional(),
-  agentVersion: z.enum(['v1', 'v2']).optional(),
+  agentVersion: z.enum(['v1', 'v2', 'v3']).optional(),
 });
 
 const defaultBillingConfig = {

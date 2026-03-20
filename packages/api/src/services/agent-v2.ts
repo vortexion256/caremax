@@ -104,10 +104,31 @@ async function toLangChainMessages(
 /**
  * Main agent function using production-grade architecture.
  */
-export async function runAgentV2(
+type AgentRuntimeOptions = { userId?: string; externalUserId?: string; conversationId?: string; preferredResponseLanguage?: 'luganda' | 'english' | null; channel?: 'widget' | 'whatsapp' | 'whatsapp_meta' }
+type AgentRuntimeVariant = 'v2' | 'v3';
+
+function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): string {
+  if (variant === 'v3') {
+    return [
+      'V3 conversation rules:',
+      '- Ask exactly ONE short follow-up question at a time.',
+      '- Keep visible responses under 20 words unless urgent safety advice or a tool result requires more detail.',
+      '- Do NOT give advice, explanations, or lists until you have enough information.',
+      '- Use this triage state order without skipping ahead: chief complaint, duration, severity, associated symptoms, risk factors, advice.',
+      '- If you still need information, reply with only the next question.',
+      '- Sound like a calm Ugandan doctor: short, clear, human, and curious.',
+      '- If urgent symptoms appear, stop questioning and escalate immediately.'
+    ].join('\n');
+  }
+
+  return '';
+}
+
+async function runAgentRuntime(
   tenantId: string,
   history: { role: string; content: string; imageUrls?: string[] }[],
-  options?: { userId?: string; externalUserId?: string; conversationId?: string; preferredResponseLanguage?: 'luganda' | 'english' | null; channel?: 'widget' | 'whatsapp' | 'whatsapp_meta' }
+  options: AgentRuntimeOptions | undefined,
+  variant: AgentRuntimeVariant
 ): Promise<AgentResult> {
   try {
     const config = await getAgentConfig(tenantId);
@@ -361,8 +382,13 @@ export async function runAgentV2(
         })
       : null;
 
+    const runtimeConversationInstructions = buildRuntimeConversationInstructions(variant);
+
     let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${contextSection}\n${reminderSnapshotContext}\n`;
-    
+    if (runtimeConversationInstructions) {
+      systemContent += `${runtimeConversationInstructions}\n\n`;
+    }
+
     // Add tool instructions
     systemContent += `CRITICAL RULES:
 1. CONSISTENCY IS TOP PRIORITY: Before answering availability or confirming bookings, ALWAYS check the "Existing notes in this conversation" section. If a booking is mentioned in the notes, it is REAL and must be respected.
@@ -972,8 +998,10 @@ Follow this plan step by step. Execute each step in order.`;
           } else if (analysis.retryStrategy?.simplifyPrompt) {
             // Simplified system prompt
             const simplifiedSystem = new SystemMessage(
-              `You are a helpful assistant. Provide clear, concise responses. ` +
-              `If you executed tools, summarize what was done and the results.`
+              variant === 'v3'
+                ? 'You are a clinical triage assistant. Ask exactly one short question, under 20 words, unless urgent safety advice is required.'
+                : (`You are a helpful assistant. Provide clear, concise responses. ` +
+                  `If you executed tools, summarize what was done and the results.`)
             );
             retryMessages = [
               simplifiedSystem,
@@ -987,8 +1015,12 @@ Follow this plan step by step. Execute each step in order.`;
           // Add retry instruction
           const retryPrompt = new HumanMessage({
             content: analysis.cause === 'tool_only'
-              ? `You executed tools but didn't provide a text response. Please summarize what was done based on the tool results above and provide a helpful response to the user.`
-              : `Please provide a clear response to the user. If tools were executed, summarize the results.`,
+              ? (variant === 'v3'
+                ? `You executed tools but gave no text. Reply briefly, and if more info is needed ask one short next question only.`
+                : `You executed tools but didn't provide a text response. Please summarize what was done based on the tool results above and provide a helpful response to the user.`)
+              : (variant === 'v3'
+                ? `Reply briefly. Ask exactly one short next question unless urgent safety advice is needed.`
+                : `Please provide a clear response to the user. If tools were executed, summarize the results.`),
           });
           
           retryMessages.push(retryPrompt);
@@ -1197,4 +1229,20 @@ Provide a clear, user-friendly response based on these results.`,
     console.error('[Agent V2] Error:', e);
     throw e;
   }
+}
+
+export async function runAgentV2(
+  tenantId: string,
+  history: { role: string; content: string; imageUrls?: string[] }[],
+  options?: AgentRuntimeOptions
+): Promise<AgentResult> {
+  return runAgentRuntime(tenantId, history, options, 'v2');
+}
+
+export async function runAgentV3(
+  tenantId: string,
+  history: { role: string; content: string; imageUrls?: string[] }[],
+  options?: AgentRuntimeOptions
+): Promise<AgentResult> {
+  return runAgentRuntime(tenantId, history, options, 'v3');
 }
