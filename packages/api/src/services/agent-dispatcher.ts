@@ -3,7 +3,15 @@ import { runAgent, type AgentResult } from './agent.js';
 import { runAgentV2, runAgentV3 } from './agent-v2.js';
 
 type AgentHistoryMessage = { role: string; content: string; imageUrls?: string[] };
-type AgentOptions = { userId?: string; externalUserId?: string; conversationId?: string; preferredResponseLanguage?: 'luganda' | 'english' | null; channel?: 'widget' | 'whatsapp' | 'whatsapp_meta' };
+type AgentOptions = {
+  userId?: string;
+  externalUserId?: string;
+  conversationId?: string;
+  preferredResponseLanguage?: 'luganda' | 'english' | null;
+  conversationLanguageCode?: string | null;
+  conversationLanguageName?: string | null;
+  channel?: 'widget' | 'whatsapp' | 'whatsapp_meta';
+};
 type AgentVersion = 'v1' | 'v2' | 'v3';
 
 function normalizeAgentVersion(value: unknown): AgentVersion | null {

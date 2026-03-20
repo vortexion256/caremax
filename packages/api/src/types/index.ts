@@ -15,7 +15,13 @@ export type AgentConfig = {
   model: string;
   temperature: number;
   ragEnabled: boolean;
+  whatsappLanguageDetectionProvider?: 'gemini' | 'sunbird';
   whatsappSunbirdTemperature?: number;
+  whatsappSunbirdAcholiSpeakerId?: number;
+  whatsappSunbirdAtesoSpeakerId?: number;
+  whatsappSunbirdLugandaSpeakerId?: number;
+  whatsappSunbirdLugbaraSpeakerId?: number;
+  whatsappSunbirdRunyankoleSpeakerId?: number;
   whatsappGoogleTtsLanguageCode?: string;
   whatsappGoogleTtsVoiceName?: string;
   whatsappElevenLabsVoiceId?: string;

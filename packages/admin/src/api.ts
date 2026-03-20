@@ -65,8 +65,16 @@ export type AgentConfig = {
   whatsappForceVoiceReplies?: boolean;
   /** Which TTS provider should be used for WhatsApp voice replies. */
   whatsappTtsProvider?: 'sunbird' | 'google-cloud-tts' | 'elevenlabs' | 'gemini-2.5-flash-preview-tts';
+  /** Which provider should detect WhatsApp conversation language changes. */
+  whatsappLanguageDetectionProvider?: 'gemini' | 'sunbird';
   /** Sunbird-only temperature used for WhatsApp TTS generation. */
   whatsappSunbirdTemperature?: number;
+  /** Sunbird speaker IDs for local-language WhatsApp voice replies. */
+  whatsappSunbirdAcholiSpeakerId?: number;
+  whatsappSunbirdAtesoSpeakerId?: number;
+  whatsappSunbirdLugandaSpeakerId?: number;
+  whatsappSunbirdLugbaraSpeakerId?: number;
+  whatsappSunbirdRunyankoleSpeakerId?: number;
   /** Google Cloud TTS language code used for WhatsApp voice replies (for example en-US). */
   whatsappGoogleTtsLanguageCode?: string;
   /** Google Cloud TTS voice name used for WhatsApp voice replies (for example en-US-Neural2-F). */

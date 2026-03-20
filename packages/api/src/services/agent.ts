@@ -419,7 +419,15 @@ function hasMultipleUserTurns(history: { role: string }[]): boolean {
 export async function runAgent(
   tenantId: string,
   history: { role: string; content: string; imageUrls?: string[] }[],
-  options?: { userId?: string; externalUserId?: string; conversationId?: string; preferredResponseLanguage?: 'luganda' | 'english' | null; channel?: 'widget' | 'whatsapp' | 'whatsapp_meta' }
+  options?: {
+    userId?: string;
+    externalUserId?: string;
+    conversationId?: string;
+    preferredResponseLanguage?: 'luganda' | 'english' | null;
+    conversationLanguageCode?: string | null;
+    conversationLanguageName?: string | null;
+    channel?: 'widget' | 'whatsapp' | 'whatsapp_meta';
+  }
 ): Promise<AgentResult> {
   const runStartedAt = Date.now();
   const config = await getAgentConfig(tenantId);
@@ -444,6 +452,9 @@ export async function runAgent(
     : (options?.preferredResponseLanguage === 'english'
       ? 'Language preference: The user most recently wrote in English. Reply in English unless they explicitly ask for another language.'
       : '');
+  const conversationLanguageInstruction = options?.conversationLanguageCode && options?.conversationLanguageName
+    ? `Conversation language flag: ${options.conversationLanguageName} (${options.conversationLanguageCode}). Reply in natural ${options.conversationLanguageName} unless the user explicitly asks to switch languages.`
+    : '';
 
   const escalationInstruction = `
 Escalation to a human: When EITHER of the following is true, you MUST end your reply with exactly "${HANDOFF_MARKER}" on a new line (the user will not see this; the system will connect them to a care team member).
@@ -582,7 +593,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
     );
   }
 
-  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}${reminderSnapshotContext}`;
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}${conversationLanguageInstruction ? `\n\n${conversationLanguageInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}${reminderSnapshotContext}`;
   if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
     systemContent += `\n\nReminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.`;
   }
