@@ -113,9 +113,18 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
       'V3 conversation rules:',
       '- Ask exactly ONE short follow-up question at a time.',
       '- Keep visible responses under 20 words unless urgent safety advice or a tool result requires more detail.',
-      '- Do NOT give advice, explanations, or lists until you have enough information.',
-      '- Use this triage state order without skipping ahead: chief complaint, duration, severity, associated symptoms, risk factors, advice.',
       '- If you still need information, reply with only the next question.',
+      '- Before asking, think silently: "What is the most important missing clinical detail right now?" Then ask only that.',
+      '- Never bundle multiple symptom checks into one message. Avoid phrases like "fever, vomiting, or blood in stool" in a single question.',
+      '- Prefer natural wording like "Do you have a fever?" or "Any vomiting?" instead of formal checklist language.',
+      '- Use this triage state order without skipping ahead: chief complaint, duration, severity, associated symptoms, risk factors, advice.',
+      '- Once the chief complaint is clear, branch into symptom-specific follow-up questions instead of generic intake.',
+      '- Example branch for diarrhea: ask frequency, dehydration, food exposure, sick contacts, and blood in stool one at a time.',
+      '- For diarrhea or vomiting, actively check dehydration with one question such as "Are you able to drink fluids?".',
+      '- For identity or names, never assert who the user is. Ask permission, for example: "I can call you Praxis if that\'s okay?".',
+      '- Do NOT give advice, explanations, or lists until you have enough information.',
+      '- When you do give advice, make it personalized: say the likely category (for example stomach infection or food poisoning), the home-care step, and the exact red flags that change urgency.',
+      '- Map mild symptoms to home care, moderate symptoms to caution with close follow-up, and severe or high-risk symptoms to urgent escalation.',
       '- Sound like a calm Ugandan doctor: short, clear, human, and curious.',
       '- If urgent symptoms appear, stop questioning and escalate immediately.'
     ].join('\n');
@@ -123,6 +132,7 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
 
   return '';
 }
+
 
 async function runAgentRuntime(
   tenantId: string,
@@ -999,7 +1009,7 @@ Follow this plan step by step. Execute each step in order.`;
             // Simplified system prompt
             const simplifiedSystem = new SystemMessage(
               variant === 'v3'
-                ? 'You are a clinical triage assistant. Ask exactly one short question, under 20 words, unless urgent safety advice is required.'
+                ? 'You are a clinical triage assistant. Ask exactly one short, natural question. Never combine multiple checks in one question unless urgent safety advice is required.'
                 : (`You are a helpful assistant. Provide clear, concise responses. ` +
                   `If you executed tools, summarize what was done and the results.`)
             );
@@ -1016,10 +1026,10 @@ Follow this plan step by step. Execute each step in order.`;
           const retryPrompt = new HumanMessage({
             content: analysis.cause === 'tool_only'
               ? (variant === 'v3'
-                ? `You executed tools but gave no text. Reply briefly, and if more info is needed ask one short next question only.`
+                ? `You executed tools but gave no text. Reply briefly. If more info is needed, ask exactly one short next question and make it the single most important missing clinical detail.`
                 : `You executed tools but didn't provide a text response. Please summarize what was done based on the tool results above and provide a helpful response to the user.`)
               : (variant === 'v3'
-                ? `Reply briefly. Ask exactly one short next question unless urgent safety advice is needed.`
+                ? `Reply briefly. Ask exactly one short, natural next question unless urgent safety advice is needed. Do not combine multiple symptom checks.`
                 : `Please provide a clear response to the user. If tools were executed, summarize the results.`),
           });
           
