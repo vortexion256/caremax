@@ -371,7 +371,7 @@ ${normalized}`,
     return normalized;
   }
 }
-const WHATSAPP_LANGUAGE_DETECT_TIMEOUT_MS = 12_000;
+const WHATSAPP_LANGUAGE_DETECT_TIMEOUT_MS = 24_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
