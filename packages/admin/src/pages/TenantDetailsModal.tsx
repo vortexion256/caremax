@@ -13,7 +13,7 @@ type TenantDetails = {
     agentName: string | null;
     model: string | null;
     ragEnabled: boolean;
-    agentVersion: 'v1' | 'v2' | null;
+    agentVersion: 'v1' | 'v2' | 'v3' | null;
     createdAt: number | null;
   } | null;
   billingPlanId: string;
@@ -129,7 +129,7 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
     showUsageByApiFlow?: boolean;
     maxTokensPerUser?: number;
     maxSpendUgxPerUser?: number;
-    agentVersion?: 'v1' | 'v2';
+    agentVersion?: 'v1' | 'v2' | 'v3';
   }) => {
     if (savingSettings) return;
     setSavingSettings(true);
@@ -367,12 +367,13 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
                   Agent runtime version
                   <select
                     value={details.agentConfig?.agentVersion ?? 'v1'}
-                    onChange={(e) => saveTenantSettings({ agentVersion: e.target.value as 'v1' | 'v2' })}
+                    onChange={(e) => saveTenantSettings({ agentVersion: e.target.value as 'v1' | 'v2' | 'v3' })}
                     disabled={savingSettings}
                     style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', width: 180 }}
                   >
                     <option value="v1">v1</option>
                     <option value="v2">v2</option>
+                    <option value="v3">v3</option>
                   </select>
                 </label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
