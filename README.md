@@ -137,9 +137,10 @@ Notes:
   - `ElevenLabs`
   - `Gemini 2.5 Flash Preview TTS` (this currently reuses the Google Cloud TTS synthesis path/server-side credentials).
 - If no provider has been saved yet, backend fallback is `sunbird`.
-- Language-aware override is also applied when voice notes are generated:
-  - English (`en`/`eng`/`english`) keeps the tenant's configured English provider (`google-cloud-tts` or `elevenlabs`), and falls back to `google-cloud-tts` when another provider is selected
-  - Luganda (`lg`/`luganda`) forces `sunbird`
+- The saved conversation language flag is what decides the voice stack at send time:
+  - English (`en`/`eng`/`english`) uses the tenant's configured English provider (`google-cloud-tts` or `elevenlabs`), and falls back to `google-cloud-tts` when another provider is selected
+  - Luganda (`lg`/`luganda`) and the supported local-language flags use `sunbird`
+- When an incoming WhatsApp message appears to change the conversation language flag, the system now acknowledges the change and asks the user to confirm before continuing in the new language.
 
 For the Google Cloud synthesis path, the voice and output format are configurable with env vars:
 

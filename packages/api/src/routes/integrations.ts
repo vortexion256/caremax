@@ -817,6 +817,11 @@ const DEFAULT_CONVERSATION_LANGUAGE_CODE: SupportedConversationLanguageCode = 'e
 const LANGUAGE_SWITCH_PROMPT_FLOW = 'language_switch_prompt';
 const LANGUAGE_SWITCH_CONFIRMATION_FLOW = 'language_switch_confirmation';
 
+const LANGUAGE_SWITCH_CONFIRM_KEYWORDS = {
+  yes: new Set(['yes', 'y', 'okay', 'ok', 'continue', 'proceed', 'switch', 'go ahead', 'sure']),
+  no: new Set(['no', 'n', 'stay', 'keep english', 'dont switch', "don't switch", 'nope']),
+};
+
 const SUPPORTED_CONVERSATION_LANGUAGES: Record<SupportedConversationLanguageCode, {
   name: string;
   aliases: string[];
@@ -1207,6 +1212,103 @@ function shouldFilterLanguageFlowMessage(metadata: unknown): boolean {
   return flow === LANGUAGE_SWITCH_PROMPT_FLOW || flow === LANGUAGE_SWITCH_CONFIRMATION_FLOW;
 }
 
+function normalizeLanguageSwitchDecision(text: string | null | undefined): 'yes' | 'no' | null {
+  if (!text) return null;
+  const normalized = text.trim().toLowerCase().replace(/[.!?,]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+  if (LANGUAGE_SWITCH_CONFIRM_KEYWORDS.yes.has(normalized)) return 'yes';
+  if (LANGUAGE_SWITCH_CONFIRM_KEYWORDS.no.has(normalized)) return 'no';
+  return null;
+}
+
+function buildLanguageSwitchPrompt(params: {
+  fromLanguageName: string;
+  toLanguageName: string;
+}): string {
+  return `I noticed your message changed from ${params.fromLanguageName} to ${params.toLanguageName}. Should I continue in ${params.toLanguageName}? Reply YES to switch or NO to stay in ${params.fromLanguageName}.`;
+}
+
+function buildLanguageSwitchConfirmation(params: {
+  accepted: boolean;
+  currentLanguageName: string;
+  requestedLanguageName: string;
+}): string {
+  if (params.accepted) {
+    return `Okay — I will continue in ${params.requestedLanguageName}.`;
+  }
+  return `Okay — I will continue in ${params.currentLanguageName}.`;
+}
+
+function resolveLanguageSwitchPromptAction(params: {
+  body: string;
+  currentLanguageCode: SupportedConversationLanguageCode;
+  currentLanguageName: string;
+  pendingLanguageCode: SupportedConversationLanguageCode | null;
+  pendingLanguageName: string | null;
+  detectedIncomingLanguage: SupportedConversationLanguageCode | null;
+}): {
+  type: 'none';
+} | {
+  type: 'prompt';
+  nextLanguageCode: SupportedConversationLanguageCode;
+  nextLanguageName: string;
+  prompt: string;
+} | {
+  type: 'confirm';
+  accepted: boolean;
+  confirmation: string;
+} {
+  if (params.pendingLanguageCode && params.pendingLanguageName) {
+    const decision = normalizeLanguageSwitchDecision(params.body);
+    if (decision === 'yes') {
+      return {
+        type: 'confirm',
+        accepted: true,
+        confirmation: buildLanguageSwitchConfirmation({
+          accepted: true,
+          currentLanguageName: params.currentLanguageName,
+          requestedLanguageName: params.pendingLanguageName,
+        }),
+      };
+    }
+    if (decision === 'no') {
+      return {
+        type: 'confirm',
+        accepted: false,
+        confirmation: buildLanguageSwitchConfirmation({
+          accepted: false,
+          currentLanguageName: params.currentLanguageName,
+          requestedLanguageName: params.pendingLanguageName,
+        }),
+      };
+    }
+    return {
+      type: 'prompt',
+      nextLanguageCode: params.pendingLanguageCode,
+      nextLanguageName: params.pendingLanguageName,
+      prompt: buildLanguageSwitchPrompt({
+        fromLanguageName: params.currentLanguageName,
+        toLanguageName: params.pendingLanguageName,
+      }),
+    };
+  }
+
+  if (params.detectedIncomingLanguage && params.detectedIncomingLanguage !== params.currentLanguageCode) {
+    const nextLanguageName = getConversationLanguageName(params.detectedIncomingLanguage);
+    return {
+      type: 'prompt',
+      nextLanguageCode: params.detectedIncomingLanguage,
+      nextLanguageName,
+      prompt: buildLanguageSwitchPrompt({
+        fromLanguageName: params.currentLanguageName,
+        toLanguageName: nextLanguageName,
+      }),
+    };
+  }
+
+  return { type: 'none' };
+}
+
 function resolveLanguageAwareTtsProvider(params: {
   configuredProvider: WhatsAppTtsProvider;
   responseLanguage: string | null;
@@ -1543,10 +1645,19 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     const detectedIncomingLanguage = body
       ? await detectWhatsAppLanguage({ text: body, provider: languageDetectionProvider })
       : null;
-    const shouldUpdateConversationLanguage = Boolean(
-      detectedIncomingLanguage
-      && detectedIncomingLanguage !== languageStateBeforeMessage.currentLanguageCode,
-    );
+    const languageSwitchAction = resolveLanguageSwitchPromptAction({
+      body,
+      currentLanguageCode: languageStateBeforeMessage.currentLanguageCode,
+      currentLanguageName: languageStateBeforeMessage.currentLanguageName,
+      pendingLanguageCode: languageStateBeforeMessage.pendingLanguageCode,
+      pendingLanguageName: languageStateBeforeMessage.pendingLanguageName,
+      detectedIncomingLanguage,
+    });
+    const isLanguageConfirmationMessage = languageSwitchAction.type === 'confirm';
+    const inboundMessageMetadata = {
+      ...(cameFromVoiceNote ? { source: 'voice_note' } : {}),
+      ...(isLanguageConfirmationMessage ? { flow: LANGUAGE_SWITCH_CONFIRMATION_FLOW } : {}),
+    };
 
     await db.collection('messages').add({
       conversationId: conversationRef.id,
@@ -1557,17 +1668,57 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       ...(cameFromVoiceNote && storedVoiceNoteAudioUrl ? { audioUrl: storedVoiceNoteAudioUrl } : {}),
       channel: 'whatsapp',
       inputType: cameFromVoiceNote ? 'voice' : 'text',
-      ...(cameFromVoiceNote ? { metadata: { source: 'voice_note' } } : {}),
+      ...(Object.keys(inboundMessageMetadata).length > 0 ? { metadata: inboundMessageMetadata } : {}),
       createdAt: FieldValue.serverTimestamp(),
     });
 
-    if (shouldUpdateConversationLanguage && detectedIncomingLanguage) {
+    if (languageSwitchAction.type === 'prompt') {
       await conversationRef.set({
-        currentLanguageCode: detectedIncomingLanguage,
+        pendingLanguageCode: languageSwitchAction.nextLanguageCode,
+        pendingLanguageOriginalMessage: body,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      await db.collection('messages').add({
+        conversationId: conversationRef.id,
+        tenantId,
+        role: 'assistant',
+        content: languageSwitchAction.prompt,
+        channel: 'whatsapp',
+        metadata: { flow: LANGUAGE_SWITCH_PROMPT_FLOW },
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlResponse(languageSwitchAction.prompt));
+      return;
+    }
+
+    if (languageSwitchAction.type === 'confirm') {
+      await conversationRef.set({
+        currentLanguageCode: languageSwitchAction.accepted
+          ? languageStateBeforeMessage.pendingLanguageCode ?? languageStateBeforeMessage.currentLanguageCode
+          : languageStateBeforeMessage.currentLanguageCode,
         pendingLanguageCode: FieldValue.delete(),
         pendingLanguageOriginalMessage: FieldValue.delete(),
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
+
+      if (!languageSwitchAction.accepted) {
+        await db.collection('messages').add({
+          conversationId: conversationRef.id,
+          tenantId,
+          role: 'assistant',
+          content: languageSwitchAction.confirmation,
+          channel: 'whatsapp',
+          metadata: { flow: LANGUAGE_SWITCH_CONFIRMATION_FLOW },
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
+        res.set('Content-Type', 'text/xml');
+        res.status(200).send(xmlResponse(languageSwitchAction.confirmation));
+        return;
+      }
     }
 
     void recordAgentActivity(tenantId, 'whatsapp-received');
@@ -2240,10 +2391,19 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
           const detectedIncomingLanguage = body
             ? await detectWhatsAppLanguage({ text: body, provider: languageDetectionProvider })
             : null;
-          const shouldUpdateConversationLanguage = Boolean(
-            detectedIncomingLanguage
-            && detectedIncomingLanguage !== languageStateBeforeMessage.currentLanguageCode,
-          );
+          const languageSwitchAction = resolveLanguageSwitchPromptAction({
+            body,
+            currentLanguageCode: languageStateBeforeMessage.currentLanguageCode,
+            currentLanguageName: languageStateBeforeMessage.currentLanguageName,
+            pendingLanguageCode: languageStateBeforeMessage.pendingLanguageCode,
+            pendingLanguageName: languageStateBeforeMessage.pendingLanguageName,
+            detectedIncomingLanguage,
+          });
+          const isLanguageConfirmationMessage = languageSwitchAction.type === 'confirm';
+          const inboundMessageMetadata = {
+            ...(cameFromVoiceNote ? { source: 'voice_note' } : {}),
+            ...(isLanguageConfirmationMessage ? { flow: LANGUAGE_SWITCH_CONFIRMATION_FLOW } : {}),
+          };
 
           await db.collection('messages').add({
             conversationId: conversationRef.id,
@@ -2254,17 +2414,65 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             ...(cameFromVoiceNote && voiceNoteAudioUrl ? { audioUrl: voiceNoteAudioUrl, inputType: 'voice' } : {}),
             channel: 'whatsapp_meta',
             providerMessageId: messageId,
-            ...(cameFromVoiceNote ? { metadata: { source: 'voice_note' } } : {}),
+            ...(Object.keys(inboundMessageMetadata).length > 0 ? { metadata: inboundMessageMetadata } : {}),
             createdAt: FieldValue.serverTimestamp(),
           });
 
-          if (shouldUpdateConversationLanguage && detectedIncomingLanguage) {
+          if (languageSwitchAction.type === 'prompt') {
             await conversationRef.set({
-              currentLanguageCode: detectedIncomingLanguage,
+              pendingLanguageCode: languageSwitchAction.nextLanguageCode,
+              pendingLanguageOriginalMessage: body,
+              updatedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+
+            await db.collection('messages').add({
+              conversationId: conversationRef.id,
+              tenantId,
+              role: 'assistant',
+              content: languageSwitchAction.prompt,
+              channel: 'whatsapp_meta',
+              metadata: { flow: LANGUAGE_SWITCH_PROMPT_FLOW },
+              createdAt: FieldValue.serverTimestamp(),
+            });
+
+            await sendMetaWhatsAppTextMessage({
+              phoneNumberId,
+              accessToken,
+              to: identity.externalUserId,
+              body: languageSwitchAction.prompt,
+            });
+            continue;
+          }
+
+          if (languageSwitchAction.type === 'confirm') {
+            await conversationRef.set({
+              currentLanguageCode: languageSwitchAction.accepted
+                ? languageStateBeforeMessage.pendingLanguageCode ?? languageStateBeforeMessage.currentLanguageCode
+                : languageStateBeforeMessage.currentLanguageCode,
               pendingLanguageCode: FieldValue.delete(),
               pendingLanguageOriginalMessage: FieldValue.delete(),
               updatedAt: FieldValue.serverTimestamp(),
             }, { merge: true });
+
+            if (!languageSwitchAction.accepted) {
+              await db.collection('messages').add({
+                conversationId: conversationRef.id,
+                tenantId,
+                role: 'assistant',
+                content: languageSwitchAction.confirmation,
+                channel: 'whatsapp_meta',
+                metadata: { flow: LANGUAGE_SWITCH_CONFIRMATION_FLOW },
+                createdAt: FieldValue.serverTimestamp(),
+              });
+
+              await sendMetaWhatsAppTextMessage({
+                phoneNumberId,
+                accessToken,
+                to: identity.externalUserId,
+                body: languageSwitchAction.confirmation,
+              });
+              continue;
+            }
           }
 
           void recordAgentActivity(tenantId, 'whatsapp-meta-received');
