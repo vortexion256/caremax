@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { getTenantBillingStatus } from '../services/billing.js';
 import { getMarzPayCredentialInfo } from '../services/marzpay.js';
 import { createTenantNotification } from '../services/tenant-notifications.js';
+import { invalidateBillingModelPricingCache } from '../services/token-usage.js';
 
 export const platformRouter: Router = Router();
 
@@ -317,10 +318,14 @@ const billingPlanSchema = z.object({
 });
 
 const billingPlansSchema = z.object({ plans: z.array(billingPlanSchema).min(1) });
-const billingConfigSchema = z.object({
+const billingModelPricingSchema = z.object({
+  model: z.string().trim().min(1),
   inputCostPer1MTokensUsd: z.number().nonnegative(),
   outputCostPer1MTokensUsd: z.number().nonnegative(),
+});
+const billingConfigSchema = z.object({
   availableModels: z.array(z.string().min(1)).min(1),
+  modelPricing: z.array(billingModelPricingSchema).min(1),
 });
 
 const publicContentSchema = z.object({
@@ -352,10 +357,46 @@ const tenantAdminSettingsSchema = z.object({
 });
 
 const defaultBillingConfig = {
-  inputCostPer1MTokensUsd: 0.15,
-  outputCostPer1MTokensUsd: 0.6,
   availableModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+  modelPricing: [
+    { model: 'gemini-2.0-flash', inputCostPer1MTokensUsd: 0.15, outputCostPer1MTokensUsd: 0.6 },
+    { model: 'gemini-1.5-flash', inputCostPer1MTokensUsd: 0.15, outputCostPer1MTokensUsd: 0.6 },
+    { model: 'gemini-1.5-pro', inputCostPer1MTokensUsd: 3.5, outputCostPer1MTokensUsd: 10.5 },
+  ],
 };
+
+function normalizeBillingConfig(data: Record<string, unknown>) {
+  const availableModels = Array.isArray(data.availableModels) && data.availableModels.length > 0
+    ? data.availableModels.filter((model): model is string => typeof model === 'string' && model.trim().length > 0)
+    : defaultBillingConfig.availableModels;
+
+  const rawModelPricing = Array.isArray(data.modelPricing) ? data.modelPricing : [];
+  const normalizedPricing = rawModelPricing
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const model = typeof (entry as { model?: unknown }).model === 'string' ? (entry as { model: string }).model.trim() : '';
+      if (!model) return null;
+      return {
+        model,
+        inputCostPer1MTokensUsd: typeof (entry as { inputCostPer1MTokensUsd?: unknown }).inputCostPer1MTokensUsd === 'number'
+          ? (entry as { inputCostPer1MTokensUsd: number }).inputCostPer1MTokensUsd
+          : 0,
+        outputCostPer1MTokensUsd: typeof (entry as { outputCostPer1MTokensUsd?: unknown }).outputCostPer1MTokensUsd === 'number'
+          ? (entry as { outputCostPer1MTokensUsd: number }).outputCostPer1MTokensUsd
+          : 0,
+      };
+    })
+    .filter((entry): entry is { model: string; inputCostPer1MTokensUsd: number; outputCostPer1MTokensUsd: number } => entry !== null);
+
+  const pricingByModel = new Map(normalizedPricing.map((entry) => [entry.model, entry]));
+  const modelPricing = availableModels.map((model) => (
+    pricingByModel.get(model)
+    ?? defaultBillingConfig.modelPricing.find((entry) => entry.model === model)
+    ?? { model, inputCostPer1MTokensUsd: 0, outputCostPer1MTokensUsd: 0 }
+  ));
+
+  return { availableModels, modelPricing };
+}
 
 platformRouter.get('/billing/plans', async (_req, res) => {
   try {
@@ -415,11 +456,7 @@ platformRouter.get('/billing/config', async (_req, res) => {
     }
 
     const data = doc.data() ?? {};
-    res.json({
-      inputCostPer1MTokensUsd: typeof data.inputCostPer1MTokensUsd === 'number' ? data.inputCostPer1MTokensUsd : defaultBillingConfig.inputCostPer1MTokensUsd,
-      outputCostPer1MTokensUsd: typeof data.outputCostPer1MTokensUsd === 'number' ? data.outputCostPer1MTokensUsd : defaultBillingConfig.outputCostPer1MTokensUsd,
-      availableModels: Array.isArray(data.availableModels) && data.availableModels.length > 0 ? data.availableModels : defaultBillingConfig.availableModels,
-    });
+    res.json(normalizeBillingConfig(data));
   } catch (e) {
     console.error('Failed to load billing config:', e);
     res.status(500).json({ error: 'Failed to load billing config' });
@@ -434,11 +471,13 @@ platformRouter.put('/billing/config', async (req, res) => {
   }
 
   try {
+    const normalizedConfig = normalizeBillingConfig(parsed.data);
     await db.collection('platform_settings').doc('saas_billing').set({
-      ...parsed.data,
+      ...normalizedConfig,
       updatedAt: new Date(),
     }, { merge: true });
-    res.json({ success: true, ...parsed.data });
+    invalidateBillingModelPricingCache();
+    res.json({ success: true, ...normalizedConfig });
   } catch (e) {
     console.error('Failed to save billing config:', e);
     res.status(500).json({ error: 'Failed to save billing config' });

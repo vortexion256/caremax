@@ -1777,7 +1777,8 @@ Provide a clear, user-friendly response based on these results.`,
           usageType: 'conversation.reply',
         }
       );
-      console.log(`✅ Recorded usage: ${totalInputTokens} input + ${totalOutputTokens} output = ${totalTokens} total tokens ($${computeCostUsd(config.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, totalTokens }).toFixed(6)})`);
+      const computedCostUsd = await computeCostUsd(config.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, totalTokens });
+      console.log(`✅ Recorded usage: ${totalInputTokens} input + ${totalOutputTokens} output = ${totalTokens} total tokens ($${computedCostUsd.toFixed(6)})`);
     } else {
       console.warn('Could not extract usage metadata - no tokens found in any response');
     }

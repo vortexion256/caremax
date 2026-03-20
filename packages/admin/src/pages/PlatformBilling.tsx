@@ -16,15 +16,21 @@ type Plan = {
 };
 
 type BillingConfig = {
-  inputCostPer1MTokensUsd: number;
-  outputCostPer1MTokensUsd: number;
   availableModels: string[];
+  modelPricing: Array<{
+    model: string;
+    inputCostPer1MTokensUsd: number;
+    outputCostPer1MTokensUsd: number;
+  }>;
 };
 
 const defaultBillingConfig: BillingConfig = {
-  inputCostPer1MTokensUsd: 0.15,
-  outputCostPer1MTokensUsd: 0.6,
   availableModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+  modelPricing: [
+    { model: 'gemini-2.0-flash', inputCostPer1MTokensUsd: 0.15, outputCostPer1MTokensUsd: 0.6 },
+    { model: 'gemini-1.5-flash', inputCostPer1MTokensUsd: 0.15, outputCostPer1MTokensUsd: 0.6 },
+    { model: 'gemini-1.5-pro', inputCostPer1MTokensUsd: 3.5, outputCostPer1MTokensUsd: 10.5 },
+  ],
 };
 
 const createEmptyPlan = (): Plan => ({
@@ -109,11 +115,32 @@ export default function PlatformBilling() {
       return;
     }
 
+    const normalizedModels = billingConfig.availableModels.map((model) => model.trim());
+    if (normalizedModels.some((model) => !model)) {
+      setNotice({ tone: 'error', message: 'Each model row must include a model ID.' });
+      return;
+    }
+
+    const uniqueModels = new Set(normalizedModels);
+    if (uniqueModels.size !== normalizedModels.length) {
+      setNotice({ tone: 'error', message: 'Model IDs must be unique.' });
+      return;
+    }
+
+    const normalizedConfig: BillingConfig = {
+      availableModels: normalizedModels,
+      modelPricing: billingConfig.modelPricing.map((entry, index) => ({
+        model: normalizedModels[index] ?? entry.model.trim(),
+        inputCostPer1MTokensUsd: entry.inputCostPer1MTokensUsd,
+        outputCostPer1MTokensUsd: entry.outputCostPer1MTokensUsd,
+      })),
+    };
+
     setSaving(true);
     try {
       await Promise.all([
         api('/platform/billing/plans', { method: 'PUT', body: JSON.stringify({ plans: normalizedPlans }) }),
-        api('/platform/billing/config', { method: 'PUT', body: JSON.stringify(billingConfig) }),
+        api('/platform/billing/config', { method: 'PUT', body: JSON.stringify(normalizedConfig) }),
       ]);
       setNotice({ tone: 'success', message: 'Billing plans and config saved successfully.' });
       await load();
@@ -157,14 +184,44 @@ export default function PlatformBilling() {
   const isReadOnly = activePlanMode === 'view';
 
   const addModel = () => {
-    setBillingConfig((prev) => ({ ...prev, availableModels: [...prev.availableModels, ''] }));
+    setBillingConfig((prev) => ({
+      ...prev,
+      availableModels: [...prev.availableModels, ''],
+      modelPricing: [
+        ...prev.modelPricing,
+        { model: '', inputCostPer1MTokensUsd: 0, outputCostPer1MTokensUsd: 0 },
+      ],
+    }));
   };
 
   const removeModel = (idx: number) => {
     setBillingConfig((prev) => {
       if (prev.availableModels.length <= 1) return prev;
-      return { ...prev, availableModels: prev.availableModels.filter((_, i) => i !== idx) };
+      return {
+        ...prev,
+        availableModels: prev.availableModels.filter((_, i) => i !== idx),
+        modelPricing: prev.modelPricing.filter((_, i) => i !== idx),
+      };
     });
+  };
+
+  const updateModelName = (idx: number, model: string) => {
+    setBillingConfig((prev) => ({
+      ...prev,
+      availableModels: prev.availableModels.map((entry, i) => (i === idx ? model : entry)),
+      modelPricing: prev.modelPricing.map((entry, i) => (i === idx ? { ...entry, model } : entry)),
+    }));
+  };
+
+  const updateModelPricing = (
+    idx: number,
+    field: 'inputCostPer1MTokensUsd' | 'outputCostPer1MTokensUsd',
+    value: number,
+  ) => {
+    setBillingConfig((prev) => ({
+      ...prev,
+      modelPricing: prev.modelPricing.map((entry, i) => (i === idx ? { ...entry, [field]: value } : entry)),
+    }));
   };
 
   return (
@@ -355,51 +412,44 @@ export default function PlatformBilling() {
       </button>
 
       <div style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: 14, marginTop: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Token Pricing (per 1M tokens)</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <label style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 12, color: '#475569' }}>Input amount per 1M tokens (USD)</span>
-            <input
-              type="number"
-              step="0.0001"
-              value={billingConfig.inputCostPer1MTokensUsd}
-              onChange={(e) => setBillingConfig((prev) => ({ ...prev, inputCostPer1MTokensUsd: Number(e.target.value) }))}
-            />
-          </label>
-          <label style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 12, color: '#475569' }}>Output price per 1M tokens (USD)</span>
-            <input
-              type="number"
-              step="0.0001"
-              value={billingConfig.outputCostPer1MTokensUsd}
-              onChange={(e) => setBillingConfig((prev) => ({ ...prev, outputCostPer1MTokensUsd: Number(e.target.value) }))}
-            />
-          </label>
-        </div>
-      </div>
-
-      <div style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: 14, marginTop: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Models Available in Agent Config</h3>
-        <p style={{ marginTop: 0, color: '#64748b', fontSize: 13 }}>Add or delete model IDs users can select under Agent Settings.</p>
+        <h3 style={{ marginTop: 0 }}>Model Pricing</h3>
+        <p style={{ marginTop: 0, color: '#64748b', fontSize: 13 }}>
+          Set the live metering rate for each model. These values are used when calculating usage cost in SaaS admin.
+        </p>
         {billingConfig.availableModels.map((model, idx) => (
-          <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <div key={idx} style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1.5fr) repeat(2, minmax(150px, 1fr)) auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
             <input
               value={model}
-              onChange={(e) =>
-                setBillingConfig((prev) => ({
-                  ...prev,
-                  availableModels: prev.availableModels.map((x, i) => (i === idx ? e.target.value : x)),
-                }))
-              }
-              style={{ flex: 1 }}
+              onChange={(e) => updateModelName(idx, e.target.value)}
+              style={{ width: '100%' }}
               placeholder="e.g. gemini-2.0-flash"
             />
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span style={{ fontSize: 12, color: '#475569' }}>Input / 1M (USD)</span>
+              <input
+                type="number"
+                min="0"
+                step="0.0001"
+                value={billingConfig.modelPricing[idx]?.inputCostPer1MTokensUsd ?? 0}
+                onChange={(e) => updateModelPricing(idx, 'inputCostPer1MTokensUsd', Number(e.target.value))}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span style={{ fontSize: 12, color: '#475569' }}>Output / 1M (USD)</span>
+              <input
+                type="number"
+                min="0"
+                step="0.0001"
+                value={billingConfig.modelPricing[idx]?.outputCostPer1MTokensUsd ?? 0}
+                onChange={(e) => updateModelPricing(idx, 'outputCostPer1MTokensUsd', Number(e.target.value))}
+              />
+            </label>
             <button type="button" onClick={() => removeModel(idx)} style={dangerButtonStyle}>
               Delete
             </button>
           </div>
         ))}
-        <button type="button" onClick={addModel} style={buttonBaseStyle}>+ Add Model</button>
+        <button type="button" onClick={addModel} style={buttonBaseStyle}>+ Add Model Pricing Row</button>
       </div>
 
       <button onClick={save} disabled={saving} style={{ ...primaryButtonStyle, marginTop: 16, opacity: saving ? 0.7 : 1 }}>

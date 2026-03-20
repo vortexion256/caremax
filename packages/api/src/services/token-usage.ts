@@ -16,13 +16,82 @@ export type UsageContext = {
   usageType?: string;
 };
 
-const GEMINI_PRICING_USD: Record<string, { inputPer1K: number; outputPer1K: number }> = {
-  'gemini-3-flash-preview': { inputPer1K: 0.000075, outputPer1K: 0.0003 },
-  'gemini-1.5-pro': { inputPer1K: 0.0035, outputPer1K: 0.0105 },
+type BillingModelPricing = {
+  model: string;
+  inputCostPer1MTokensUsd: number;
+  outputCostPer1MTokensUsd: number;
 };
+
+const BILLING_CONFIG_CACHE_TTL_MS = 60_000;
+const DEFAULT_MODEL_PRICING: BillingModelPricing[] = [
+  { model: 'gemini-2.0-flash', inputCostPer1MTokensUsd: 0.15, outputCostPer1MTokensUsd: 0.6 },
+  { model: 'gemini-1.5-flash', inputCostPer1MTokensUsd: 0.15, outputCostPer1MTokensUsd: 0.6 },
+  { model: 'gemini-1.5-pro', inputCostPer1MTokensUsd: 3.5, outputCostPer1MTokensUsd: 10.5 },
+];
+
+let cachedModelPricing:
+  | {
+      expiresAt: number;
+      value: Map<string, { inputCostPer1MTokensUsd: number; outputCostPer1MTokensUsd: number }>;
+    }
+  | null = null;
+
+export function invalidateBillingModelPricingCache(): void {
+  cachedModelPricing = null;
+}
 
 function toNum(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function normalizeModelPricing(entries: unknown): Map<string, { inputCostPer1MTokensUsd: number; outputCostPer1MTokensUsd: number }> {
+  const normalized = new Map<string, { inputCostPer1MTokensUsd: number; outputCostPer1MTokensUsd: number }>();
+
+  if (Array.isArray(entries)) {
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      const model = typeof (entry as { model?: unknown }).model === 'string' ? (entry as { model: string }).model.trim() : '';
+      const inputCostPer1MTokensUsd = toNum((entry as { inputCostPer1MTokensUsd?: unknown }).inputCostPer1MTokensUsd);
+      const outputCostPer1MTokensUsd = toNum((entry as { outputCostPer1MTokensUsd?: unknown }).outputCostPer1MTokensUsd);
+      if (!model) continue;
+      normalized.set(model, { inputCostPer1MTokensUsd, outputCostPer1MTokensUsd });
+    }
+  }
+
+  if (normalized.size > 0) return normalized;
+
+  for (const entry of DEFAULT_MODEL_PRICING) {
+    normalized.set(entry.model, {
+      inputCostPer1MTokensUsd: entry.inputCostPer1MTokensUsd,
+      outputCostPer1MTokensUsd: entry.outputCostPer1MTokensUsd,
+    });
+  }
+  return normalized;
+}
+
+async function getBillingModelPricing(): Promise<Map<string, { inputCostPer1MTokensUsd: number; outputCostPer1MTokensUsd: number }>> {
+  const now = Date.now();
+  if (cachedModelPricing && cachedModelPricing.expiresAt > now) {
+    return cachedModelPricing.value;
+  }
+
+  try {
+    const doc = await db.collection('platform_settings').doc('saas_billing').get();
+    const modelPricing = normalizeModelPricing(doc.data()?.modelPricing);
+    cachedModelPricing = {
+      value: modelPricing,
+      expiresAt: now + BILLING_CONFIG_CACHE_TTL_MS,
+    };
+    return modelPricing;
+  } catch (error) {
+    console.warn('Failed to load SaaS billing model pricing; using default billing config values.', error);
+    const fallbackPricing = normalizeModelPricing(DEFAULT_MODEL_PRICING);
+    cachedModelPricing = {
+      value: fallbackPricing,
+      expiresAt: now + BILLING_CONFIG_CACHE_TTL_MS,
+    };
+    return fallbackPricing;
+  }
 }
 
 function estimateTokensFromText(text: string): number {
@@ -96,16 +165,20 @@ export function mergeUsage(...usageParts: UsageMetadata[]): UsageMetadata {
   return { inputTokens, outputTokens, totalTokens, measurementSource };
 }
 
-export function computeCostUsd(model: string, usage: UsageMetadata): number {
-  const pricing = GEMINI_PRICING_USD[model] ?? GEMINI_PRICING_USD['gemini-3-flash-preview'];
-  const inputCost = (usage.inputTokens / 1000) * pricing.inputPer1K;
-  const outputCost = (usage.outputTokens / 1000) * pricing.outputPer1K;
+export async function computeCostUsd(model: string, usage: UsageMetadata): Promise<number> {
+  const pricingMap = await getBillingModelPricing();
+  const pricing = pricingMap.get(model) ?? pricingMap.get('gemini-2.0-flash') ?? pricingMap.values().next().value ?? {
+    inputCostPer1MTokensUsd: 0,
+    outputCostPer1MTokensUsd: 0,
+  };
+  const inputCost = (usage.inputTokens / 1_000_000) * pricing.inputCostPer1MTokensUsd;
+  const outputCost = (usage.outputTokens / 1_000_000) * pricing.outputCostPer1MTokensUsd;
   return Number((inputCost + outputCost).toFixed(8));
 }
 
 export async function recordUsage(modelName: string, usage: UsageMetadata, ctx: UsageContext): Promise<void> {
   try {
-    const costUsd = computeCostUsd(modelName, usage);
+    const costUsd = await computeCostUsd(modelName, usage);
     const createdAt = new Date();
     await db.collection('usage_events').add({
       tenantId: ctx.tenantId,
