@@ -5,9 +5,14 @@ import { useIsMobile } from '../hooks/useIsMobile';
 
 const GOOGLE_TTS_LANGUAGE_CODE_DEFAULT = 'en-US';
 const GOOGLE_TTS_VOICE_NAME_DEFAULT = 'en-US-Neural2-F';
-
-
 const ELEVENLABS_VOICE_ID_DEFAULT = 'JBFqnCBsd6RMkjVDRZzb';
+const SUNBIRD_SPEAKER_DEFAULTS = {
+  acholi: 241,
+  ateso: 242,
+  luganda: 248,
+  lugbara: 245,
+  runyankole: 243,
+} as const;
 
 const ELEVENLABS_VOICE_OPTIONS = [
   { value: 'JBFqnCBsd6RMkjVDRZzb', label: 'George (Default)' },
@@ -109,6 +114,7 @@ export default function AgentSettings() {
         config.whatsappTtsProvider === 'sunbird'
           ? config.whatsappTtsProvider
           : 'sunbird';
+      const safeLanguageDetectionProvider = config.whatsappLanguageDetectionProvider === 'sunbird' ? 'sunbird' : 'gemini';
       const safeGoogleLanguageCode = typeof config.whatsappGoogleTtsLanguageCode === 'string' && config.whatsappGoogleTtsLanguageCode.trim().length > 0
         ? config.whatsappGoogleTtsLanguageCode.trim()
         : GOOGLE_TTS_LANGUAGE_CODE_DEFAULT;
@@ -118,6 +124,10 @@ export default function AgentSettings() {
       const safeElevenLabsVoiceId = typeof config.whatsappElevenLabsVoiceId === 'string' && config.whatsappElevenLabsVoiceId.trim().length > 0
         ? config.whatsappElevenLabsVoiceId.trim()
         : ELEVENLABS_VOICE_ID_DEFAULT;
+      const resolveSafeSpeakerId = (value: unknown, fallback: number) => {
+        const numeric = typeof value === 'number' || typeof value === 'string' ? Number(value) : Number.NaN;
+        return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : fallback;
+      };
 
       const updated = await api<AgentConfig>(`/tenants/${tenantId}/agent-config`, {
         method: 'PUT',
@@ -137,7 +147,13 @@ export default function AgentSettings() {
           whatsappVoiceNoteCharThreshold: safeVoiceThreshold,
           whatsappForceVoiceReplies: Boolean(config.whatsappForceVoiceReplies),
           whatsappTtsProvider: safeProvider,
+          whatsappLanguageDetectionProvider: safeLanguageDetectionProvider,
           whatsappSunbirdTemperature: safeSunbirdTemperature,
+          whatsappSunbirdAcholiSpeakerId: resolveSafeSpeakerId(config.whatsappSunbirdAcholiSpeakerId, SUNBIRD_SPEAKER_DEFAULTS.acholi),
+          whatsappSunbirdAtesoSpeakerId: resolveSafeSpeakerId(config.whatsappSunbirdAtesoSpeakerId, SUNBIRD_SPEAKER_DEFAULTS.ateso),
+          whatsappSunbirdLugandaSpeakerId: resolveSafeSpeakerId(config.whatsappSunbirdLugandaSpeakerId, SUNBIRD_SPEAKER_DEFAULTS.luganda),
+          whatsappSunbirdLugbaraSpeakerId: resolveSafeSpeakerId(config.whatsappSunbirdLugbaraSpeakerId, SUNBIRD_SPEAKER_DEFAULTS.lugbara),
+          whatsappSunbirdRunyankoleSpeakerId: resolveSafeSpeakerId(config.whatsappSunbirdRunyankoleSpeakerId, SUNBIRD_SPEAKER_DEFAULTS.runyankole),
           whatsappGoogleTtsLanguageCode: safeGoogleLanguageCode,
           whatsappGoogleTtsVoiceName: safeGoogleVoiceName,
           whatsappElevenLabsVoiceId: safeElevenLabsVoiceId,
@@ -467,14 +483,29 @@ export default function AgentSettings() {
         </div>
 
         <div style={{ marginTop: 16 }}>
-          <label style={labelStyle}>Luganda TTS Provider</label>
+          <label style={labelStyle}>Language Detection Provider</label>
+          <select
+            value={config?.whatsappLanguageDetectionProvider ?? 'gemini'}
+            onChange={(e) => setConfig((c) => (c ? { ...c, whatsappLanguageDetectionProvider: e.target.value as AgentConfig['whatsappLanguageDetectionProvider'] } : c))}
+            style={{ ...inputStyle, maxWidth: 320 }}
+          >
+            <option value="gemini">Gemini</option>
+            <option value="sunbird">Sunbird</option>
+          </select>
+          <span style={helperStyle}>
+            Used to detect when a WhatsApp conversation should switch away from the default English language flag.
+          </span>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <label style={labelStyle}>Local Language TTS Provider</label>
           <input
             value="Sunbird"
             readOnly
             style={{ ...inputStyle, maxWidth: 260, backgroundColor: '#f8fafc', color: '#475569' }}
           />
           <span style={helperStyle}>
-            Luganda voice replies use Sunbird by default.
+            Sunbird is used for Luganda plus other supported Ugandan local languages when the conversation language flag is not English.
           </span>
         </div>
 
@@ -560,7 +591,39 @@ export default function AgentSettings() {
             style={{ ...inputStyle, maxWidth: 260 }}
           />
           <span style={helperStyle}>
-            Used only when Sunbird is selected as the WhatsApp TTS provider.
+            Used for Sunbird voice generation across supported local languages.
+          </span>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <label style={labelStyle}>Sunbird Speaker IDs</label>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 16 }}>
+            {[
+              { key: 'whatsappSunbirdAcholiSpeakerId', label: 'Acholi', fallback: SUNBIRD_SPEAKER_DEFAULTS.acholi },
+              { key: 'whatsappSunbirdAtesoSpeakerId', label: 'Ateso', fallback: SUNBIRD_SPEAKER_DEFAULTS.ateso },
+              { key: 'whatsappSunbirdLugandaSpeakerId', label: 'Luganda', fallback: SUNBIRD_SPEAKER_DEFAULTS.luganda },
+              { key: 'whatsappSunbirdLugbaraSpeakerId', label: 'Lugbara', fallback: SUNBIRD_SPEAKER_DEFAULTS.lugbara },
+              { key: 'whatsappSunbirdRunyankoleSpeakerId', label: 'Runyankole', fallback: SUNBIRD_SPEAKER_DEFAULTS.runyankole },
+            ].map((speaker) => (
+              <div key={speaker.key}>
+                <label style={{ ...labelStyle, marginBottom: 6 }}>{speaker.label}</label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={(config?.[speaker.key as keyof AgentConfig] as number | undefined) ?? speaker.fallback}
+                  onChange={(e) => {
+                    const parsed = Number.parseInt(e.target.value, 10);
+                    const nextValue = Number.isFinite(parsed) && parsed > 0 ? parsed : speaker.fallback;
+                    setConfig((c) => (c ? { ...c, [speaker.key]: nextValue } : c));
+                  }}
+                  style={inputStyle}
+                />
+              </div>
+            ))}
+          </div>
+          <span style={helperStyle}>
+            These speaker IDs let WhatsApp voice replies use the correct Sunbird voice when the conversation language flag changes to a supported local language.
           </span>
         </div>
 

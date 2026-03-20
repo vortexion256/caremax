@@ -237,7 +237,15 @@ async function toLangChainMessages(
 /**
  * Main agent function using production-grade architecture.
  */
-type AgentRuntimeOptions = { userId?: string; externalUserId?: string; conversationId?: string; preferredResponseLanguage?: 'luganda' | 'english' | null; channel?: 'widget' | 'whatsapp' | 'whatsapp_meta' }
+type AgentRuntimeOptions = {
+  userId?: string;
+  externalUserId?: string;
+  conversationId?: string;
+  preferredResponseLanguage?: 'luganda' | 'english' | null;
+  conversationLanguageCode?: string | null;
+  conversationLanguageName?: string | null;
+  channel?: 'widget' | 'whatsapp' | 'whatsapp_meta';
+}
 type AgentRuntimeVariant = 'v2' | 'v3';
 
 function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): string {
@@ -547,6 +555,9 @@ async function runAgentRuntime(
     }
     if (v3StateInstruction) {
       systemContent += `${v3StateInstruction}\n\n`;
+    }
+    if (options?.conversationLanguageCode && options?.conversationLanguageName) {
+      systemContent += `Conversation language flag: ${options.conversationLanguageName} (${options.conversationLanguageCode}). Reply in natural ${options.conversationLanguageName} unless the user explicitly asks to switch languages.\n\n`;
     }
 
     // Add tool instructions

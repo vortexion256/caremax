@@ -766,7 +766,15 @@ async function extractTwilioInboundImageUrls(params: {
 async function runAgentWithRetry(
   tenantId: string,
   history: Array<{ role: string; content: string; imageUrls?: string[] }>,
-  context: { userId: string; externalUserId: string; conversationId: string; preferredResponseLanguage?: 'luganda' | 'english' | null; channel?: 'whatsapp' | 'whatsapp_meta' },
+  context: {
+    userId: string;
+    externalUserId: string;
+    conversationId: string;
+    preferredResponseLanguage?: 'luganda' | 'english' | null;
+    conversationLanguageCode?: string | null;
+    conversationLanguageName?: string | null;
+    channel?: 'whatsapp' | 'whatsapp_meta';
+  },
 ): Promise<{ text?: string; requestHandoff?: boolean }> {
   try {
     return await withTimeout(
@@ -802,6 +810,26 @@ function parseExtraHeaders(raw: string): Record<string, string> {
 }
 
 type WhatsAppTtsProvider = 'sunbird' | 'google-cloud-tts' | 'elevenlabs' | 'gemini-2.5-flash-preview-tts';
+type WhatsAppLanguageDetectionProvider = 'gemini' | 'sunbird';
+type SupportedConversationLanguageCode = 'eng' | 'lug' | 'ach' | 'teo' | 'lgg' | 'nyn';
+
+const DEFAULT_CONVERSATION_LANGUAGE_CODE: SupportedConversationLanguageCode = 'eng';
+const LANGUAGE_SWITCH_PROMPT_FLOW = 'language_switch_prompt';
+const LANGUAGE_SWITCH_CONFIRMATION_FLOW = 'language_switch_confirmation';
+
+const SUPPORTED_CONVERSATION_LANGUAGES: Record<SupportedConversationLanguageCode, {
+  name: string;
+  aliases: string[];
+  sunbirdSpeakerConfigKey?: 'whatsappSunbirdAcholiSpeakerId' | 'whatsappSunbirdAtesoSpeakerId' | 'whatsappSunbirdLugandaSpeakerId' | 'whatsappSunbirdLugbaraSpeakerId' | 'whatsappSunbirdRunyankoleSpeakerId';
+  defaultSpeakerId?: number;
+}> = {
+  eng: { name: 'English', aliases: ['en', 'eng', 'english'] },
+  lug: { name: 'Luganda', aliases: ['lg', 'lug', 'luganda'], sunbirdSpeakerConfigKey: 'whatsappSunbirdLugandaSpeakerId', defaultSpeakerId: 248 },
+  ach: { name: 'Acholi', aliases: ['ach', 'acholi'], sunbirdSpeakerConfigKey: 'whatsappSunbirdAcholiSpeakerId', defaultSpeakerId: 241 },
+  teo: { name: 'Ateso', aliases: ['teo', 'ateso'], sunbirdSpeakerConfigKey: 'whatsappSunbirdAtesoSpeakerId', defaultSpeakerId: 242 },
+  lgg: { name: 'Lugbara', aliases: ['lgg', 'lugbara'], sunbirdSpeakerConfigKey: 'whatsappSunbirdLugbaraSpeakerId', defaultSpeakerId: 245 },
+  nyn: { name: 'Runyankole', aliases: ['nyn', 'nyankole', 'runyankole'], sunbirdSpeakerConfigKey: 'whatsappSunbirdRunyankoleSpeakerId', defaultSpeakerId: 243 },
+};
 
 async function convertAudioToWhatsAppVoiceNote(audioBuffer: Buffer, inputExt: string): Promise<Buffer | null> {
   const tempBase = join(tmpdir(), `caremax-voice-note-${randomUUID()}`);
@@ -903,6 +931,8 @@ async function generateVoiceMediaUrl(params: {
   text: string;
   provider: WhatsAppTtsProvider;
   sunbirdTemperature: number;
+  sunbirdLanguageCode: string | null;
+  configData?: Record<string, unknown>;
   shouldCleanText: boolean;
   googleLanguageCode: string;
   googleVoiceName: string;
@@ -921,15 +951,18 @@ async function generateVoiceMediaUrlWithSunbird(params: {
   tenantId: string;
   text: string;
   sunbirdTemperature: number;
+  sunbirdLanguageCode: string | null;
+  configData?: Record<string, unknown>;
   shouldCleanText: boolean;
 }): Promise<string | null> {
   const ttsUrl = process.env.SUNBIRD_TTS_URL ?? process.env.TTS_URL;
   const apiKey = process.env.SUNBIRD_TTS_API_KEY ?? process.env.SUNBIRD_API_KEY;
   if (!ttsUrl) return null;
 
-  const speakerIdRaw = process.env.SUNBIRD_LUGANDA_SPEAKER_ID ?? '248';
-  const parsedSpeakerId = Number.parseInt(speakerIdRaw, 10);
-  const speakerId = Number.isFinite(parsedSpeakerId) ? parsedSpeakerId : 248;
+  const speakerId = resolveSunbirdSpeakerId({
+    languageCode: params.sunbirdLanguageCode,
+    configData: params.configData,
+  });
 
   const headerJson = process.env.SUNBIRD_TTS_HEADERS_JSON ?? '';
   const headers: Record<string, string> = {
@@ -1135,12 +1168,61 @@ function isEnglishLanguageTag(tag: string): boolean {
   return normalized === 'en' || normalized === 'eng' || normalized === 'english';
 }
 
+function normalizeConversationLanguageCode(value: string | null | undefined): SupportedConversationLanguageCode | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  const matched = Object.entries(SUPPORTED_CONVERSATION_LANGUAGES).find(([, config]) => config.aliases.includes(normalized));
+  return (matched?.[0] as SupportedConversationLanguageCode | undefined) ?? null;
+}
+
+function getConversationLanguageName(languageCode: string | null | undefined): string {
+  const normalized = normalizeConversationLanguageCode(languageCode);
+  return normalized ? SUPPORTED_CONVERSATION_LANGUAGES[normalized].name : SUPPORTED_CONVERSATION_LANGUAGES[DEFAULT_CONVERSATION_LANGUAGE_CODE].name;
+}
+
+function buildLanguageSwitchPrompt(languageCode: SupportedConversationLanguageCode): string {
+  const languageName = getConversationLanguageName(languageCode);
+  return `I detected ${languageName}. Should we continue in ${languageName}? Reply YES to confirm.`;
+}
+
+function isAffirmativeLanguageSwitchReply(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  return /^(yes|y|ok|okay|continue|proceed|go ahead|accept|confirmed|confirm|use it|that language)$/i.test(normalized);
+}
+
+function resolveConversationLanguageState(conversationData: Record<string, unknown> | undefined): {
+  currentLanguageCode: SupportedConversationLanguageCode;
+  currentLanguageName: string;
+  pendingLanguageCode: SupportedConversationLanguageCode | null;
+  pendingLanguageName: string | null;
+  pendingOriginalMessage: string | null;
+} {
+  const currentLanguageCode = normalizeConversationLanguageCode(typeof conversationData?.currentLanguageCode === 'string' ? conversationData.currentLanguageCode : null)
+    ?? DEFAULT_CONVERSATION_LANGUAGE_CODE;
+  const pendingLanguageCode = normalizeConversationLanguageCode(typeof conversationData?.pendingLanguageCode === 'string' ? conversationData.pendingLanguageCode : null);
+  return {
+    currentLanguageCode,
+    currentLanguageName: getConversationLanguageName(currentLanguageCode),
+    pendingLanguageCode,
+    pendingLanguageName: pendingLanguageCode ? getConversationLanguageName(pendingLanguageCode) : null,
+    pendingOriginalMessage: typeof conversationData?.pendingLanguageOriginalMessage === 'string' && conversationData.pendingLanguageOriginalMessage.trim().length > 0
+      ? conversationData.pendingLanguageOriginalMessage.trim()
+      : null,
+  };
+}
+
+function shouldFilterLanguageFlowMessage(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== 'object') return false;
+  const flow = (metadata as { flow?: unknown }).flow;
+  return flow === LANGUAGE_SWITCH_PROMPT_FLOW || flow === LANGUAGE_SWITCH_CONFIRMATION_FLOW;
+}
+
 function resolveLanguageAwareTtsProvider(params: {
   configuredProvider: WhatsAppTtsProvider;
   responseLanguage: string | null;
 }): WhatsAppTtsProvider {
   if (!params.responseLanguage) return params.configuredProvider;
-  if (isLugandaLanguageTag(params.responseLanguage)) return 'sunbird';
+  if (!isEnglishLanguageTag(params.responseLanguage)) return 'sunbird';
   if (isEnglishLanguageTag(params.responseLanguage)) {
     if (params.configuredProvider === 'elevenlabs' || params.configuredProvider === 'google-cloud-tts') {
       return params.configuredProvider;
@@ -1148,6 +1230,26 @@ function resolveLanguageAwareTtsProvider(params: {
     return 'google-cloud-tts';
   }
   return params.configuredProvider;
+}
+
+function resolveWhatsAppLanguageDetectionProvider(configData: Record<string, unknown> | undefined): WhatsAppLanguageDetectionProvider {
+  return configData?.whatsappLanguageDetectionProvider === 'sunbird' ? 'sunbird' : 'gemini';
+}
+
+function resolveSunbirdSpeakerId(params: {
+  languageCode: string | null;
+  configData: Record<string, unknown> | undefined;
+}): number {
+  const normalized = normalizeConversationLanguageCode(params.languageCode) ?? 'lug';
+  const config = SUPPORTED_CONVERSATION_LANGUAGES[normalized];
+  const configKey = config.sunbirdSpeakerConfigKey;
+  if (configKey) {
+    const configuredValue = params.configData?.[configKey];
+    if (typeof configuredValue === 'number' && Number.isFinite(configuredValue) && configuredValue > 0) {
+      return Math.floor(configuredValue);
+    }
+  }
+  return config.defaultSpeakerId ?? 248;
 }
 
 function resolveElevenLabsVoiceId(configData: Record<string, unknown> | undefined): string {
@@ -1174,7 +1276,7 @@ function resolveGoogleCloudVoiceConfig(configData: Record<string, unknown> | und
   return { languageCode, voiceName };
 }
 
-async function detectLanguageWithAi(text: string): Promise<string | null> {
+async function detectLanguageWithGemini(text: string): Promise<string | null> {
   const input = text.trim();
   if (!input) return null;
 
@@ -1214,9 +1316,48 @@ async function detectLanguageWithAi(text: string): Promise<string | null> {
     const cleaned = raw.replace(/[^a-z\-]/g, ' ').trim().split(/\s+/)[0] ?? '';
     return cleaned || null;
   } catch (error) {
-    console.warn('Failed to detect WhatsApp language via AI:', error);
+    console.warn('Failed to detect WhatsApp language via Gemini:', error);
     return null;
   }
+}
+
+async function detectLanguageWithSunbird(text: string): Promise<string | null> {
+  const input = text.trim();
+  if (!input) return null;
+
+  const apiUrl = process.env.SUNBIRD_LANGUAGE_ID_URL?.trim() || 'https://api.sunbird.ai/tasks/language_id';
+  const apiKey = process.env.SUNBIRD_API_KEY?.trim() || process.env.SUNBIRD_TTS_API_KEY?.trim();
+  if (!apiKey) return null;
+
+  try {
+    const detectRes = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: input }),
+      signal: AbortSignal.timeout(WHATSAPP_LANGUAGE_DETECT_TIMEOUT_MS),
+    });
+
+    if (!detectRes.ok) return null;
+
+    const payload = await detectRes.json() as { language?: string | null };
+    return normalizeConversationLanguageCode(payload.language ?? null);
+  } catch (error) {
+    console.warn('Failed to detect WhatsApp language via Sunbird:', error);
+    return null;
+  }
+}
+
+async function detectWhatsAppLanguage(params: {
+  text: string;
+  provider: WhatsAppLanguageDetectionProvider;
+}): Promise<SupportedConversationLanguageCode | null> {
+  const detected = params.provider === 'sunbird'
+    ? await detectLanguageWithSunbird(params.text)
+    : await detectLanguageWithGemini(params.text);
+  return normalizeConversationLanguageCode(detected);
 }
 
 function getLanguagePreferenceInstructionTag(languageTag: string | null): 'luganda' | 'english' | null {
@@ -1398,11 +1539,29 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         externalUserId: identity.externalUserId,
         channel: 'whatsapp',
         status: 'open',
+        currentLanguageCode: DEFAULT_CONVERSATION_LANGUAGE_CODE,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       })
       : existingConversationSnap.docs[0].ref;
 
+    const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
+    const agentConfigData = agentConfigDoc.data() as Record<string, unknown> | undefined;
+    const languageDetectionProvider = resolveWhatsAppLanguageDetectionProvider(agentConfigData);
+    const conversationDataBeforeMessage = (await conversationRef.get()).data() as Record<string, unknown> | undefined;
+    const languageStateBeforeMessage = resolveConversationLanguageState(conversationDataBeforeMessage);
+    const detectedIncomingLanguage = body
+      ? await detectWhatsAppLanguage({ text: body, provider: languageDetectionProvider })
+      : null;
+    const hasPendingLanguageSwitch = Boolean(languageStateBeforeMessage.pendingLanguageCode);
+    const acceptingPendingLanguage = hasPendingLanguageSwitch && isAffirmativeLanguageSwitchReply(body);
+    const shouldPromptForLanguageSwitch = Boolean(
+      body
+      && detectedIncomingLanguage
+      && detectedIncomingLanguage !== DEFAULT_CONVERSATION_LANGUAGE_CODE
+      && detectedIncomingLanguage !== languageStateBeforeMessage.currentLanguageCode
+      && !hasPendingLanguageSwitch,
+    );
 
     await db.collection('messages').add({
       conversationId: conversationRef.id,
@@ -1417,12 +1576,41 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       createdAt: FieldValue.serverTimestamp(),
     });
 
+    if (acceptingPendingLanguage && languageStateBeforeMessage.pendingLanguageCode) {
+      await conversationRef.set({
+        currentLanguageCode: languageStateBeforeMessage.pendingLanguageCode,
+        pendingLanguageCode: FieldValue.delete(),
+        pendingLanguageOriginalMessage: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+
+    if (shouldPromptForLanguageSwitch && detectedIncomingLanguage) {
+      const prompt = buildLanguageSwitchPrompt(detectedIncomingLanguage);
+      await conversationRef.set({
+        pendingLanguageCode: detectedIncomingLanguage,
+        pendingLanguageOriginalMessage: body,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      await db.collection('messages').add({
+        conversationId: conversationRef.id,
+        tenantId,
+        role: 'assistant',
+        content: prompt,
+        channel: 'whatsapp',
+        metadata: { flow: LANGUAGE_SWITCH_PROMPT_FLOW, detectedLanguageCode: detectedIncomingLanguage },
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlResponse(prompt));
+      return;
+    }
+
     void recordAgentActivity(tenantId, 'whatsapp-received');
     void recordAgentActivity(tenantId, 'twilio');
 
     try {
-      const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
-      const configData = agentConfigDoc.data();
+      const configData = agentConfigData;
       if (configData?.xPersonProfileEnabled === true) {
         const conversationDurationLastConversationSeconds = await getConversationDurationSeconds(conversationRef.id);
         const customFields = normalizeXPersonCustomFields(configData?.xPersonProfileCustomFields);
@@ -1625,8 +1813,9 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       .limit(30)
       .get();
 
-    const history = historySnap.docs.reverse().map((doc) => {
+    const history = historySnap.docs.reverse().flatMap((doc) => {
       const data = doc.data();
+      if (shouldFilterLanguageFlowMessage(data.metadata)) return [];
       return {
         role: data.role,
         content: data.content,
@@ -1640,6 +1829,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
 
     const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
     const agentConfigData = agentConfigDoc.data() as Record<string, unknown> | undefined;
+    const languageDetectionProvider = resolveWhatsAppLanguageDetectionProvider(agentConfigData);
     const { languageCode: googleLanguageCode, voiceName: googleVoiceName } = resolveGoogleCloudVoiceConfig(agentConfigData);
     const elevenLabsVoiceId = resolveElevenLabsVoiceId(agentConfigData);
     const rawVoiceThreshold = agentConfigData?.whatsappVoiceNoteCharThreshold;
@@ -1656,16 +1846,30 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     const sunbirdTemperature = typeof rawSunbirdTemperature === 'number' && Number.isFinite(rawSunbirdTemperature)
       ? Math.min(2, Math.max(0, rawSunbirdTemperature))
       : 0.7;
-
+    const conversationState = resolveConversationLanguageState(conversationData);
     const latestUserMessage = [...history].reverse().find((message) => message.role === 'user')?.content ?? '';
-    const detectedUserLanguage = getLanguagePreferenceInstructionTag(await detectLanguageWithAi(latestUserMessage));
+    const latestDetectedUserLanguage = latestUserMessage
+      ? await detectWhatsAppLanguage({ text: latestUserMessage, provider: languageDetectionProvider })
+      : null;
+    const detectedUserLanguage = getLanguagePreferenceInstructionTag(latestDetectedUserLanguage);
+    const replayPendingOriginalMessage =
+      conversationState.pendingOriginalMessage
+      && latestUserMessage
+      && isAffirmativeLanguageSwitchReply(latestUserMessage)
+      ? conversationState.pendingOriginalMessage
+      : null;
+    const agentHistory = replayPendingOriginalMessage
+      ? [...history, { role: 'user', content: replayPendingOriginalMessage, imageUrls: [] }]
+      : history;
 
     try {
-      const agentResponse = await runAgentWithRetry(tenantId, history, {
+      const agentResponse = await runAgentWithRetry(tenantId, agentHistory, {
           userId: identity.scopedUserId,
           externalUserId: identity.externalUserId,
           conversationId,
           preferredResponseLanguage: detectedUserLanguage,
+          conversationLanguageCode: conversationState.currentLanguageCode,
+          conversationLanguageName: conversationState.currentLanguageName,
           channel: 'whatsapp',
         });
       responseText = agentResponse.text?.trim() ?? '';
@@ -1693,7 +1897,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     const payload = new URLSearchParams({
       To: outboundTo,
     });
-    const responseLanguage = await detectLanguageWithAi(responseText);
+    const responseLanguage = conversationState.currentLanguageCode;
     const resolvedTtsProvider = resolveLanguageAwareTtsProvider({
       configuredProvider: ttsProvider,
       responseLanguage,
@@ -1711,6 +1915,8 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
           text: responseText,
           provider: resolvedTtsProvider,
           sunbirdTemperature,
+          sunbirdLanguageCode: conversationState.currentLanguageCode,
+          configData: agentConfigData,
           shouldCleanText: shouldCleanVoiceText,
           googleLanguageCode,
           googleVoiceName,
@@ -1779,7 +1985,10 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     void recordAgentActivity(tenantId, 'whatsapp-sent');
     void recordAgentActivity(tenantId, 'twilio');
 
-    const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+    const updates: Record<string, unknown> = {
+      updatedAt: FieldValue.serverTimestamp(),
+      pendingLanguageOriginalMessage: FieldValue.delete(),
+    };
     if (requestHandoff) {
       updates.status = 'handoff_requested';
     }
@@ -1861,6 +2070,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
 
     const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
     const agentConfigData = agentConfigDoc.data() as Record<string, unknown> | undefined;
+    const languageDetectionProvider = resolveWhatsAppLanguageDetectionProvider(agentConfigData);
     const { languageCode: googleLanguageCode, voiceName: googleVoiceName } = resolveGoogleCloudVoiceConfig(agentConfigData);
     const elevenLabsVoiceId = resolveElevenLabsVoiceId(agentConfigData);
     const rawVoiceThreshold = agentConfigData?.whatsappVoiceNoteCharThreshold;
@@ -2064,10 +2274,26 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
               externalUserId: identity.externalUserId,
               channel: 'whatsapp_meta',
               status: 'open',
+              currentLanguageCode: DEFAULT_CONVERSATION_LANGUAGE_CODE,
               createdAt: FieldValue.serverTimestamp(),
               updatedAt: FieldValue.serverTimestamp(),
             })
             : existingConversationSnap.docs[0].ref;
+
+          const conversationDataBeforeMessage = (await conversationRef.get()).data() as Record<string, unknown> | undefined;
+          const languageStateBeforeMessage = resolveConversationLanguageState(conversationDataBeforeMessage);
+          const detectedIncomingLanguage = body
+            ? await detectWhatsAppLanguage({ text: body, provider: languageDetectionProvider })
+            : null;
+          const hasPendingLanguageSwitch = Boolean(languageStateBeforeMessage.pendingLanguageCode);
+          const acceptingPendingLanguage = hasPendingLanguageSwitch && isAffirmativeLanguageSwitchReply(body);
+          const shouldPromptForLanguageSwitch = Boolean(
+            body
+            && detectedIncomingLanguage
+            && detectedIncomingLanguage !== DEFAULT_CONVERSATION_LANGUAGE_CODE
+            && detectedIncomingLanguage !== languageStateBeforeMessage.currentLanguageCode
+            && !hasPendingLanguageSwitch,
+          );
 
           await db.collection('messages').add({
             conversationId: conversationRef.id,
@@ -2082,6 +2308,40 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             createdAt: FieldValue.serverTimestamp(),
           });
 
+          if (acceptingPendingLanguage && languageStateBeforeMessage.pendingLanguageCode) {
+            await conversationRef.set({
+              currentLanguageCode: languageStateBeforeMessage.pendingLanguageCode,
+              pendingLanguageCode: FieldValue.delete(),
+              pendingLanguageOriginalMessage: FieldValue.delete(),
+              updatedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+          }
+
+          if (shouldPromptForLanguageSwitch && detectedIncomingLanguage) {
+            const prompt = buildLanguageSwitchPrompt(detectedIncomingLanguage);
+            await conversationRef.set({
+              pendingLanguageCode: detectedIncomingLanguage,
+              pendingLanguageOriginalMessage: body,
+              updatedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+            await db.collection('messages').add({
+              conversationId: conversationRef.id,
+              tenantId,
+              role: 'assistant',
+              content: prompt,
+              channel: 'whatsapp_meta',
+              metadata: { flow: LANGUAGE_SWITCH_PROMPT_FLOW, detectedLanguageCode: detectedIncomingLanguage },
+              createdAt: FieldValue.serverTimestamp(),
+            });
+            await sendMetaWhatsAppTextMessage({
+              phoneNumberId,
+              accessToken,
+              to: identity.externalUserId,
+              body: prompt,
+            });
+            continue;
+          }
+
           void recordAgentActivity(tenantId, 'whatsapp-meta-received');
           void recordAgentActivity(tenantId, 'whatsapp-received');
           void recordAgentActivity(tenantId, 'meta');
@@ -2092,8 +2352,9 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             .limit(25)
             .get();
 
-          const history = historySnap.docs.reverse().map((doc) => {
+          const history = historySnap.docs.reverse().flatMap((doc) => {
             const data = doc.data() as { role?: 'user' | 'assistant' | string; content?: string; imageUrls?: string[] };
+            if (shouldFilterLanguageFlowMessage((data as { metadata?: unknown }).metadata)) return [];
             return {
               role: data.role === 'assistant' ? 'assistant' : 'user',
               content: data.content ?? '',
@@ -2103,15 +2364,30 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
 
           let responseText = '';
           let requestHandoff = false;
+          const conversationState = resolveConversationLanguageState((await conversationRef.get()).data() as Record<string, unknown> | undefined);
           const latestUserMessage = [...history].reverse().find((message) => message.role === 'user')?.content ?? '';
-          const detectedUserLanguage = getLanguagePreferenceInstructionTag(await detectLanguageWithAi(latestUserMessage));
+          const latestDetectedUserLanguage = latestUserMessage
+            ? await detectWhatsAppLanguage({ text: latestUserMessage, provider: languageDetectionProvider })
+            : null;
+          const detectedUserLanguage = getLanguagePreferenceInstructionTag(latestDetectedUserLanguage);
+          const replayPendingOriginalMessage =
+            conversationState.pendingOriginalMessage
+            && latestUserMessage
+            && isAffirmativeLanguageSwitchReply(latestUserMessage)
+            ? conversationState.pendingOriginalMessage
+            : null;
+          const agentHistory = replayPendingOriginalMessage
+            ? [...history, { role: 'user', content: replayPendingOriginalMessage, imageUrls: [] }]
+            : history;
 
           try {
-            const agentResponse = await runAgentWithRetry(tenantId, history, {
+            const agentResponse = await runAgentWithRetry(tenantId, agentHistory, {
               userId: identity.scopedUserId,
               externalUserId: identity.externalUserId,
               conversationId: conversationRef.id,
               preferredResponseLanguage: detectedUserLanguage,
+              conversationLanguageCode: conversationState.currentLanguageCode,
+              conversationLanguageName: conversationState.currentLanguageName,
               channel: 'whatsapp_meta',
             });
             responseText = agentResponse.text?.trim() ?? '';
@@ -2123,7 +2399,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
 
           if (!responseText) continue;
 
-          const responseLanguage = await detectLanguageWithAi(responseText);
+          const responseLanguage = conversationState.currentLanguageCode;
           const resolvedTtsProvider = resolveLanguageAwareTtsProvider({
             configuredProvider: ttsProvider,
             responseLanguage,
@@ -2141,6 +2417,8 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
                 text: responseText,
                 provider: resolvedTtsProvider,
                 sunbirdTemperature,
+                sunbirdLanguageCode: conversationState.currentLanguageCode,
+                configData: agentConfigData,
                 shouldCleanText: shouldCleanVoiceText,
                 googleLanguageCode,
                 googleVoiceName,
@@ -2184,7 +2462,10 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
           void recordAgentActivity(tenantId, 'whatsapp-sent');
           void recordAgentActivity(tenantId, 'meta');
 
-          const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+          const updates: Record<string, unknown> = {
+            updatedAt: FieldValue.serverTimestamp(),
+            pendingLanguageOriginalMessage: FieldValue.delete(),
+          };
           if (requestHandoff) {
             updates.status = 'handoff_requested';
           }
