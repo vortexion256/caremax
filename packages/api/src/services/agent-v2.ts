@@ -60,6 +60,139 @@ export type AgentResult = {
 const HANDOFF_MARKER = '[HANDOFF]';
 const REMINDER_RELATED_TURN_REGEX = /\b(reminder|remind|upcoming|scheduled|schedule|delete|remove|cancel|edit|change|update)\b/i;
 
+
+type TriageState = 'chief_complaint' | 'duration' | 'severity' | 'associated_symptoms' | 'risk_factors' | 'advice';
+
+type PersistedTriageState = {
+  currentState: TriageState;
+  askedStates: TriageState[];
+  answeredStates: TriageState[];
+  symptomSummary?: string | null;
+  lastQuestion?: string | null;
+  lastUpdatedAt?: FirebaseFirestore.FieldValue | FirebaseFirestore.Timestamp | Date | null;
+};
+
+const TRIAGE_STATE_ORDER: TriageState[] = [
+  'chief_complaint',
+  'duration',
+  'severity',
+  'associated_symptoms',
+  'risk_factors',
+  'advice',
+];
+
+const TRIAGE_STATE_LABELS: Record<TriageState, string> = {
+  chief_complaint: 'chief complaint',
+  duration: 'duration',
+  severity: 'severity',
+  associated_symptoms: 'associated symptoms',
+  risk_factors: 'risk factors',
+  advice: 'advice',
+};
+
+function createDefaultTriageState(): PersistedTriageState {
+  return {
+    currentState: 'chief_complaint',
+    askedStates: [],
+    answeredStates: [],
+    symptomSummary: null,
+    lastQuestion: null,
+    lastUpdatedAt: null,
+  };
+}
+
+function normalizeTriageState(raw: unknown): PersistedTriageState {
+  const base = createDefaultTriageState();
+  if (!raw || typeof raw !== 'object') return base;
+  const data = raw as Record<string, unknown>;
+  const currentState = TRIAGE_STATE_ORDER.includes(data.currentState as TriageState) ? data.currentState as TriageState : base.currentState;
+  const askedStates = Array.isArray(data.askedStates) ? data.askedStates.filter((s): s is TriageState => TRIAGE_STATE_ORDER.includes(s as TriageState)) : [];
+  const answeredStates = Array.isArray(data.answeredStates) ? data.answeredStates.filter((s): s is TriageState => TRIAGE_STATE_ORDER.includes(s as TriageState)) : [];
+  return {
+    currentState,
+    askedStates: Array.from(new Set(askedStates)),
+    answeredStates: Array.from(new Set(answeredStates)),
+    symptomSummary: typeof data.symptomSummary === 'string' ? data.symptomSummary : null,
+    lastQuestion: typeof data.lastQuestion === 'string' ? data.lastQuestion : null,
+    lastUpdatedAt: null,
+  };
+}
+
+function messageLooksLikeClarification(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes('?')) return true;
+  return /^(what|which|how|why|when|where|who|do you mean|meaning|explain)\b/.test(normalized);
+}
+
+function messageAnswersState(text: string, state: TriageState): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized || messageLooksLikeClarification(normalized)) return false;
+
+  switch (state) {
+    case 'chief_complaint':
+      return normalized.split(/\s+/).length >= 2;
+    case 'duration':
+      return /(today|yesterday|morning|evening|night|week|day|month|year|hour|minute|since|for \d+|\d+\s*(day|days|week|weeks|month|months|year|years|hour|hours))/i.test(normalized);
+    case 'severity':
+      return /\b([1-9]|10)\b/.test(normalized) || /(mild|moderate|severe|very bad|bad|worst)/i.test(normalized);
+    case 'associated_symptoms':
+    case 'risk_factors':
+      return normalized.length > 0;
+    case 'advice':
+      return false;
+    default:
+      return false;
+  }
+}
+
+function getNextUnansweredTriageState(answeredStates: TriageState[]): TriageState {
+  return TRIAGE_STATE_ORDER.find((state) => !answeredStates.includes(state)) ?? 'advice';
+}
+
+function prepareV3TriageState(history: { role: string; content: string; imageUrls?: string[] }[], persisted: PersistedTriageState): PersistedTriageState {
+  const nextState = normalizeTriageState(persisted);
+  const lastUserMessage = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
+
+  if (!nextState.askedStates.includes('chief_complaint') && history.some((m) => m.role === 'user' && m.content.trim())) {
+    nextState.askedStates.push('chief_complaint');
+    nextState.answeredStates.push('chief_complaint');
+    nextState.symptomSummary = history.find((m) => m.role === 'user' && m.content.trim())?.content ?? nextState.symptomSummary ?? null;
+  }
+
+  const pendingAskedState = [...nextState.askedStates].reverse().find((state) => state !== 'chief_complaint' && !nextState.answeredStates.includes(state));
+  if (pendingAskedState && messageAnswersState(lastUserMessage, pendingAskedState)) {
+    nextState.answeredStates.push(pendingAskedState);
+  }
+
+  nextState.answeredStates = Array.from(new Set(nextState.answeredStates));
+  nextState.currentState = getNextUnansweredTriageState(nextState.answeredStates);
+  return nextState;
+}
+
+function buildPersistedV3StateAfterResponse(
+  triageState: PersistedTriageState,
+  responseText: string
+): PersistedTriageState {
+  const nextState = normalizeTriageState(triageState);
+  const responseNormalized = responseText.trim().toLowerCase();
+  const givingAdvice = nextState.currentState === 'advice' || /\b(should|please|drink|rest|go to|seek care|urgent|emergency|home care)\b/.test(responseNormalized);
+
+  if (givingAdvice) {
+    if (!nextState.answeredStates.includes('advice')) nextState.answeredStates.push('advice');
+    nextState.currentState = 'advice';
+    nextState.lastQuestion = null;
+  } else {
+    if (!nextState.askedStates.includes(nextState.currentState)) nextState.askedStates.push(nextState.currentState);
+    nextState.lastQuestion = responseText.trim();
+  }
+
+  nextState.askedStates = Array.from(new Set(nextState.askedStates));
+  nextState.answeredStates = Array.from(new Set(nextState.answeredStates));
+  nextState.lastUpdatedAt = FieldValue.serverTimestamp();
+  return nextState;
+}
+
 /** Format existing Auto Agent Brain records for the system prompt. */
 const CONTENT_SNIPPET_LENGTH = 120;
 function formatExistingRecordsForPrompt(records: { recordId: string; title: string; content: string }[]): string {
@@ -221,6 +354,17 @@ async function runAgentRuntime(
       conversationId: options?.conversationId,
       modelName: config.model,
     });
+
+    let persistedV3TriageState = createDefaultTriageState();
+    if (variant === 'v3' && options?.conversationId) {
+      try {
+        const conversationDoc = await db.collection('conversations').doc(options.conversationId).get();
+        persistedV3TriageState = prepareV3TriageState(history, normalizeTriageState(conversationDoc.data()?.v3TriageState));
+      } catch (e) {
+        console.warn('[Agent V3] Failed to load persisted triage state:', e);
+        persistedV3TriageState = prepareV3TriageState(history, createDefaultTriageState());
+      }
+    }
 
     // Guardrail: drop stale active plans when the user switches to normal conversation.
     // Without this, the agent can keep executing an old plan and repeat previous answers
@@ -393,10 +537,16 @@ async function runAgentRuntime(
       : null;
 
     const runtimeConversationInstructions = buildRuntimeConversationInstructions(variant);
+    const v3StateInstruction = variant === 'v3'
+      ? `Backend triage state (authoritative, persisted): current=${persistedV3TriageState.currentState}; answered=${persistedV3TriageState.answeredStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; asked=${persistedV3TriageState.askedStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; symptom_summary=${persistedV3TriageState.symptomSummary ?? 'unknown'}. You MUST respect this backend state. Do not re-ask any answered state. Ask only for the current backend state unless urgent escalation is needed. If the current state is advice, stop asking intake questions and give advice.`
+      : '';
 
     let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${contextSection}\n${reminderSnapshotContext}\n`;
     if (runtimeConversationInstructions) {
       systemContent += `${runtimeConversationInstructions}\n\n`;
+    }
+    if (v3StateInstruction) {
+      systemContent += `${v3StateInstruction}\n\n`;
     }
 
     // Add tool instructions
@@ -1218,8 +1368,22 @@ Provide a clear, user-friendly response based on these results.`,
       console.error('Failed to record usage:', e);
     }
 
+    const finalText = textWithoutMarker || 'I could not generate a response. Please try rephrasing.';
+
+    if (variant === 'v3' && options?.conversationId) {
+      try {
+        const nextPersistedState = buildPersistedV3StateAfterResponse(persistedV3TriageState, finalText);
+        await db.collection('conversations').doc(options.conversationId).set({
+          v3TriageState: nextPersistedState,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      } catch (e) {
+        console.warn('[Agent V3] Failed to persist triage state:', e);
+      }
+    }
+
     const finalResult: AgentResult = {
-      text: textWithoutMarker || 'I could not generate a response. Please try rephrasing.',
+      text: finalText,
       requestHandoff,
     };
 
