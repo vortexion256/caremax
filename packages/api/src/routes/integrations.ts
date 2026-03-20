@@ -1180,16 +1180,6 @@ function getConversationLanguageName(languageCode: string | null | undefined): s
   return normalized ? SUPPORTED_CONVERSATION_LANGUAGES[normalized].name : SUPPORTED_CONVERSATION_LANGUAGES[DEFAULT_CONVERSATION_LANGUAGE_CODE].name;
 }
 
-function buildLanguageSwitchPrompt(languageCode: SupportedConversationLanguageCode): string {
-  const languageName = getConversationLanguageName(languageCode);
-  return `I detected ${languageName}. Should we continue in ${languageName}? Reply YES to confirm.`;
-}
-
-function isAffirmativeLanguageSwitchReply(text: string): boolean {
-  const normalized = text.trim().toLowerCase();
-  return /^(yes|y|ok|okay|continue|proceed|go ahead|accept|confirmed|confirm|use it|that language)$/i.test(normalized);
-}
-
 function resolveConversationLanguageState(conversationData: Record<string, unknown> | undefined): {
   currentLanguageCode: SupportedConversationLanguageCode;
   currentLanguageName: string;
@@ -1553,14 +1543,9 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     const detectedIncomingLanguage = body
       ? await detectWhatsAppLanguage({ text: body, provider: languageDetectionProvider })
       : null;
-    const hasPendingLanguageSwitch = Boolean(languageStateBeforeMessage.pendingLanguageCode);
-    const acceptingPendingLanguage = hasPendingLanguageSwitch && isAffirmativeLanguageSwitchReply(body);
-    const shouldPromptForLanguageSwitch = Boolean(
-      body
-      && detectedIncomingLanguage
-      && detectedIncomingLanguage !== DEFAULT_CONVERSATION_LANGUAGE_CODE
-      && detectedIncomingLanguage !== languageStateBeforeMessage.currentLanguageCode
-      && !hasPendingLanguageSwitch,
+    const shouldUpdateConversationLanguage = Boolean(
+      detectedIncomingLanguage
+      && detectedIncomingLanguage !== languageStateBeforeMessage.currentLanguageCode,
     );
 
     await db.collection('messages').add({
@@ -1576,34 +1561,13 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       createdAt: FieldValue.serverTimestamp(),
     });
 
-    if (acceptingPendingLanguage && languageStateBeforeMessage.pendingLanguageCode) {
+    if (shouldUpdateConversationLanguage && detectedIncomingLanguage) {
       await conversationRef.set({
-        currentLanguageCode: languageStateBeforeMessage.pendingLanguageCode,
+        currentLanguageCode: detectedIncomingLanguage,
         pendingLanguageCode: FieldValue.delete(),
         pendingLanguageOriginalMessage: FieldValue.delete(),
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
-    }
-
-    if (shouldPromptForLanguageSwitch && detectedIncomingLanguage) {
-      const prompt = buildLanguageSwitchPrompt(detectedIncomingLanguage);
-      await conversationRef.set({
-        pendingLanguageCode: detectedIncomingLanguage,
-        pendingLanguageOriginalMessage: body,
-        updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true });
-      await db.collection('messages').add({
-        conversationId: conversationRef.id,
-        tenantId,
-        role: 'assistant',
-        content: prompt,
-        channel: 'whatsapp',
-        metadata: { flow: LANGUAGE_SWITCH_PROMPT_FLOW, detectedLanguageCode: detectedIncomingLanguage },
-        createdAt: FieldValue.serverTimestamp(),
-      });
-      res.set('Content-Type', 'text/xml');
-      res.status(200).send(xmlResponse(prompt));
-      return;
     }
 
     void recordAgentActivity(tenantId, 'whatsapp-received');
@@ -1852,18 +1816,9 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       ? await detectWhatsAppLanguage({ text: latestUserMessage, provider: languageDetectionProvider })
       : null;
     const detectedUserLanguage = getLanguagePreferenceInstructionTag(latestDetectedUserLanguage);
-    const replayPendingOriginalMessage =
-      conversationState.pendingOriginalMessage
-      && latestUserMessage
-      && isAffirmativeLanguageSwitchReply(latestUserMessage)
-      ? conversationState.pendingOriginalMessage
-      : null;
-    const agentHistory = replayPendingOriginalMessage
-      ? [...history, { role: 'user', content: replayPendingOriginalMessage, imageUrls: [] }]
-      : history;
 
     try {
-      const agentResponse = await runAgentWithRetry(tenantId, agentHistory, {
+      const agentResponse = await runAgentWithRetry(tenantId, history, {
           userId: identity.scopedUserId,
           externalUserId: identity.externalUserId,
           conversationId,
@@ -2285,14 +2240,9 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
           const detectedIncomingLanguage = body
             ? await detectWhatsAppLanguage({ text: body, provider: languageDetectionProvider })
             : null;
-          const hasPendingLanguageSwitch = Boolean(languageStateBeforeMessage.pendingLanguageCode);
-          const acceptingPendingLanguage = hasPendingLanguageSwitch && isAffirmativeLanguageSwitchReply(body);
-          const shouldPromptForLanguageSwitch = Boolean(
-            body
-            && detectedIncomingLanguage
-            && detectedIncomingLanguage !== DEFAULT_CONVERSATION_LANGUAGE_CODE
-            && detectedIncomingLanguage !== languageStateBeforeMessage.currentLanguageCode
-            && !hasPendingLanguageSwitch,
+          const shouldUpdateConversationLanguage = Boolean(
+            detectedIncomingLanguage
+            && detectedIncomingLanguage !== languageStateBeforeMessage.currentLanguageCode,
           );
 
           await db.collection('messages').add({
@@ -2308,38 +2258,13 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             createdAt: FieldValue.serverTimestamp(),
           });
 
-          if (acceptingPendingLanguage && languageStateBeforeMessage.pendingLanguageCode) {
+          if (shouldUpdateConversationLanguage && detectedIncomingLanguage) {
             await conversationRef.set({
-              currentLanguageCode: languageStateBeforeMessage.pendingLanguageCode,
+              currentLanguageCode: detectedIncomingLanguage,
               pendingLanguageCode: FieldValue.delete(),
               pendingLanguageOriginalMessage: FieldValue.delete(),
               updatedAt: FieldValue.serverTimestamp(),
             }, { merge: true });
-          }
-
-          if (shouldPromptForLanguageSwitch && detectedIncomingLanguage) {
-            const prompt = buildLanguageSwitchPrompt(detectedIncomingLanguage);
-            await conversationRef.set({
-              pendingLanguageCode: detectedIncomingLanguage,
-              pendingLanguageOriginalMessage: body,
-              updatedAt: FieldValue.serverTimestamp(),
-            }, { merge: true });
-            await db.collection('messages').add({
-              conversationId: conversationRef.id,
-              tenantId,
-              role: 'assistant',
-              content: prompt,
-              channel: 'whatsapp_meta',
-              metadata: { flow: LANGUAGE_SWITCH_PROMPT_FLOW, detectedLanguageCode: detectedIncomingLanguage },
-              createdAt: FieldValue.serverTimestamp(),
-            });
-            await sendMetaWhatsAppTextMessage({
-              phoneNumberId,
-              accessToken,
-              to: identity.externalUserId,
-              body: prompt,
-            });
-            continue;
           }
 
           void recordAgentActivity(tenantId, 'whatsapp-meta-received');
@@ -2370,18 +2295,9 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             ? await detectWhatsAppLanguage({ text: latestUserMessage, provider: languageDetectionProvider })
             : null;
           const detectedUserLanguage = getLanguagePreferenceInstructionTag(latestDetectedUserLanguage);
-          const replayPendingOriginalMessage =
-            conversationState.pendingOriginalMessage
-            && latestUserMessage
-            && isAffirmativeLanguageSwitchReply(latestUserMessage)
-            ? conversationState.pendingOriginalMessage
-            : null;
-          const agentHistory = replayPendingOriginalMessage
-            ? [...history, { role: 'user', content: replayPendingOriginalMessage, imageUrls: [] }]
-            : history;
 
           try {
-            const agentResponse = await runAgentWithRetry(tenantId, agentHistory, {
+            const agentResponse = await runAgentWithRetry(tenantId, history, {
               userId: identity.scopedUserId,
               externalUserId: identity.externalUserId,
               conversationId: conversationRef.id,
