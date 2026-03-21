@@ -59,7 +59,6 @@ export default function Dashboard() {
   const agentConfigLinks = [
     { label: 'Agent Settings', description: 'Configure behavior, tone, and goals.', path: '/agent' },
     { label: 'Auto Brain', description: 'Manage memory and autonomous responses.', path: '/agent-brain' },
-    { label: 'Agent Notebook', description: 'Store instructions and reusable notes.', path: '/agent-notes' },
     { label: 'Integrations', description: 'Connect Google sheets, Calendar and Gmail.', path: '/integrations' },
     { label: 'Knowledge Base', description: 'Manage RAG sources and document sync.', path: '/rag' },
   ];

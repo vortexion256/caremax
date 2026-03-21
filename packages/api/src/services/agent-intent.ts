@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { extractTokenUsage, recordUsage } from './token-usage.js';
 
 export interface ExtractedIntent {
-  intent: 'book_appointment' | 'check_availability' | 'query_information' | 'create_note' | 'general_conversation' | 'request_human' | 'confirm_action';
+  intent: 'book_appointment' | 'check_availability' | 'query_information' | 'general_conversation' | 'request_human' | 'confirm_action';
   confidence: number;
   entities: {
     patientName?: string;
@@ -48,7 +48,6 @@ Intents:
 - book_appointment: User wants to schedule/book an appointment
 - check_availability: User wants to check if a doctor or time slot is free/available
 - query_information: User wants to look up information (general facts, policies, etc.)
-- create_note: User or system wants to create a note/record
 - general_conversation: General chat, questions, greetings
 - request_human: User wants to speak with a human
 - confirm_action: User is confirming an action (e.g., "yes", "proceed", "do it", "that's correct")
@@ -60,7 +59,7 @@ Extract entities like: patientName, phone, date, time, doctor, notes, query.`;
     description: 'Extract intent and entities from user message',
     schema: z.object({
       intent: z
-        .enum(['book_appointment', 'check_availability', 'query_information', 'create_note', 'general_conversation', 'request_human', 'confirm_action'])
+        .enum(['book_appointment', 'check_availability', 'query_information', 'general_conversation', 'request_human', 'confirm_action'])
         .describe('The primary intent of the user'),
       confidence: z.number().min(0).max(1).describe('Confidence level (0-1)'),
       entities: z

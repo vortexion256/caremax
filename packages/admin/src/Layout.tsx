@@ -91,7 +91,6 @@ export default function Layout() {
       label: 'Agent Config',
       items: [
         { path: '/agent', label: 'Agent Settings' },
-        { path: '/agent-notes', label: 'Agent Notebook' },
         { path: '/rag', label: 'Knowledge Base' },
         { path: '/agent-brain', label: 'Auto Brain' },
         { path: '/integrations', label: 'Integrations' },
