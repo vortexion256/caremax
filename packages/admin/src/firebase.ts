@@ -3,7 +3,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup as firebaseSignInWithPopup,
-  onAuthStateChanged as firebaseOnAuthStateChanged,
+  onIdTokenChanged as firebaseOnIdTokenChanged,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
 } from 'firebase/auth';
@@ -73,7 +73,7 @@ export async function signInWithGoogle(): Promise<string> {
 }
 
 export function onAuthStateChanged(cb: (token: string | null) => void) {
-  return firebaseOnAuthStateChanged(auth, async (user) => {
+  return firebaseOnIdTokenChanged(auth, async (user) => {
     if (!user) {
       cb(null);
       return;

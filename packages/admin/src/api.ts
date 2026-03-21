@@ -1,25 +1,58 @@
+import { refreshIdToken } from './firebase';
+
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 function getToken(): string | null {
   return localStorage.getItem('caremax_id_token');
 }
 
-export async function api<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const token = getToken();
-  const headers: HeadersInit = {
+async function buildHeaders(options: RequestInit, tokenOverride?: string | null): Promise<HeadersInit> {
+  const token = tokenOverride ?? getToken();
+  return {
     'Content-Type': 'application/json',
     ...(token && { Authorization: `Bearer ${token}` }),
     ...options.headers,
   };
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+}
+
+async function parseApiError(res: Response): Promise<string> {
+  const err = await res.json().catch(() => ({ error: res.statusText }));
+  return (err as { error?: string }).error ?? res.statusText;
+}
+
+function shouldRefreshAuthToken(res: Response, errorMessage: string): boolean {
+  if (res.status !== 401) return false;
+  const normalized = errorMessage.trim().toLowerCase();
+  return normalized === 'invalid token' || normalized === 'id token has expired';
+}
+
+export async function api<T>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  let headers = await buildHeaders(options);
+  let res = await fetch(`${API_URL}${path}`, { ...options, headers });
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    const errorMessage = (err as { error?: string }).error ?? res.statusText;
+    const errorMessage = await parseApiError(res);
+    if (shouldRefreshAuthToken(res, errorMessage)) {
+      const refreshedToken = await refreshIdToken();
+      if (refreshedToken) {
+        setAuthToken(refreshedToken);
+        headers = await buildHeaders(options, refreshedToken);
+        res = await fetch(`${API_URL}${path}`, { ...options, headers });
+        if (res.ok) {
+          if (res.status === 204 || res.headers.get('content-length') === '0') {
+            return undefined as T;
+          }
+          return res.json();
+        }
+        throw new Error(await parseApiError(res));
+      }
+    }
     throw new Error(errorMessage);
   }
+
   if (res.status === 204 || res.headers.get('content-length') === '0') {
     return undefined as T;
   }
