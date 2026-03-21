@@ -10,7 +10,7 @@ import { createRecord, createModificationRequest, getRecord, listRecords } from 
 import { isGoogleConnected, fetchSheetData } from './google-sheets.js';
 import { recordDiagnosticLog } from './diagnostic-logs.js';
 import { createNote, listNotes as listAgentNotes, updateNoteContent, getNote } from './agent-notes.js';
-import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
+import { getXPersonProfile, getXPersonProfileById, updateXPersonProfileById, upsertXPersonProfile } from './xperson-profile.js';
 import { createWhatsAppReminder, deleteUserReminder, editUserReminder, listUserReminders } from './reminders.js';
 import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
 import { buildNokRelayOutboundMessage, createRelayTicket, markRelayTicketSendFailed, storeRelayTicketOutboundMessageLink } from './whatsapp-relay.js';
@@ -513,11 +513,11 @@ Patient Profile is ENABLED for this tenant.
 - Default fields to maintain: name, phone, location.
 - Every user must have a next-of-kin phone number stored in profile attributes as "next_of_kin_phone". Ask for it politely when missing.
 - Save next_of_kin_phone in Uganda format starting with 256 (example: 2567XXXXXXXX).
-- If user shares new details, call patient_profile with operation="upsert" in the same turn.
+- If user shares new details, call patient_profile with operation="write" (or "create" for first-time capture) in the same turn.
 - Keep profile capture invisible to the user: do not say you updated/saved/recorded their profile unless they explicitly ask about profile memory.
 - The profile snapshot for this identity is already preloaded below; use it before asking repeated demographic questions.
 - If the snapshot already contains a value (for example name), do NOT claim no details are known and do NOT ask for that same value again unless the user asks to update it.
-- If you need to check known user details, call patient_profile with operation="get" before asking repeated questions.
+- If you need to check known user details, call patient_profile with operation="read" before asking repeated questions.
 - For emergencies or when the user explicitly asks to notify next of kin, use the send_next_of_kin_message tool.
 - If the user explicitly asks to message a non-next-of-kin contact, use send_whatsapp_message_to_contact and require explicit confirmation text before sending.
 ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${config.xPersonProfileCustomFields.map((f) => f.description ? `${f.field} (${f.description})` : f.field).join(', ')}\n` : ''}- Always keep conversation_duration_last_conversation_seconds updated based on the user's latest total conversation time across widget or WhatsApp.\nCurrent profile snapshot: ${currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.'}`;
@@ -820,9 +820,10 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
 
   const xPersonProfileTool = new DynamicStructuredTool({
     name: 'patient_profile',
-    description: 'Get or upsert the current patient profile using identity from conversation context.',
+    description: 'Read, create, and write patient profiles. Supports lookup by current conversation identity or explicit profileId.',
     schema: z.object({
-      operation: z.enum(['get', 'upsert']),
+      operation: z.enum(['read', 'create', 'write', 'get', 'upsert']),
+      profileId: z.string().optional().describe('Optional explicit profile ID for direct read/write.'),
       details: z.object({
         name: z.string().optional(),
         phone: z.string().optional(),
@@ -830,11 +831,25 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
       }).optional(),
       attributes: z.record(z.string()).optional(),
     }),
-    func: async ({ operation, details, attributes }) => {
-      if (operation === 'get') {
-        const profile = await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId, conversationId: options?.conversationId });
+    func: async ({ operation, profileId, details, attributes }) => {
+      if (operation === 'read' || operation === 'get') {
+        const profile = profileId
+          ? await getXPersonProfileById({ tenantId, profileId })
+          : await getXPersonProfile({ tenantId, userId: options?.userId, externalUserId: options?.externalUserId, conversationId: options?.conversationId });
         return profile ? JSON.stringify(profile) : 'No profile found for this user identity yet.';
       }
+
+      if (operation === 'write' && profileId) {
+        const updated = await updateXPersonProfileById({
+          tenantId,
+          profileId,
+          details,
+          attributes,
+        });
+        if (!updated.updated) return 'Profile update failed: profile not found.';
+        return `Patient profile updated successfully (profileId=${profileId}).`;
+      }
+
       const result = await upsertXPersonProfile({
         tenantId,
         userId: options?.userId,
@@ -843,7 +858,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         details,
         attributes,
       });
-      return `Patient profile upserted successfully (profileId=${result.profileId}, created=${result.created}).`;
+      return `Patient profile ${operation === 'create' ? 'created/linked' : 'upserted'} successfully (profileId=${result.profileId}, created=${result.created}).`;
     },
   });
 
