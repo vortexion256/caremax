@@ -486,6 +486,7 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
     '- If the latest user message is only a simple greeting such as "hi", "hello", "hey", or "how are you", reply with one short, warm greeting only.',
     '- After a simple greeting, do NOT introduce yourself as a clinical triage assistant unless the user asks who you are.',
     '- After a simple greeting, do NOT ask a symptom, triage, profile, or next-of-kin question until the user gives a health concern or asks for help.',
+    '- After a simple greeting, never use a scripted intro like "Hello! I am [name], a clinical triage assistant".',
     '- Keep greetings natural, for example: "Hi! How can I help?" or "Hello! What can I help with today?".'
   ];
 
@@ -502,11 +503,15 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
       '- Use this triage state order without skipping ahead: chief complaint, duration, severity, associated symptoms, risk factors, advice.',
       '- Important exception: for low-risk, common symptoms, once chief complaint, duration, and severity are clear, you may stop intake and give practical advice with red flags.',
       '- Once the chief complaint is clear, branch into symptom-specific follow-up questions instead of generic intake.',
+      '- Do not ask for a 1-10 severity score if a more clinically useful symptom-specific safety check is available.',
+      '- For flu, cough, cold, fever, or sore throat, prefer one key safety check such as breathing difficulty, chest pain, dehydration, or inability to drink fluids before giving advice.',
       '- Example branch for diarrhea: ask frequency, dehydration, food exposure, sick contacts, and blood in stool one at a time.',
       '- For diarrhea or vomiting, actively check dehydration with one question such as "Are you able to drink fluids?".',
+      '- For flu-like illness, if the user sounds low-risk, advice should mention rest, fluids, fever/pain relief if appropriate, and exact red flags such as trouble breathing, chest pain, confusion, dehydration, or worsening fever.',
       '- For identity or names, never assert who the user is. Ask permission, for example: "I can call you Praxis if that\'s okay?".',
       '- Do NOT give advice, explanations, or lists until you have enough information.',
-      '- When you do give advice, make it personalized: say the likely category (for example stomach infection or food poisoning), the home-care step, and the exact red flags that change urgency.',
+      '- When you do give advice, make it personalized: say the likely category (for example stomach infection, food poisoning, or flu-like viral illness), the home-care step, and the exact red flags that change urgency.',
+      '- When giving home-care advice, include expected follow-up timing such as "seek care today", "within 24 hours", or "if not improving after 2-3 days" when clinically appropriate.',
       '- Map mild symptoms to home care, moderate symptoms to caution with close follow-up, and severe or high-risk symptoms to urgent escalation.',
       '- Sound like a calm Ugandan doctor: short, clear, human, and curious.',
       '- If urgent symptoms appear, stop questioning and escalate immediately.'
@@ -928,7 +933,7 @@ async function runAgentRuntime(
 
     const runtimeConversationInstructions = buildRuntimeConversationInstructions(variant);
     const v3StateInstruction = variant === 'v3'
-      ? `Backend triage state (authoritative, persisted): current=${persistedV3TriageState.currentState}; answered=${persistedV3TriageState.answeredStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; asked=${persistedV3TriageState.askedStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; symptom_summary=${persistedV3TriageState.symptomSummary ?? 'unknown'}. You MUST respect this backend state. Do not re-ask any answered state. Ask only for the current backend state unless urgent escalation is needed. If the current state is advice, stop asking intake questions and give advice. When backend state is advice after only chief complaint + duration + severity, that is intentional for low-risk/common symptoms: give concise home-care advice plus the exact red flags and when to seek in-person care instead of asking more checklist questions.`
+      ? `Backend triage state (authoritative, persisted): current=${persistedV3TriageState.currentState}; answered=${persistedV3TriageState.answeredStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; asked=${persistedV3TriageState.askedStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; symptom_summary=${persistedV3TriageState.symptomSummary ?? 'unknown'}. You MUST respect this backend state. Do not re-ask any answered state. Ask only for the current backend state unless urgent escalation is needed. If the current state is advice, stop asking intake questions and give advice. When backend state is advice after only chief complaint + duration + severity, that is intentional for low-risk/common symptoms: give concise home-care advice plus the exact red flags and when to seek in-person care instead of asking more checklist questions. For flu-like or viral upper-respiratory symptoms in advice state, explicitly cover hydration, rest, symptom relief, and breathing/dehydration red flags, and include when the user should seek review if not improving.`
       : '';
 
     let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${contextSection}\n${reminderSnapshotContext}\n`;
