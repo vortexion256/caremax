@@ -90,6 +90,9 @@ const TRIAGE_STATE_LABELS: Record<TriageState, string> = {
   advice: 'advice',
 };
 
+const QUICK_ADVICE_SYMPTOM_REGEX = /\b(cough|cold|flu|headache|fever|diarrhea|diarrhoea|vomiting|nausea|stomach(?:\s+ache)?|abdominal pain|runny nose|sore throat|constipation|rash|allergy|back pain|body aches?)\b/i;
+const HIGH_RISK_TRIAGE_REGEX = /\b(chest pain|difficulty breathing|shortness of breath|can't breathe|seizure|faint(?:ed|ing)?|passed out|stroke|weakness on one side|confused|confusion|pregnant|pregnancy|newborn|infant|baby|blood in (?:stool|vomit|urine)|black stool|severe dehydration|cannot keep fluids down|can't keep fluids down|not passing urine|suicidal|overdose|poison|anaphylaxis)\b/i;
+
 function createDefaultTriageState(): PersistedTriageState {
   return {
     currentState: 'chief_complaint',
@@ -150,6 +153,32 @@ function getNextUnansweredTriageState(answeredStates: TriageState[]): TriageStat
   return TRIAGE_STATE_ORDER.find((state) => !answeredStates.includes(state)) ?? 'advice';
 }
 
+function shouldFastTrackV3Advice(
+  triageState: PersistedTriageState,
+  history: { role: string; content: string; imageUrls?: string[] }[]
+): boolean {
+  if (!triageState.answeredStates.includes('chief_complaint')) return false;
+  if (!triageState.answeredStates.includes('duration')) return false;
+  if (!triageState.answeredStates.includes('severity')) return false;
+  if (triageState.answeredStates.includes('advice')) return true;
+
+  const combinedUserText = history
+    .filter((message) => message.role === 'user')
+    .map((message) => message.content)
+    .join(' \n ')
+    .trim();
+
+  const symptomSummary = triageState.symptomSummary ?? combinedUserText;
+  if (!symptomSummary || !QUICK_ADVICE_SYMPTOM_REGEX.test(symptomSummary)) return false;
+  if (HIGH_RISK_TRIAGE_REGEX.test(combinedUserText)) return false;
+
+  const normalizedHistory = combinedUserText.toLowerCase();
+  const moderateOrWorse = /\b(severe|very bad|worst|unbearable|can't manage|cannot manage|8\/10|9\/10|10\/10|eight\/10|nine\/10|ten\/10)\b/.test(normalizedHistory);
+  if (moderateOrWorse) return false;
+
+  return true;
+}
+
 function prepareV3TriageState(history: { role: string; content: string; imageUrls?: string[] }[], persisted: PersistedTriageState): PersistedTriageState {
   const nextState = normalizeTriageState(persisted);
   const lastUserMessage = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
@@ -166,6 +195,12 @@ function prepareV3TriageState(history: { role: string; content: string; imageUrl
   }
 
   nextState.answeredStates = Array.from(new Set(nextState.answeredStates));
+
+  if (shouldFastTrackV3Advice(nextState, history)) {
+    nextState.currentState = 'advice';
+    return nextState;
+  }
+
   nextState.currentState = getNextUnansweredTriageState(nextState.answeredStates);
   return nextState;
 }
@@ -259,6 +294,7 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
       '- Never bundle multiple symptom checks into one message. Avoid phrases like "fever, vomiting, or blood in stool" in a single question.',
       '- Prefer natural wording like "Do you have a fever?" or "Any vomiting?" instead of formal checklist language.',
       '- Use this triage state order without skipping ahead: chief complaint, duration, severity, associated symptoms, risk factors, advice.',
+      '- Important exception: for low-risk, common symptoms, once chief complaint, duration, and severity are clear, you may stop intake and give practical advice with red flags.',
       '- Once the chief complaint is clear, branch into symptom-specific follow-up questions instead of generic intake.',
       '- Example branch for diarrhea: ask frequency, dehydration, food exposure, sick contacts, and blood in stool one at a time.',
       '- For diarrhea or vomiting, actively check dehydration with one question such as "Are you able to drink fluids?".',
@@ -546,7 +582,7 @@ async function runAgentRuntime(
 
     const runtimeConversationInstructions = buildRuntimeConversationInstructions(variant);
     const v3StateInstruction = variant === 'v3'
-      ? `Backend triage state (authoritative, persisted): current=${persistedV3TriageState.currentState}; answered=${persistedV3TriageState.answeredStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; asked=${persistedV3TriageState.askedStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; symptom_summary=${persistedV3TriageState.symptomSummary ?? 'unknown'}. You MUST respect this backend state. Do not re-ask any answered state. Ask only for the current backend state unless urgent escalation is needed. If the current state is advice, stop asking intake questions and give advice.`
+      ? `Backend triage state (authoritative, persisted): current=${persistedV3TriageState.currentState}; answered=${persistedV3TriageState.answeredStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; asked=${persistedV3TriageState.askedStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; symptom_summary=${persistedV3TriageState.symptomSummary ?? 'unknown'}. You MUST respect this backend state. Do not re-ask any answered state. Ask only for the current backend state unless urgent escalation is needed. If the current state is advice, stop asking intake questions and give advice. When backend state is advice after only chief complaint + duration + severity, that is intentional for low-risk/common symptoms: give concise home-care advice plus the exact red flags and when to seek in-person care instead of asking more checklist questions.`
       : '';
 
     let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${contextSection}\n${reminderSnapshotContext}\n`;
