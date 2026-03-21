@@ -15,9 +15,12 @@ type PatientProfile = {
   attributes?: Record<string, string>;
   lastConversationId?: string;
   updatedAt?: number | null;
+  createdAt?: number | null;
 };
 
 type ViewMode = 'card' | 'table';
+type SortMode = 'updated_desc' | 'name_asc' | 'custom_fields_desc' | 'duration_desc';
+type ProfileFilter = 'all' | 'missing_name' | 'missing_phone' | 'with_custom_fields';
 
 const metricCardStyle: CSSProperties = {
   padding: '12px 14px',
@@ -40,6 +43,10 @@ export default function PatientProfilePage() {
   const [savingProfileId, setSavingProfileId] = useState<string | null>(null);
   const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('card');
+  const [searchText, setSearchText] = useState('');
+  const [channelFilter, setChannelFilter] = useState<'all' | 'widget' | 'whatsapp' | 'unknown'>('all');
+  const [profileFilter, setProfileFilter] = useState<ProfileFilter>('all');
+  const [sortMode, setSortMode] = useState<SortMode>('updated_desc');
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', phone: '', location: '', attributesText: '' });
   const [editForm, setEditForm] = useState({ name: '', phone: '', location: '', attributesText: '' });
@@ -87,13 +94,6 @@ export default function PatientProfilePage() {
     return { total: normalizedProfiles.length, withNames, whatsappProfiles, widgetProfiles, withCustomFields };
   }, [normalizedProfiles]);
 
-  const widgetProfiles = useMemo(() => normalizedProfiles.filter((profile) => profile.channel === 'widget'), [normalizedProfiles]);
-  const whatsappProfiles = useMemo(() => normalizedProfiles.filter((profile) => profile.channel === 'whatsapp'), [normalizedProfiles]);
-  const otherProfiles = useMemo(
-    () => normalizedProfiles.filter((profile) => profile.channel !== 'widget' && profile.channel !== 'whatsapp'),
-    [normalizedProfiles],
-  );
-
   const deriveProfileName = (profile: PatientProfile) => {
     const attributeName = profile.attributes?.full_name || profile.attributes?.name;
     const directName = profile.name?.trim();
@@ -106,6 +106,72 @@ export default function PatientProfilePage() {
     }
     return 'Unnamed profile';
   };
+
+  const filteredProfiles = useMemo(() => {
+    const query = searchText.trim().toLowerCase();
+    const matchesQuery = (profile: PatientProfile) => {
+      if (!query) return true;
+      const haystack = [
+        profile.profileId,
+        profile.userId,
+        profile.externalUserId,
+        profile.name,
+        profile.phone,
+        profile.location,
+        profile.lastConversationId,
+        ...Object.entries(profile.attributes ?? {}).flatMap(([key, value]) => [key, value]),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    };
+
+    const matchesProfileFilter = (profile: PatientProfile) => {
+      switch (profileFilter) {
+        case 'missing_name':
+          return !profile.name?.trim();
+        case 'missing_phone':
+          return !profile.phone?.trim();
+        case 'with_custom_fields':
+          return Object.keys(profile.attributes ?? {}).length > 0;
+        default:
+          return true;
+      }
+    };
+
+    return normalizedProfiles
+      .filter((profile) => (channelFilter === 'all' ? true : profile.channel === channelFilter))
+      .filter(matchesProfileFilter)
+      .filter(matchesQuery)
+      .sort((a, b) => {
+        switch (sortMode) {
+          case 'name_asc':
+            return deriveProfileName(a).localeCompare(deriveProfileName(b));
+          case 'custom_fields_desc':
+            return Object.keys(b.attributes ?? {}).length - Object.keys(a.attributes ?? {}).length;
+          case 'duration_desc':
+            return (b.conversationDurationLastConversationSeconds ?? -1) - (a.conversationDurationLastConversationSeconds ?? -1);
+          case 'updated_desc':
+          default:
+            return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+        }
+      });
+  }, [normalizedProfiles, channelFilter, profileFilter, searchText, sortMode]);
+
+  const filteredSummary = useMemo(() => ({
+    total: filteredProfiles.length,
+    missingName: filteredProfiles.filter((profile) => !profile.name?.trim()).length,
+    missingPhone: filteredProfiles.filter((profile) => !profile.phone?.trim()).length,
+    withCustomFields: filteredProfiles.filter((profile) => Object.keys(profile.attributes ?? {}).length > 0).length,
+  }), [filteredProfiles]);
+
+  const widgetProfiles = useMemo(() => filteredProfiles.filter((profile) => profile.channel === 'widget'), [filteredProfiles]);
+  const whatsappProfiles = useMemo(() => filteredProfiles.filter((profile) => profile.channel === 'whatsapp'), [filteredProfiles]);
+  const otherProfiles = useMemo(
+    () => filteredProfiles.filter((profile) => profile.channel !== 'widget' && profile.channel !== 'whatsapp'),
+    [filteredProfiles],
+  );
 
   const startEdit = (profile: PatientProfile) => {
     setEditingProfileId(profile.profileId);
@@ -346,6 +412,34 @@ export default function PatientProfilePage() {
     );
   };
 
+  const exportCsv = () => {
+    const rows = filteredProfiles.map((profile) => ({
+      profileId: profile.profileId,
+      channel: profile.channel ?? 'unknown',
+      name: deriveProfileName(profile),
+      phone: profile.phone ?? '',
+      location: profile.location ?? '',
+      updatedAt: formatUpdatedAt(profile.updatedAt),
+      createdAt: formatUpdatedAt(profile.createdAt),
+      lastConversationId: profile.lastConversationId ?? '',
+      customFields: Object.entries(profile.attributes ?? {}).map(([key, value]) => `${key}=${value}`).join('; '),
+    }));
+
+    const headers = ['profileId', 'channel', 'name', 'phone', 'location', 'updatedAt', 'createdAt', 'lastConversationId', 'customFields'];
+    const csv = [
+      headers.join(','),
+      ...rows.map((row) => headers.map((header) => `"${String(row[header as keyof typeof row] ?? '').replace(/"/g, '""')}"`).join(',')),
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `patient-profiles-${tenantId ?? 'tenant'}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     if (!tenantId) {
       setLoading(false);
@@ -384,6 +478,61 @@ export default function PatientProfilePage() {
         <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>WhatsApp</span><strong>{summary.whatsappProfiles}</strong></div>
         <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Widget</span><strong>{summary.widgetProfiles}</strong></div>
         <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>With custom fields</span><strong>{summary.withCustomFields}</strong></div>
+      </section>
+
+      <section style={{ border: '1px solid #e2e8f0', borderRadius: 12, background: '#fff', padding: 14, display: 'grid', gap: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, color: '#0f172a' }}>Find and review profiles</h2>
+            <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 13 }}>
+              Search identities, filter incomplete records, and export the current result set for outreach or cleanup work.
+            </p>
+          </div>
+          <button type="button" onClick={exportCsv} disabled={filteredProfiles.length === 0} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 8, padding: '8px 12px' }}>
+            Export CSV
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 2fr) repeat(3, minmax(0, 1fr))', gap: 8 }}>
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span>Search</span>
+            <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Search name, phone, location, IDs, or custom fields" style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
+          </label>
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span>Channel</span>
+            <select value={channelFilter} onChange={(e) => setChannelFilter(e.target.value as typeof channelFilter)} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }}>
+              <option value="all">All channels</option>
+              <option value="widget">Widget</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </label>
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span>Profile health</span>
+            <select value={profileFilter} onChange={(e) => setProfileFilter(e.target.value as ProfileFilter)} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }}>
+              <option value="all">All profiles</option>
+              <option value="missing_name">Missing name</option>
+              <option value="missing_phone">Missing phone</option>
+              <option value="with_custom_fields">Has custom fields</option>
+            </select>
+          </label>
+          <label style={{ display: 'grid', gap: 4 }}>
+            <span>Sort</span>
+            <select value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }}>
+              <option value="updated_desc">Most recently updated</option>
+              <option value="name_asc">Name A–Z</option>
+              <option value="custom_fields_desc">Most custom fields</option>
+              <option value="duration_desc">Longest recent conversation</option>
+            </select>
+          </label>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+          <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Matching profiles</span><strong>{filteredSummary.total}</strong></div>
+          <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Missing name</span><strong>{filteredSummary.missingName}</strong></div>
+          <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Missing phone</span><strong>{filteredSummary.missingPhone}</strong></div>
+          <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>With custom fields</span><strong>{filteredSummary.withCustomFields}</strong></div>
+        </div>
       </section>
 
       <section style={{ border: '1px solid #e2e8f0', borderRadius: 12, background: '#fff', padding: 14, display: 'grid', gap: 10 }}>
@@ -441,7 +590,13 @@ export default function PatientProfilePage() {
         </div>
       ) : null}
 
-      {!loading && normalizedProfiles.length > 0 && viewMode === 'table' ? (
+      {!loading && normalizedProfiles.length > 0 && filteredProfiles.length === 0 ? (
+        <div style={{ padding: 24, border: '1px dashed #cbd5e1', borderRadius: 10, background: '#f8fafc', color: '#64748b' }}>
+          No patient profiles match the current search and filter settings.
+        </div>
+      ) : null}
+
+      {!loading && filteredProfiles.length > 0 && viewMode === 'table' ? (
         <div style={{ display: 'grid', gap: 12 }}>
           <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 12, background: '#fff' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
@@ -458,7 +613,7 @@ export default function PatientProfilePage() {
                 </tr>
               </thead>
               <tbody>
-                {normalizedProfiles.map((profile) => (
+                {filteredProfiles.map((profile) => (
                   <tr key={profile.profileId} style={{ borderTop: '1px solid #e2e8f0' }}>
                     <td style={{ padding: '10px 12px' }}>{deriveProfileName(profile)}</td>
                     <td style={{ padding: '10px 12px', textTransform: 'uppercase', fontSize: 12 }}>{profile.channel}</td>
@@ -497,7 +652,7 @@ export default function PatientProfilePage() {
         </div>
       ) : null}
 
-      {!loading && normalizedProfiles.length > 0 && viewMode === 'card' ? (
+      {!loading && filteredProfiles.length > 0 && viewMode === 'card' ? (
         <div style={{ display: 'grid', gap: 18 }}>
           {widgetProfiles.length > 0 ? (
             <section style={{ display: 'grid', gap: 12 }}>
