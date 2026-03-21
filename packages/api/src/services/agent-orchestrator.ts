@@ -1037,11 +1037,7 @@ export class AgentOrchestrator {
           result = {
             success: true,
             action: 'read',
-            data: buildCurrentDateTimePayload(
-              typeof toolCall.args.timezone === 'string' && toolCall.args.timezone.trim().length > 0
-                ? toolCall.args.timezone
-                : configuredTimezone,
-            ),
+            data: buildCurrentDateTimePayload(configuredTimezone),
           };
         }
         break;
@@ -1058,6 +1054,8 @@ export class AgentOrchestrator {
 
           const channel = toolCall.args.channel === 'whatsapp_meta' ? 'whatsapp_meta' : 'whatsapp';
           try {
+            const tenantConfig = await getAgentConfig(this.tenantId);
+            const configuredTimezone = tenantConfig.agentTimezone?.trim() || 'UTC';
             const requestedTargetType = toolCall.args.targetType === 'next_of_kin' ? 'next_of_kin' : 'self';
             let targetExternalUserId = typeof toolCall.args.targetExternalUserId === 'string'
               ? toolCall.args.targetExternalUserId.trim()
@@ -1096,7 +1094,7 @@ export class AgentOrchestrator {
               tenantId: this.tenantId,
               message: toolCall.args.message,
               remindAtIso: toolCall.args.remindAtIso,
-              timezone: typeof toolCall.args.timezone === 'string' ? toolCall.args.timezone : undefined,
+              timezone: configuredTimezone,
               externalUserId,
               targetExternalUserId: targetExternalUserId || undefined,
               targetType: requestedTargetType,
@@ -1192,13 +1190,15 @@ export class AgentOrchestrator {
           }
 
           try {
+            const tenantConfig = await getAgentConfig(this.tenantId);
+            const configuredTimezone = tenantConfig.agentTimezone?.trim() || 'UTC';
             const reminder = await editUserReminder({
               tenantId: this.tenantId,
               externalUserId,
               reminderId: toolCall.args.reminderId,
               message: typeof toolCall.args.message === 'string' ? toolCall.args.message : undefined,
               remindAtIso: typeof toolCall.args.remindAtIso === 'string' ? toolCall.args.remindAtIso : undefined,
-              timezone: typeof toolCall.args.timezone === 'string' ? toolCall.args.timezone : undefined,
+              timezone: configuredTimezone,
             });
             result = {
               success: true,

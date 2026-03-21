@@ -87,12 +87,62 @@ async function resolveOrCreatePatientConversation(params: {
   };
 }
 
-function parseReminderDateTime(input: string): Date | null {
-  const parsed = new Date(input);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed;
+function getTimeZoneOffsetMinutes(at: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    timeZoneName: 'shortOffset',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(at);
+  const timeZoneName = parts.find((part) => part.type === 'timeZoneName')?.value ?? 'GMT+00:00';
+  const normalized = timeZoneName.replace(/^GMT/, '');
+  if (normalized === '' || normalized === 'Z') return 0;
+
+  const match = normalized.match(/^([+-])(\d{1,2})(?::?(\d{2}))?$/);
+  if (!match) return 0;
+
+  const [, sign, hours, minutes] = match;
+  const totalMinutes = (Number(hours) * 60) + Number(minutes ?? '0');
+  return sign === '-' ? -totalMinutes : totalMinutes;
+}
+
+function parseReminderDateTime(input: string, timeZone: string): Date | null {
+  const trimmedInput = input.trim();
+  if (!trimmedInput) return null;
+
+  if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(trimmedInput)) {
+    const parsed = new Date(trimmedInput);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
-  return null;
+
+  const naiveIsoMatch = trimmedInput.match(
+    /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?$/,
+  );
+  if (!naiveIsoMatch) {
+    const parsed = new Date(trimmedInput);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const [, year, month, day, hour, minute, second] = naiveIsoMatch;
+  const utcGuess = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second ?? '0'),
+  );
+
+  let offsetMinutes = getTimeZoneOffsetMinutes(new Date(utcGuess), timeZone);
+  let resolvedMs = utcGuess - (offsetMinutes * 60_000);
+  const resolvedOffsetMinutes = getTimeZoneOffsetMinutes(new Date(resolvedMs), timeZone);
+  if (resolvedOffsetMinutes !== offsetMinutes) {
+    offsetMinutes = resolvedOffsetMinutes;
+    resolvedMs = utcGuess - (offsetMinutes * 60_000);
+  }
+
+  const parsed = new Date(resolvedMs);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 export async function createWhatsAppReminder(params: {
@@ -112,7 +162,8 @@ export async function createWhatsAppReminder(params: {
     throw new Error('Missing externalUserId for WhatsApp reminder.');
   }
 
-  const dueAtDate = parseReminderDateTime(params.remindAtIso);
+  const reminderTimezone = params.timezone?.trim() || 'UTC';
+  const dueAtDate = parseReminderDateTime(params.remindAtIso, reminderTimezone);
   if (!dueAtDate) {
     throw new Error('Invalid remindAtIso date. Provide an ISO datetime string.');
   }
@@ -133,7 +184,7 @@ export async function createWhatsAppReminder(params: {
     channel: params.channel ?? 'whatsapp',
     message: params.message.trim(),
     dueAt: Timestamp.fromDate(dueAtDate),
-    timezone: params.timezone?.trim() || 'UTC',
+    timezone: reminderTimezone,
     status: 'pending',
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
@@ -382,7 +433,8 @@ export async function editUserReminder(params: {
   }
 
   if (typeof params.remindAtIso === 'string') {
-    const dueAtDate = parseReminderDateTime(params.remindAtIso);
+    const reminderTimezone = params.timezone?.trim() || reminder.timezone || 'UTC';
+    const dueAtDate = parseReminderDateTime(params.remindAtIso, reminderTimezone);
     if (!dueAtDate) throw new Error('Invalid remindAtIso date. Provide an ISO datetime string.');
     if (dueAtDate.getTime() <= Date.now()) throw new Error('Reminder time must be in the future.');
     updates.dueAt = Timestamp.fromDate(dueAtDate);

@@ -1008,13 +1008,11 @@ async function runAgentRuntime(
 
     const getCurrentDateTimeTool = new DynamicStructuredTool({
       name: 'get_current_datetime',
-      description: 'Get the current date/time using the tenant Agent Settings timezone. Use before mentioning the current time or reasoning about reminder timing relative to now.',
-      schema: z.object({
-        timezone: z.string().optional().describe('Optional IANA timezone override. If omitted, uses the tenant Agent Settings timezone.'),
-      }),
-      func: async ({ timezone }) => JSON.stringify(
+      description: 'Get the current date/time using the tenant Agent Settings timezone. Always use this timezone as the source of truth for current-time answers and reminder timing.',
+      schema: z.object({}),
+      func: async () => JSON.stringify(
         buildCurrentDateTimePayload(
-          typeof timezone === 'string' && timezone.trim().length > 0 ? timezone : configuredTimeContext.timezone,
+          configuredTimeContext.timezone,
           configuredTimeContext.countryCode,
         )
       ),
