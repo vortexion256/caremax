@@ -155,6 +155,11 @@ function extractNextOfKinPhoneCandidate(text: string | undefined): string | unde
   return normalizeContactPhone(phoneMatch[0]);
 }
 
+function formatReminderToolMessage(message: string): string {
+  const normalized = message.trim().replace(/^reminder\s*:\s*/i, '').replace(/[.?!]+$/, '').trim();
+  return normalized ? `Reminder: ${normalized}` : 'Reminder';
+}
+
 const defaultSystemPrompt = `You are a helpful clinical triage assistant. You help users understand possible next steps based on their symptoms.
 You may suggest: possible diagnoses (as possibilities, not certainties), tests they could discuss with a doctor, first aid or home care when appropriate, and when to seek emergency or in-person care.
 Always be clear that you are not a doctor and cannot diagnose. If the user shares images (e.g. skin, wound), you may comment on what you observe and suggest next steps, but never give a definitive diagnosis from images alone.
@@ -614,7 +619,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}${conversationLanguageInstruction ? `\n\n${conversationLanguageInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}${xPersonProfileContext}${reminderSnapshotContext}`;
   systemContent += `\n\nTime handling rules:\n- The tenant-configured timezone in Agent Settings is authoritative.\n- Never guess or invent the current date/time.\n- Before you mention the current time, compare a reminder to now, explain why a reminder has or has not triggered yet, or interpret words like today/tonight/this afternoon, call get_current_datetime first.\n- Use get_current_datetime output as the source of truth for reminder timing language.`;
   if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
-    systemContent += `\n\nReminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- When discussing whether a reminder should already have fired, call get_current_datetime first instead of inferring the current time.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.`;
+    systemContent += `\n\nReminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user says things like "remind me", "set a reminder", or "remember to remind me", help them create the reminder step-by-step.\n- If the user has not clearly given BOTH the reminder content and the reminder date/time, ask only for the single missing detail next.\n- If the user uses relative time words such as today, tomorrow, tonight, next week, this afternoon, or in 2 hours, call get_current_datetime first and resolve them using the tenant Agent Settings timezone before calling set_reminder.\n- Never invent the current date or timezone; the tenant Agent Settings timezone is the source of truth.\n- Store reminder content as a clear sentence, for example "Reminder: Please take your medication".\n- When confirming a saved reminder, make the content explicit, for example "Reminder: You told me to remind you to take your medication at [time/date]".\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- When discussing whether a reminder should already have fired, call get_current_datetime first instead of inferring the current time.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.`;
   }
   if (config.ragEnabled) {
     const lastUser = history.filter((m) => m.role === 'user').pop();
@@ -953,11 +958,11 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   });
   const setReminderTool = new DynamicStructuredTool({
     name: 'set_reminder',
-    description: 'Schedule a future reminder message for WhatsApp users. Use only after the user clearly confirms date/time and reminder message.',
+    description: 'Schedule a future reminder message for WhatsApp users. Use only after the user clearly confirms the reminder content plus an exact date/time resolved in the tenant Agent Settings timezone.',
     schema: z.object({
       message: z.string().describe('The reminder message to send at the due time.'),
-      remindAtIso: z.string().describe('Reminder datetime in ISO format, e.g. 2026-03-20T14:30:00+03:00'),
-      timezone: z.string().optional().describe('IANA timezone, e.g. Africa/Kampala'),
+      remindAtIso: z.string().describe('Reminder datetime in ISO format, e.g. 2026-03-20T14:30:00+03:00. Resolve relative dates like today/tomorrow/next week using get_current_datetime and the tenant Agent Settings timezone before calling this tool.'),
+      timezone: z.string().optional().describe('Optional IANA timezone, but the tenant Agent Settings timezone remains authoritative.'),
       targetType: z.enum(['self', 'next_of_kin']).describe('REQUIRED: who should receive the reminder. Use next_of_kin whenever the user asks to remind someone else (e.g., next of kin or a named contact). Use self only for reminders to the current user.'),
       targetExternalUserId: z.string().optional().describe('Optional explicit recipient WhatsApp id/phone. If omitted, defaults to the current user.'),
     }),
@@ -992,7 +997,9 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         ownerLabel: ownerLabel || undefined,
       });
 
-      return `Reminder scheduled successfully (id=${created.reminderId}) for ${created.dueAtIso}.`;
+      const content = formatReminderToolMessage(message);
+      const targetLabel = resolvedTargetType === 'next_of_kin' ? 'your next of kin' : 'you';
+      return `${content}\nSaved for ${targetLabel} at ${created.dueAtIso} (${resolvedTimezone}). Reminder ID: ${created.reminderId}.`;
     },
   });
 
@@ -1041,7 +1048,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
 
   const editReminderTool = new DynamicStructuredTool({
     name: 'edit_reminder',
-    description: 'Edit a pending reminder for this WhatsApp user by reminderId. Allowed fields: message, remindAtIso, timezone.',
+    description: 'Edit a pending reminder for this WhatsApp user by reminderId. Allowed fields: message, remindAtIso, timezone. Resolve relative dates using get_current_datetime and the tenant Agent Settings timezone before calling this tool.',
     schema: z.object({
       reminderId: z.string(),
       message: z.string().optional(),

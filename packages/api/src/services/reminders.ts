@@ -40,7 +40,41 @@ export type ReminderRecord = {
   error?: string;
 };
 
+function normalizeReminderMessage(message: string): string {
+  const trimmed = message.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return '';
 
+  const withoutLeadingReminder = trimmed.replace(/^reminder\s*:\s*/i, '');
+  return withoutLeadingReminder.replace(/[.?!]+$/, '').trim();
+}
+
+function buildReminderDispatchBody(message: string): string {
+  const normalized = normalizeReminderMessage(message);
+  return normalized ? `Reminder: ${normalized}` : 'Reminder';
+}
+
+function buildReminderOwnerNotification(message: string, dueAtIso: string, timeZone: string): string {
+  const normalized = normalizeReminderMessage(message);
+  const dueAt = new Date(dueAtIso);
+  const formattedDueAt = Number.isNaN(dueAt.getTime())
+    ? dueAtIso
+    : new Intl.DateTimeFormat('en-GB', {
+        timeZone,
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(dueAt);
+
+  return normalized
+    ? `Reminder: You told me to remind you about "${normalized}" at ${formattedDueAt} (${timeZone}).`
+    : `Reminder saved for ${formattedDueAt} (${timeZone}).`;
+}
+
+function buildReminderDeletionConfirmation(message: string): string {
+  const normalized = normalizeReminderMessage(message);
+  return normalized
+    ? `Reminder cancelled: ${normalized}`
+    : 'Reminder cancelled.';
+}
 
 async function resolveOrCreatePatientConversation(params: {
   tenantId: string;
@@ -157,7 +191,7 @@ export async function createWhatsAppReminder(params: {
   conversationId?: string;
   channel?: WhatsAppChannel;
   ownerLabel?: string;
-}): Promise<{ reminderId: string; dueAtIso: string }> {
+}): Promise<{ reminderId: string; dueAtIso: string; message: string; timezone: string; targetType: 'self' | 'next_of_kin' }> {
   if (!params.externalUserId) {
     throw new Error('Missing externalUserId for WhatsApp reminder.');
   }
@@ -172,6 +206,11 @@ export async function createWhatsAppReminder(params: {
     throw new Error('Reminder time must be in the future.');
   }
 
+  const normalizedMessage = normalizeReminderMessage(params.message);
+  if (!normalizedMessage) {
+    throw new Error('Reminder message cannot be empty.');
+  }
+
   const reminderPayload: ReminderRecord = {
     tenantId: params.tenantId,
     conversationId: params.conversationId,
@@ -182,7 +221,7 @@ export async function createWhatsAppReminder(params: {
     targetExternalUserId: params.targetExternalUserId?.trim() || params.externalUserId,
     targetType: params.targetType === 'next_of_kin' ? 'next_of_kin' : 'self',
     channel: params.channel ?? 'whatsapp',
-    message: params.message.trim(),
+    message: normalizedMessage,
     dueAt: Timestamp.fromDate(dueAtDate),
     timezone: reminderTimezone,
     status: 'pending',
@@ -191,7 +230,13 @@ export async function createWhatsAppReminder(params: {
   };
 
   const ref = await db.collection('reminders').add(reminderPayload);
-  return { reminderId: ref.id, dueAtIso: dueAtDate.toISOString() };
+  return {
+    reminderId: ref.id,
+    dueAtIso: dueAtDate.toISOString(),
+    message: normalizedMessage,
+    timezone: reminderTimezone,
+    targetType: reminderPayload.targetType ?? 'self',
+  };
 }
 
 export async function dispatchDueReminders(options?: {
@@ -232,7 +277,7 @@ export async function dispatchDueReminders(options?: {
         && data.ownerExternalUserId.trim().length > 0
         && data.ownerExternalUserId.trim() !== recipientExternalUserId;
 
-      let outboundBody = data.message;
+      let outboundBody = buildReminderDispatchBody(data.message);
       let relayTicketId: string | null = null;
 
       if (shouldRelayNokReply) {
@@ -256,7 +301,7 @@ export async function dispatchDueReminders(options?: {
         outboundBody = buildAutoTimedReminderRelayMessage({
           senderLabel: data.ownerLabel || data.ownerExternalUserId,
           relayTicketId,
-          message: data.message,
+          message: buildReminderDispatchBody(data.message),
         });
       }
 
@@ -309,7 +354,11 @@ export async function dispatchDueReminders(options?: {
           await sendWhatsAppOutboundMessage({
             tenantId: data.tenantId,
             to: data.ownerExternalUserId!.trim(),
-            body: `✅ Your reminder to your next of kin has been sent: "${data.message}"`,
+            body: buildReminderOwnerNotification(
+              data.message,
+              data.dueAt instanceof Timestamp ? data.dueAt.toDate().toISOString() : new Date().toISOString(),
+              typeof data.timezone === 'string' && data.timezone.trim() ? data.timezone : 'UTC',
+            ),
             preferredChannel: channel,
           });
           ownerNotified += 1;
@@ -427,9 +476,9 @@ export async function editUserReminder(params: {
   };
 
   if (typeof params.message === 'string') {
-    const trimmedMessage = params.message.trim();
-    if (!trimmedMessage) throw new Error('Reminder message cannot be empty.');
-    updates.message = trimmedMessage;
+    const normalizedMessage = normalizeReminderMessage(params.message);
+    if (!normalizedMessage) throw new Error('Reminder message cannot be empty.');
+    updates.message = normalizedMessage;
   }
 
   if (typeof params.remindAtIso === 'string') {
@@ -482,5 +531,9 @@ export async function deleteUserReminder(params: {
   });
 
   const refreshed = await reminderRef.get();
-  return toSafeReminderView(refreshed);
+  const safeView = toSafeReminderView(refreshed);
+  return {
+    ...safeView,
+    message: buildReminderDeletionConfirmation(reminder.message),
+  };
 }
