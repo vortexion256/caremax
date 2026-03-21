@@ -93,6 +93,32 @@ const TRIAGE_STATE_LABELS: Record<TriageState, string> = {
 const QUICK_ADVICE_SYMPTOM_REGEX = /\b(cough|cold|flu|headache|fever|diarrhea|diarrhoea|vomiting|nausea|stomach(?:\s+ache)?|abdominal pain|runny nose|sore throat|constipation|rash|allergy|back pain|body aches?)\b/i;
 const HIGH_RISK_TRIAGE_REGEX = /\b(chest pain|difficulty breathing|shortness of breath|can't breathe|seizure|faint(?:ed|ing)?|passed out|stroke|weakness on one side|confused|confusion|pregnant|pregnancy|newborn|infant|baby|blood in (?:stool|vomit|urine)|black stool|severe dehydration|cannot keep fluids down|can't keep fluids down|not passing urine|suicidal|overdose|poison|anaphylaxis)\b/i;
 
+type AgentFlowStage =
+  | 'start'
+  | 'decomposition'
+  | 'intent'
+  | 'handoff'
+  | 'memory'
+  | 'planning'
+  | 'plan_execution'
+  | 'orchestrator'
+  | 'context'
+  | 'llm'
+  | 'retry'
+  | 'validation'
+  | 'triage_state'
+  | 'complete'
+  | 'error';
+
+function logAgentFlow(
+  variant: AgentRuntimeVariant,
+  stage: AgentFlowStage,
+  details: Record<string, unknown>
+): void {
+  const prefix = `[Agent ${variant.toUpperCase()} Flow]`;
+  console.log(`${prefix} ${stage}`, details);
+}
+
 function createDefaultTriageState(): PersistedTriageState {
   return {
     currentState: 'chief_complaint',
@@ -318,6 +344,16 @@ async function runAgentRuntime(
   variant: AgentRuntimeVariant
 ): Promise<AgentResult> {
   try {
+    const lastUserMessage = history.filter((m) => m.role === 'user').pop()?.content ?? '';
+    logAgentFlow(variant, 'start', {
+      tenantId,
+      conversationId: options?.conversationId ?? null,
+      userId: options?.userId ?? null,
+      channel: options?.channel ?? 'widget',
+      messageCount: history.length,
+      lastUserMessage,
+    });
+
     const config = await getAgentConfig(tenantId);
     const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
     if (!apiKey) {
@@ -333,7 +369,6 @@ async function runAgentRuntime(
     // ========================================================================
     // STEP 1: DECOMPOSITION (Decomposer layer)
     // ========================================================================
-    const lastUserMessage = history.filter((m) => m.role === 'user').pop()?.content ?? '';
     const decomposition = await decomposeQuestion(model, lastUserMessage, history, {
       tenantId,
       userId: options?.userId,
@@ -350,6 +385,12 @@ async function runAgentRuntime(
       decompositionNote = `[Decomposer] Handling first part: "${currentTask}". Remaining: ${decomposition.subQuestions.slice(1).join(', ')}`;
       console.log(decompositionNote);
     }
+    logAgentFlow(variant, 'decomposition', {
+      isComplex: decomposition.isComplex,
+      currentTask,
+      subQuestions: decomposition.subQuestions,
+      reasoning: decomposition.reasoning,
+    });
 
     // ========================================================================
     // STEP 1.1: INTENT EXTRACTION (LLM suggests)
@@ -361,9 +402,18 @@ async function runAgentRuntime(
       modelName: config.model,
     });
     const wantsHumanHandoff = intent.intent === 'request_human';
+    logAgentFlow(variant, 'intent', {
+      intent: intent.intent,
+      entities: intent.entities,
+      currentTask,
+      wantsHumanHandoff,
+    });
 
     // Early exit for human handoff
     if (wantsHumanHandoff) {
+      logAgentFlow(variant, 'handoff', {
+        reason: 'intent_requested_human',
+      });
       return {
         text: "I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.\n\nIf your need is urgent, please call your care team or 911 in an emergency.",
         requestHandoff: true,
@@ -375,6 +425,11 @@ async function runAgentRuntime(
     // ========================================================================
     const memory = await buildAgentContext(tenantId, options?.conversationId, history, [], undefined, 3, options?.userId);
     let executionPlan: ExecutionPlan | null = memory.structuredState.activePlan || null;
+    logAgentFlow(variant, 'memory', {
+      hasActivePlan: !!executionPlan,
+      activePlanId: executionPlan?.planId ?? null,
+      structuredStateKeys: Object.keys(memory.structuredState ?? {}),
+    });
 
     // Handle confirmation intent
     if (intent.intent === 'confirm_action' && executionPlan && executionPlan.status === 'awaiting_confirmation') {
@@ -398,15 +453,32 @@ async function runAgentRuntime(
       conversationId: options?.conversationId,
       modelName: config.model,
     });
+    logAgentFlow(variant, 'planning', {
+      decision: planningDecision,
+      existingPlanId: executionPlan?.planId ?? null,
+    });
 
     let persistedV3TriageState = createDefaultTriageState();
     if (variant === 'v3' && options?.conversationId) {
       try {
         const conversationDoc = await db.collection('conversations').doc(options.conversationId).get();
         persistedV3TriageState = prepareV3TriageState(history, normalizeTriageState(conversationDoc.data()?.v3TriageState));
+        logAgentFlow(variant, 'triage_state', {
+          source: 'loaded',
+          currentState: persistedV3TriageState.currentState,
+          askedStates: persistedV3TriageState.askedStates,
+          answeredStates: persistedV3TriageState.answeredStates,
+          symptomSummary: persistedV3TriageState.symptomSummary ?? null,
+        });
       } catch (e) {
         console.warn('[Agent V3] Failed to load persisted triage state:', e);
         persistedV3TriageState = prepareV3TriageState(history, createDefaultTriageState());
+        logAgentFlow(variant, 'triage_state', {
+          source: 'fallback_after_load_error',
+          currentState: persistedV3TriageState.currentState,
+          askedStates: persistedV3TriageState.askedStates,
+          answeredStates: persistedV3TriageState.answeredStates,
+        });
       }
     }
 
@@ -420,6 +492,12 @@ async function runAgentRuntime(
       && (intent.intent === 'general_conversation' || (intent.intent === 'query_information' && isLikelyGreetingTurn));
 
     if (shouldIgnoreActivePlan) {
+      logAgentFlow(variant, 'planning', {
+        action: 'discard_stale_plan',
+        ignoredPlanId: executionPlan?.planId ?? null,
+        intent: intent.intent,
+        isLikelyGreetingTurn,
+      });
       executionPlan = null;
     }
 
@@ -458,6 +536,18 @@ async function runAgentRuntime(
           modelName: config.model,
         }
       );
+      logAgentFlow(variant, 'planning', {
+        action: 'created_plan',
+        planId: executionPlan.planId,
+        status: executionPlan.status,
+        stepCount: executionPlan.steps.length,
+        steps: executionPlan.steps.map((step) => ({
+          stepNumber: step.stepNumber,
+          description: step.description,
+          toolName: step.toolName ?? null,
+          status: step.status,
+        })),
+      });
 
       // Save new plan to database
       if (options?.conversationId) {
@@ -472,6 +562,11 @@ async function runAgentRuntime(
 
       // If plan needs info, ask user
       if (planNeedsInfo(executionPlan)) {
+        logAgentFlow(variant, 'planning', {
+          action: 'plan_needs_info',
+          planId: executionPlan.planId,
+          missingInfo: executionPlan.missingInfo,
+        });
         const question = await formatMissingInfoQuestion(
           model,
           executionPlan.missingInfo,
@@ -495,6 +590,12 @@ async function runAgentRuntime(
       if (executionPlan.status === 'awaiting_confirmation') {
         const stepToConfirm = executionPlan.steps.find(s => s.status === 'awaiting_confirmation');
         if (stepToConfirm) {
+          logAgentFlow(variant, 'planning', {
+            action: 'awaiting_confirmation',
+            planId: executionPlan.planId,
+            stepNumber: stepToConfirm.stepNumber,
+            description: stepToConfirm.description,
+          });
           const question = await formatConfirmationQuestion(
             model,
             stepToConfirm,
@@ -545,6 +646,13 @@ async function runAgentRuntime(
       3, // Max 3 RAG chunks
       options?.userId
     );
+    logAgentFlow(variant, 'context', {
+      trimmedRecentMessageCount: trimmedMemory.recentMessages.length,
+      ragEnabled: config.ragEnabled,
+      hasRagContext: !!ragContext,
+      executionLogCount: executionLogs.length,
+      hasConversationSummary: !!agentContext.conversationMemory.summary,
+    });
 
     // ========================================================================
     // STEP 4: BUILD SYSTEM PROMPT (Optimized context)
@@ -913,6 +1021,11 @@ Follow this plan step by step. Execute each step in order.`;
     }
 
     let response: BaseMessage = await modelWithTools.invoke(currentMessages);
+    logAgentFlow(variant, 'llm', {
+      event: 'initial_response',
+      toolCallCount: ((response as { tool_calls?: unknown[] }).tool_calls?.length ?? 0),
+      hasText: extractTextFromResponse(response).trim().length > 0,
+    });
     let initialUsage = extractTokenUsage(response);
     accumulatedUsage.inputTokens += initialUsage.inputTokens;
     accumulatedUsage.outputTokens += initialUsage.outputTokens;
@@ -945,6 +1058,12 @@ Follow this plan step by step. Execute each step in order.`;
           });
 
           if (missingFromStep.length > 0) {
+            logAgentFlow(variant, 'plan_execution', {
+              planId: executionPlan.planId,
+              stepNumber: step.stepNumber,
+              status: 'missing_info',
+              missingInfo: missingFromStep,
+            });
             const question = await formatMissingInfoQuestion(
               model,
               missingFromStep,
@@ -987,6 +1106,15 @@ Follow this plan step by step. Execute each step in order.`;
             options?.userId,
             options?.externalUserId
           );
+          logAgentFlow(variant, 'plan_execution', {
+            planId: executionPlan.planId,
+            stepNumber: step.stepNumber,
+            toolName: step.toolName,
+            toolArgs,
+            success: result.success,
+            verified: result.verified ?? false,
+            error: result.error ?? null,
+          });
 
           // Format result for LLM with enhanced state information
           let content: string;
@@ -1040,6 +1168,11 @@ Follow this plan step by step. Execute each step in order.`;
           }
         } else {
           // Step without tool - mark as completed
+          logAgentFlow(variant, 'plan_execution', {
+            planId: executionPlan.planId,
+            stepNumber: step.stepNumber,
+            status: 'completed_without_tool',
+          });
           executionPlan = updatePlanWithResult(executionPlan, step.stepNumber, {
             success: true,
           });
@@ -1050,6 +1183,13 @@ Follow this plan step by step. Execute each step in order.`;
       if (planToolMessages.length > 0) {
         currentMessages = [...currentMessages, response, ...planToolMessages];
         response = await modelWithTools.invoke(currentMessages);
+        logAgentFlow(variant, 'llm', {
+          event: 'post_plan_execution_response',
+          planId: executionPlan.planId,
+          toolMessageCount: planToolMessages.length,
+          toolCallCount: ((response as { tool_calls?: unknown[] }).tool_calls?.length ?? 0),
+          hasText: extractTextFromResponse(response).trim().length > 0,
+        });
         const planUsage = extractTokenUsage(response);
         accumulatedUsage.inputTokens += planUsage.inputTokens;
         accumulatedUsage.outputTokens += planUsage.outputTokens;
@@ -1060,6 +1200,11 @@ Follow this plan step by step. Execute each step in order.`;
       for (let round = 0; round < maxToolRounds; round++) {
         const toolCalls = (response as { tool_calls?: Array<{ id: string; name: string; args?: Record<string, unknown> }> }).tool_calls;
         if (!toolCalls?.length) break;
+        logAgentFlow(variant, 'orchestrator', {
+          event: 'tool_round_start',
+          round: round + 1,
+          toolCalls: toolCalls.map((tc) => ({ id: tc.id, name: tc.name, args: tc.args ?? {} })),
+        });
 
         const toolMessages: ToolMessage[] = [];
         
@@ -1081,6 +1226,15 @@ Follow this plan step by step. Execute each step in order.`;
             options?.userId,
             options?.externalUserId
           );
+          logAgentFlow(variant, 'orchestrator', {
+            event: 'tool_call_result',
+            round: round + 1,
+            toolName: tc.name,
+            toolArgs,
+            success: result.success,
+            verified: result.verified ?? false,
+            error: result.error ?? null,
+          });
 
           // Format result for LLM with enhanced state information
           let content: string;
@@ -1108,6 +1262,13 @@ Follow this plan step by step. Execute each step in order.`;
 
         currentMessages = [...currentMessages, response, ...toolMessages];
         response = await modelWithTools.invoke(currentMessages);
+        logAgentFlow(variant, 'llm', {
+          event: 'tool_round_response',
+          round: round + 1,
+          toolMessageCount: toolMessages.length,
+          toolCallCount: ((response as { tool_calls?: unknown[] }).tool_calls?.length ?? 0),
+          hasText: extractTextFromResponse(response).trim().length > 0,
+        });
         
         const roundUsage = extractTokenUsage(response);
         accumulatedUsage.inputTokens += roundUsage.inputTokens;
@@ -1182,6 +1343,12 @@ Follow this plan step by step. Execute each step in order.`;
         if (recoveryPlan) {
           console.log(`[Agent V2] Created recovery plan: ${recoveryPlan.planId}`);
           executionPlan = recoveryPlan;
+          logAgentFlow(variant, 'retry', {
+            action: 'created_recovery_plan',
+            planId: recoveryPlan.planId,
+            cause: analysis.cause,
+            suggestedAction: analysis.suggestedAction,
+          });
         }
       }
 
@@ -1191,6 +1358,12 @@ Follow this plan step by step. Execute each step in order.`;
       if (analysis.suggestedAction === 'retry_simple' || analysis.suggestedAction === 'retry_with_context') {
         retryAttempted = true;
         console.log(`[Agent V2] Attempting intelligent retry with strategy: ${analysis.suggestedAction}`);
+        logAgentFlow(variant, 'retry', {
+          action: 'attempt',
+          cause: analysis.cause,
+          suggestedAction: analysis.suggestedAction,
+          retryStrategy: analysis.retryStrategy ?? null,
+        });
         
         try {
           // Build retry messages based on strategy
@@ -1250,11 +1423,24 @@ Follow this plan step by step. Execute each step in order.`;
           if (text && text.trim().length > 0) {
             console.log(`[Agent V2] Retry successful, got response`);
             response = retryResponse; // Update response for further processing
+            logAgentFlow(variant, 'retry', {
+              action: 'success',
+              suggestedAction: analysis.suggestedAction,
+            });
           } else {
             console.warn(`[Agent V2] Retry still produced empty response`);
+            logAgentFlow(variant, 'retry', {
+              action: 'empty_after_retry',
+              suggestedAction: analysis.suggestedAction,
+            });
           }
         } catch (e) {
           console.error(`[Agent V2] Retry failed:`, e);
+          logAgentFlow(variant, 'retry', {
+            action: 'failure',
+            suggestedAction: analysis.suggestedAction,
+            error: e instanceof Error ? e.message : String(e),
+          });
         }
       }
       
@@ -1392,7 +1578,6 @@ Provide a clear, user-friendly response based on these results.`,
         text = "I attempted to save your appointment, but I wasn't able to verify it was successfully recorded. Please contact the care team to confirm your appointment.";
       }
     }
-
     // ========================================================================
     // STEP 10: HANDOFF DETECTION
     // ========================================================================
@@ -1405,6 +1590,11 @@ Provide a clear, user-friendly response based on these results.`,
       markerPresent ||
       wantsHumanHandoff ||
       /speak with (a )?(care )?(coordinator|team|human|agent)/i.test(text);
+    logAgentFlow(variant, 'validation', {
+      executionLogCount: executionLogsFinal.length,
+      verifiedBookingCount: verifiedBookings.length,
+      requestHandoffCandidate: requestHandoff,
+    });
 
     // ========================================================================
     // STEP 11: RECORD USAGE
@@ -1424,6 +1614,13 @@ Provide a clear, user-friendly response based on these results.`,
           v3TriageState: nextPersistedState,
           updatedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
+        logAgentFlow(variant, 'triage_state', {
+          source: 'persisted_after_response',
+          currentState: nextPersistedState.currentState,
+          askedStates: nextPersistedState.askedStates,
+          answeredStates: nextPersistedState.answeredStates,
+          lastQuestion: nextPersistedState.lastQuestion ?? null,
+        });
       } catch (e) {
         console.warn('[Agent V3] Failed to persist triage state:', e);
       }
@@ -1445,8 +1642,18 @@ Provide a clear, user-friendly response based on these results.`,
       }
     }
 
+    logAgentFlow(variant, 'complete', {
+      requestHandoff,
+      planStatus: finalResult.planStatus ?? null,
+      needsInfo: finalResult.needsInfo ?? false,
+      finalText,
+    });
+
     return finalResult;
   } catch (e) {
+    logAgentFlow(variant, 'error', {
+      error: e instanceof Error ? e.message : String(e),
+    });
     console.error('[Agent V2] Error:', e);
     throw e;
   }
