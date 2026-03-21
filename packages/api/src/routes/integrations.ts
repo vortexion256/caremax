@@ -821,6 +821,8 @@ const LANGUAGE_SWITCH_CONFIRM_KEYWORDS = {
   yes: new Set(['yes', 'y', 'okay', 'ok', 'continue', 'proceed', 'switch', 'go ahead', 'sure']),
   no: new Set(['no', 'n', 'stay', 'keep english', 'dont switch', "don't switch", 'nope']),
 };
+const LANGUAGE_DETECTION_MIN_WORDS = 5;
+const LANGUAGE_DETECTION_MIN_CHARACTERS = 21;
 
 const SUPPORTED_CONVERSATION_LANGUAGES: Record<SupportedConversationLanguageCode, {
   name: string;
@@ -1221,6 +1223,15 @@ function normalizeLanguageSwitchDecision(text: string | null | undefined): 'yes'
   return null;
 }
 
+function isLongEnoughForLanguageDetection(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  return wordCount >= LANGUAGE_DETECTION_MIN_WORDS || trimmed.length >= LANGUAGE_DETECTION_MIN_CHARACTERS;
+}
+
 function buildLanguageSwitchPrompt(params: {
   fromLanguageName: string;
   toLanguageName: string;
@@ -1446,6 +1457,8 @@ async function detectWhatsAppLanguage(params: {
   text: string;
   provider: WhatsAppLanguageDetectionProvider;
 }): Promise<SupportedConversationLanguageCode | null> {
+  if (!isLongEnoughForLanguageDetection(params.text)) return null;
+
   const detected = params.provider === 'sunbird'
     ? await detectLanguageWithSunbird(params.text)
     : await detectLanguageWithGemini(params.text);
