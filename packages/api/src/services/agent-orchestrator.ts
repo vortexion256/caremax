@@ -271,7 +271,6 @@ export class ToolExecutor {
         );
         
       if (result.success) {
-        // Also record in Agent Notebook (notes)
         try {
           await createNote(this.tenantId, 'SYSTEM', `Booking UPDATED: ${params.patientName} (${params.phone}) with Dr. ${params.doctorName} on ${dateStr} at ${params.appointmentTime}. Notes: ${params.notes ?? 'none'}`, {
             userId: options?.userId,
@@ -313,7 +312,6 @@ export class ToolExecutor {
       );
 
       if (result.success) {
-        // Also record in Agent Notebook (notes)
         try {
           await createNote(this.tenantId, 'SYSTEM', `NEW Booking: ${params.patientName} (${params.phone}) with Dr. ${params.doctorName} on ${dateStr} at ${params.appointmentTime}. Notes: ${params.notes ?? 'none'}`, {
             userId: options?.userId,
@@ -452,7 +450,6 @@ export class ToolExecutor {
         }
       }
 
-      // 2. If not found in sheet, check Agent Notebook (notes)
       try {
         const allNotes = await listAgentNotes(this.tenantId, {
           ...(options?.userId ? { userId: options.userId } : {}),
@@ -478,7 +475,7 @@ export class ToolExecutor {
               phone: params.phone,
               doctor: doctorMatch ? doctorMatch[1] : 'unknown',
               time: timeMatch ? timeMatch[1] : 'unknown',
-              notes: `Found in Agent Notebook: ${content}`,
+              notes: `Found in stored notes: ${content}`,
             },
             action: 'read',
             timestamp: new Date(),
@@ -1280,30 +1277,6 @@ export class AgentOrchestrator {
           result = {
             success: false,
             error: 'Invalid arguments for patient_profile',
-          };
-        }
-        break;
-
-      case 'create_note':
-        if (typeof toolCall.args.content === 'string') {
-          result = await this.toolExecutor.executeCreateNote(
-            {
-              content: toolCall.args.content,
-              patientName: typeof toolCall.args.patientName === 'string' ? toolCall.args.patientName : undefined,
-              category:
-                typeof toolCall.args.category === 'string' &&
-                ['common_questions', 'keywords', 'analytics', 'insights', 'other'].includes(toolCall.args.category)
-                  ? (toolCall.args.category as 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'other')
-                  : undefined,
-            },
-            conversationId,
-            userId,
-            externalUserId
-          );
-        } else {
-          result = {
-            success: false,
-            error: 'Invalid arguments for create_note',
           };
         }
         break;

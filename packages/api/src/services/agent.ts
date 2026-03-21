@@ -9,7 +9,6 @@ import { getRagContext } from './rag.js';
 import { createRecord, createModificationRequest, getRecord, listRecords } from './auto-agent-brain.js';
 import { isGoogleConnected, fetchSheetData } from './google-sheets.js';
 import { recordDiagnosticLog } from './diagnostic-logs.js';
-import { createNote, listNotes as listAgentNotes, updateNoteContent, getNote } from './agent-notes.js';
 import { getXPersonProfile, upsertXPersonProfile } from './xperson-profile.js';
 import { createWhatsAppReminder, deleteUserReminder, editUserReminder, listUserReminders } from './reminders.js';
 import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
@@ -524,19 +523,6 @@ If your need is urgent, please call your care team or 911 in an emergency.`;
     return { text: handoffMessage, requestHandoff: true };
   }
 
-  // Get existing notes for this conversation to prevent duplicates
-  let existingNotesContext = '';
-  if (options?.conversationId) {
-    try {
-      const existingNotes = await listAgentNotes(tenantId, { conversationId: options.conversationId, limit: 10 });
-      if (existingNotes.length > 0) {
-        existingNotesContext = `\n\n--- Existing notes in this conversation (do NOT create duplicates) ---\n${existingNotes.map((n, i) => `${i + 1}. [${n.category}] ${n.content}${n.patientName ? ` (User: ${n.patientName})` : ''}`).join('\n')}\n--- End of existing notes ---\n\nBefore creating a note, check the list above. If a note about the same topic already exists (same question pattern, same keyword, same insight), do NOT create a duplicate. Only create a note if it's genuinely new information not already covered above.`;
-      }
-    } catch (e) {
-      console.warn('Failed to load existing notes for deduplication:', e);
-    }
-  }
-
 
 
   let xPersonProfileContext = '';
@@ -625,7 +611,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
     );
   }
 
-  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}${conversationLanguageInstruction ? `\n\n${conversationLanguageInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}${reminderSnapshotContext}`;
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}${conversationLanguageInstruction ? `\n\n${conversationLanguageInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}${xPersonProfileContext}${reminderSnapshotContext}`;
   systemContent += `\n\nTime handling rules:\n- The tenant-configured timezone in Agent Settings is authoritative.\n- Never guess or invent the current date/time.\n- Before you mention the current time, compare a reminder to now, explain why a reminder has or has not triggered yet, or interpret words like today/tonight/this afternoon, call get_current_datetime first.\n- Use get_current_datetime output as the source of truth for reminder timing language.`;
   if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
     systemContent += `\n\nReminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- When discussing whether a reminder should already have fired, call get_current_datetime first instead of inferring the current time.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.`;
@@ -783,72 +769,6 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
     },
   });
 
-  const createNoteTool = new DynamicStructuredTool({
-    name: 'create_note',
-    description: 'Create a note for admin review. Use this EXCLUSIVELY to save and record any information for admin from user (e.g. contact details, preferences, specific requests). Also use it to track analytics, insights, or patterns observed during conversations. Create notes whenever the user provides information that should be recorded for the admin.',
-    schema: z.object({
-      content: z.string().describe('The note content describing the information, insight or pattern (e.g. "User requested follow-up on insurance" or "Common question: Many users asking about appointment booking process")'),
-      patientName: z.string().optional().describe('Optional: Patient or user name if relevant to the note'),
-      category: z.enum(['admin_info', 'common_questions', 'keywords', 'analytics', 'insights', 'other']).optional().describe('Category: "admin_info" for information to be recorded for admin, "common_questions" for frequently asked questions, "keywords" for trending keywords/phrases, "analytics" for usage patterns/metrics, "insights" for general observations, "other" for anything else'),
-    }),
-    func: async ({ content, patientName, category }) => {
-      if (!options?.conversationId) {
-        return 'Cannot create note: conversation ID not available.';
-      }
-      try {
-        await createNote(tenantId, options.conversationId, content.trim(), {
-          userId: options?.userId,
-          externalUserId: options?.externalUserId,
-          patientName: patientName?.trim(),
-          category: category ?? 'other',
-        });
-        return 'Note created successfully.';
-      } catch (e) {
-        console.error('create_note error:', e);
-        return e instanceof Error ? e.message : 'Failed to create note.';
-      }
-    },
-  });
-
-  const listNotesTool = new DynamicStructuredTool({
-    name: 'list_notes',
-    description: 'List existing notes in the Agent Notebook. Use this to see what has already been recorded across all conversations so you can decide whether to create a new note or update an existing one.',
-    schema: z.object({}),
-    func: async () => {
-      try {
-        const notes = await listAgentNotes(tenantId, {
-          ...(options?.userId ? { userId: options.userId } : {}),
-          ...(options?.externalUserId ? { externalUserId: options.externalUserId } : {}),
-          ...(!options?.userId && !options?.externalUserId && options?.conversationId ? { conversationId: options.conversationId } : {}),
-        });
-        if (notes.length === 0) return 'No notes found.';
-        return notes.map((n) => `noteId: ${n.noteId}\ncategory: ${n.category}\ncontent: ${n.content}${n.patientName ? `\nuser: ${n.patientName}` : ''}`).join('\n\n');
-      } catch (e) {
-        console.error('list_notes error:', e);
-        return e instanceof Error ? e.message : 'Failed to list notes.';
-      }
-    },
-  });
-
-  const updateNoteTool = new DynamicStructuredTool({
-    name: 'update_note',
-    description: 'Update the content of an existing note in the Agent Notebook. Use this to refine an insight, add more details to a pattern, or correct information in a note you previously created.',
-    schema: z.object({
-      noteId: z.string().describe('The ID of the note to update'),
-      content: z.string().describe('The new consolidated content for the note'),
-    }),
-    func: async ({ noteId, content }) => {
-      try {
-        const note = await getNote(tenantId, noteId);
-        if (!note) return 'Note not found.';
-        await updateNoteContent(tenantId, noteId, content.trim());
-        return 'Note updated successfully.';
-      } catch (e) {
-        console.error('update_note error:', e);
-        return e instanceof Error ? e.message : 'Failed to update note.';
-      }
-    },
-  });
 
 
   const xPersonProfileTool = new DynamicStructuredTool({
@@ -1195,8 +1115,6 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
 
 
   const tools: unknown[] = [];
-  // Always include notebook tools - essential for tracking analytics, insights, and patterns
-  tools.push(createNoteTool, listNotesTool, updateNoteTool);
   if (config.ragEnabled) tools.push(recordTool, requestEditTool, requestDeleteTool);
   if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
   if (config.xPersonProfileEnabled) tools.push(xPersonProfileTool);
@@ -1331,41 +1249,6 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         } catch (e) {
           console.error('query_google_sheet error:', e);
           content = e instanceof Error ? e.message : 'Failed to fetch sheet.';
-        }
-      } else if (tc.name === 'create_note' && tc.args && typeof tc.args.content === 'string') {
-        try {
-          const patientName = typeof tc.args.patientName === 'string' ? tc.args.patientName : undefined;
-          const category = typeof tc.args.category === 'string' && ['common_questions', 'keywords', 'analytics', 'insights', 'other'].includes(tc.args.category)
-            ? (tc.args.category as 'common_questions' | 'keywords' | 'analytics' | 'insights' | 'other')
-            : undefined;
-          content = await createNoteTool.invoke({
-            content: tc.args.content,
-            patientName,
-            category,
-          });
-          void recordActivity(tenantId, 'agent-notes');
-        } catch (e) {
-          console.error('create_note error:', e);
-          content = e instanceof Error ? e.message : 'Failed to create note.';
-        }
-      } else if (tc.name === 'list_notes') {
-        try {
-          content = await listNotesTool.invoke({});
-          void recordActivity(tenantId, 'agent-notes');
-        } catch (e) {
-          console.error('list_notes error:', e);
-          content = e instanceof Error ? e.message : 'Failed to list notes.';
-        }
-      } else if (tc.name === 'update_note' && tc.args && typeof tc.args.noteId === 'string' && typeof tc.args.content === 'string') {
-        try {
-          content = await updateNoteTool.invoke({
-            noteId: tc.args.noteId,
-            content: tc.args.content,
-          });
-          void recordActivity(tenantId, 'agent-notes');
-        } catch (e) {
-          console.error('update_note error:', e);
-          content = e instanceof Error ? e.message : 'Failed to update note.';
         }
       } else if (tc.name === 'get_current_datetime') {
         try {

@@ -48,7 +48,6 @@ const AIBrainVisualization: React.FC<AIBrainVisualizationProps> = ({ isMobile })
   const items: Item[] = [
     { label: 'Knowledge', shortLabel: 'KB', path: '/rag', color: '#3b82f6', matchPriority: 60, activityTypes: ['rag', 'knowledge', 'knowledge-base'] },
     { label: 'Brain', shortLabel: 'AB', path: '/agent-brain', color: '#8b5cf6', matchPriority: 90, activityTypes: ['agent-brain', 'brain', 'orchestrator'] },
-    { label: 'Notes', shortLabel: 'NT', path: '/agent-notes', color: '#ec4899', matchPriority: 90, activityTypes: ['agent-notes', 'notes'] },
     { label: 'Handoffs', shortLabel: 'HO', path: '/handoffs', color: '#f43f5e', matchPriority: 80, activityTypes: ['handoffs', 'handoff', 'human-handoff'] },
     { label: 'Integrations', shortLabel: 'IN', path: '/integrations', color: '#10b981', matchPriority: 10, activityTypes: ['integrations', 'integration', 'google-sheets'] },
     { label: 'WhatsApp', shortLabel: 'WA', path: '/integrations', color: '#22c55e', matchPriority: 30, activityTypes: ['whatsapp', 'whatsapp-sent', 'whatsapp-received'] },

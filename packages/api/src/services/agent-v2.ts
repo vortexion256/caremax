@@ -737,7 +737,6 @@ async function runAgentRuntime(
           availableTools.push('append_booking_row', 'get_appointment_by_phone', 'check_availability');
         }
       }
-      availableTools.push('create_note');
       if (config.xPersonProfileEnabled) {
         availableTools.push('patient_profile');
       }
@@ -1018,22 +1017,6 @@ async function runAgentRuntime(
       ),
     });
     tools.push(getCurrentDateTimeTool);
-
-    // Create note tool
-    const createNoteTool = new DynamicStructuredTool({
-      name: 'create_note',
-      description: 'Create a note for admin review about analytics, insights, or patterns.',
-      schema: z.object({
-        content: z.string(),
-        patientName: z.string().optional(),
-        category: z.enum(['common_questions', 'keywords', 'analytics', 'insights', 'other']).optional(),
-      }),
-      func: async (args) => {
-        // Orchestrator will handle execution
-        return 'Note creation requested.';
-      },
-    });
-    tools.push(createNoteTool);
 
     // RAG tools
     if (config.ragEnabled) {
