@@ -821,8 +821,8 @@ const LANGUAGE_SWITCH_CONFIRM_KEYWORDS = {
   yes: new Set(['yes', 'y', 'okay', 'ok', 'continue', 'proceed', 'switch', 'go ahead', 'sure']),
   no: new Set(['no', 'n', 'stay', 'keep english', 'dont switch', "don't switch", 'nope']),
 };
-const LANGUAGE_DETECTION_MIN_WORDS = 5;
-const LANGUAGE_DETECTION_MIN_CHARACTERS = 21;
+const LANGUAGE_DETECTION_MIN_WORDS = 3;
+const LANGUAGE_DETECTION_MIN_CHARACTERS = 16;
 
 const SUPPORTED_CONVERSATION_LANGUAGES: Record<SupportedConversationLanguageCode, {
   name: string;
