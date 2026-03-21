@@ -235,11 +235,20 @@ export async function upsertXPersonProfile(params: {
   }
   const existingAttributes = (existing.data()?.attributes && typeof existing.data()?.attributes === 'object')
     ? Object.fromEntries(
-      Object.entries(existing.data()?.attributes as Record<string, unknown>).filter(([, value]) => typeof value === 'string'),
+      Object.entries(existing.data()?.attributes as Record<string, unknown>)
+        .map(([key, value]) => [clean(key), clean(value)] as const)
+        .filter((entry): entry is readonly [string, string] => Boolean(entry[0] && entry[1])),
     ) as Record<string, string>
     : {};
-  const mergedAttributes = params.attributes
-    ? { ...existingAttributes, ...params.attributes }
+  const incomingAttributes = params.attributes
+    ? Object.fromEntries(
+      Object.entries(params.attributes)
+        .map(([key, value]) => [clean(key), clean(value)] as const)
+        .filter((entry): entry is readonly [string, string] => Boolean(entry[0] && entry[1])),
+    )
+    : undefined;
+  const mergedAttributes = incomingAttributes
+    ? { ...existingAttributes, ...incomingAttributes }
     : undefined;
 
   await ref.set({
@@ -281,25 +290,19 @@ export async function updateXPersonProfileById(params: {
   const existing = await ref.get();
   if (!existing.exists) return { updated: false };
 
-  const existingAttributes = (existing.data()?.attributes && typeof existing.data()?.attributes === 'object')
+  const incomingAttributes = params.attributes !== undefined
     ? Object.fromEntries(
-      Object.entries(existing.data()?.attributes as Record<string, unknown>).filter(([, value]) => typeof value === 'string'),
-    ) as Record<string, string>
-    : {};
-
-  const incomingAttributes = params.attributes
-    ? Object.fromEntries(Object.entries(params.attributes).filter(([, value]) => typeof value === 'string'))
-    : undefined;
-
-  const mergedAttributes = incomingAttributes
-    ? { ...existingAttributes, ...incomingAttributes }
+      Object.entries(params.attributes)
+        .map(([key, value]) => [clean(key), clean(value)] as const)
+        .filter((entry): entry is readonly [string, string] => Boolean(entry[0] && entry[1])),
+    )
     : undefined;
 
   await ref.set({
     ...(params.details?.name !== undefined ? { name: clean(params.details.name) ?? null } : {}),
     ...(params.details?.phone !== undefined ? { phone: normalizePhone(params.details.phone) ?? null } : {}),
     ...(params.details?.location !== undefined ? { location: clean(params.details.location) ?? null } : {}),
-    ...(mergedAttributes ? { attributes: mergedAttributes } : {}),
+    ...(incomingAttributes !== undefined ? { attributes: incomingAttributes } : {}),
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
 
