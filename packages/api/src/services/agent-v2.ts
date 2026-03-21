@@ -309,6 +309,169 @@ type AgentRuntimeOptions = {
 }
 type AgentRuntimeVariant = 'v2' | 'v3';
 
+type ReminderClarification = {
+  question: string;
+  missingInfo: string[];
+  reason: string;
+};
+
+const REMINDER_TIME_REGEX = /\b(\d{1,2}:\d{2}\s*(am|pm)?|\d{1,2}\s*(am|pm)|today|tomorrow|tonight|this (morning|afternoon|evening|night)|next \w+|in \d+\s*(minute|minutes|min|mins|hour|hours|day|days|week|weeks)|after \d+\s*(minute|minutes|min|mins|hour|hours|day|days)|on \w+|at \d{1,2})\b/i;
+const REMINDER_SELF_REFERENCE_REGEX = /\b(remind me(?: to)?|set (?:a )?reminder(?: for me)?(?: to| for)?|create (?:a )?reminder(?: for me)?(?: to| for)?)\b/i;
+const REMINDER_OTHER_REFERENCE_REGEX = /\b(remind (?:him|her|them|my|our|next of kin|mother|mom|father|dad|wife|husband|child|son|daughter|brother|sister)|set (?:a )?reminder for (?:him|her|them|my|our|next of kin|mother|mom|father|dad|wife|husband|child|son|daughter|brother|sister))\b/i;
+
+function isWhatsAppReminderChannel(channel: AgentRuntimeOptions['channel']): boolean {
+  return channel === 'whatsapp' || channel === 'whatsapp_meta';
+}
+
+function hasReminderTimeHint(text: string): boolean {
+  return REMINDER_TIME_REGEX.test(text);
+}
+
+function extractReminderMessageCandidate(text: string): string | null {
+  const normalized = text.trim();
+  if (!normalized) return null;
+
+  const patterns = [
+    /\bremind me to\s+(.+)$/i,
+    /\bremind me about\s+(.+)$/i,
+    /\bset (?:a )?reminder(?: for me)? to\s+(.+)$/i,
+    /\bset (?:a )?reminder(?: for me)? about\s+(.+)$/i,
+    /\bset (?:a )?reminder(?: for me)? for\s+(.+)$/i,
+    /\bcreate (?:a )?reminder(?: for me)? to\s+(.+)$/i,
+    /\bcreate (?:a )?reminder(?: for me)? about\s+(.+)$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    const candidate = match?.[1]?.trim();
+    if (candidate && candidate.length > 0 && !hasReminderTimeHint(candidate)) {
+      return candidate.replace(/[.?!]+$/, '').trim();
+    }
+  }
+
+  return null;
+}
+
+function getRecentReminderContext(history: { role: string; content: string }[]): {
+  recentAssistantReminderOffer?: string;
+  recentUserReminderMessage?: string;
+} {
+  const recentMessages = history.slice(-6);
+  const recentAssistantReminderOffer = [...recentMessages]
+    .reverse()
+    .find((message) => message.role === 'assistant' && /would you like me to set (?:one|a reminder)|should i set (?:one|a reminder)|when should i remind/i.test(message.content))
+    ?.content;
+  const recentUserReminderMessage = [...recentMessages]
+    .reverse()
+    .find((message) => message.role === 'user' && extractReminderMessageCandidate(message.content))
+    ?.content;
+
+  return { recentAssistantReminderOffer, recentUserReminderMessage };
+}
+
+function getReminderClarification(
+  currentTask: string,
+  history: { role: string; content: string }[],
+  intent: ExtractedIntent,
+  options?: AgentRuntimeOptions
+): ReminderClarification | null {
+  if (!isWhatsAppReminderChannel(options?.channel)) return null;
+
+  const normalizedTask = currentTask.trim();
+  if (!normalizedTask) return null;
+
+  const { recentAssistantReminderOffer, recentUserReminderMessage } = getRecentReminderContext(history);
+  const reminderMessageCandidate = extractReminderMessageCandidate(normalizedTask)
+    ?? (recentUserReminderMessage ? extractReminderMessageCandidate(recentUserReminderMessage) : null);
+  const hasReminderContext =
+    REMINDER_RELATED_TURN_REGEX.test(normalizedTask)
+    || !!recentAssistantReminderOffer
+    || !!recentUserReminderMessage;
+  const isReminderCreationTurn =
+    hasReminderContext
+    && (
+      REMINDER_SELF_REFERENCE_REGEX.test(normalizedTask)
+      || REMINDER_OTHER_REFERENCE_REGEX.test(normalizedTask)
+      || intent.intent === 'confirm_action'
+      || /\b(yes|yeah|yep|ok|okay|sure|please|go ahead|do it)\b/i.test(normalizedTask)
+    );
+
+  if (!isReminderCreationTurn) return null;
+
+  const missingInfo: string[] = [];
+  if (!reminderMessageCandidate) {
+    missingInfo.push('reminder_message');
+  }
+
+  const hasTime = hasReminderTimeHint(normalizedTask) || Boolean(intent.entities.date || intent.entities.time);
+  if (!hasTime) {
+    missingInfo.push('reminder_time');
+  }
+
+  if (missingInfo.length === 0) return null;
+
+  if (missingInfo.includes('reminder_message') && missingInfo.includes('reminder_time')) {
+    return {
+      question: 'Sure — what should I remind you about, and when should I send it?',
+      missingInfo,
+      reason: 'missing_message_and_time',
+    };
+  }
+
+  if (missingInfo.includes('reminder_message')) {
+    return {
+      question: 'Sure — what should I remind you about?',
+      missingInfo,
+      reason: 'missing_message',
+    };
+  }
+
+  return {
+    question: 'Sure — when should I send the reminder?',
+    missingInfo,
+    reason: 'missing_time',
+  };
+}
+
+function getReminderFailureClarification(
+  executionLogs: ReturnType<AgentOrchestrator['getExecutionLogs']>,
+  currentTask: string,
+  history: { role: string; content: string }[],
+  intent: ExtractedIntent,
+  options?: AgentRuntimeOptions
+): ReminderClarification | null {
+  const latestReminderAttempt = [...executionLogs]
+    .reverse()
+    .find((log) => log.toolCall.name === 'set_reminder' && log.result.success === false);
+
+  if (!latestReminderAttempt) {
+    return getReminderClarification(currentTask, history, intent, options);
+  }
+
+  const error = (latestReminderAttempt.result.error ?? '').toLowerCase();
+  if (error.includes('invalid arguments for set_reminder')) {
+    return getReminderClarification(currentTask, history, intent, options);
+  }
+
+  if (error.includes('invalid remindatiso date')) {
+    return {
+      question: 'I can do that — what exact time should I use for the reminder?',
+      missingInfo: ['reminder_time'],
+      reason: 'invalid_time_format',
+    };
+  }
+
+  if (error.includes('must be in the future')) {
+    return {
+      question: 'That time has already passed. What future time would you like me to use for the reminder?',
+      missingInfo: ['reminder_time'],
+      reason: 'time_not_in_future',
+    };
+  }
+
+  return null;
+}
+
 function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): string {
   if (variant === 'v3') {
     return [
@@ -408,6 +571,21 @@ async function runAgentRuntime(
       currentTask,
       wantsHumanHandoff,
     });
+
+    const reminderClarification = getReminderClarification(currentTask, history, intent, options);
+    if (reminderClarification) {
+      logAgentFlow(variant, 'planning', {
+        action: 'reminder_missing_info',
+        currentTask,
+        missingInfo: reminderClarification.missingInfo,
+        reason: reminderClarification.reason,
+      });
+      return {
+        text: reminderClarification.question,
+        needsInfo: true,
+        missingInfo: reminderClarification.missingInfo,
+      };
+    }
 
     // Early exit for human handoff
     if (wantsHumanHandoff) {
@@ -713,7 +891,7 @@ async function runAgentRuntime(
 5. Trust the database and conversation notes, not your internal memory. Always verify state from tool results and the provided notes context.\n\n`;
 
     if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
-      systemContent += `Reminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.\n\n`;
+      systemContent += `Reminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- If the user has not clearly provided BOTH the reminder message and the reminder time, do NOT call set_reminder yet; ask only for the single missing detail.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.\n\n`;
     }
 
     // Add RAG records if enabled
@@ -1568,6 +1746,13 @@ Provide a clear, user-friendly response based on these results.`,
     const verifiedBookings = executionLogsFinal.filter(
       (log) => log.toolCall.name === 'append_booking_row' && log.verified === true
     );
+    const reminderFailureClarification = getReminderFailureClarification(
+      executionLogsFinal,
+      currentTask,
+      history,
+      intent,
+      options
+    );
 
     // Guard: Don't claim booking unless verified
     const looksLikeBookingConfirmation = /\b(booked|booking confirmed|appointment (is )?(confirmed|scheduled|set))/i.test(text);
@@ -1576,6 +1761,20 @@ Provide a clear, user-friendly response based on these results.`,
       if (bookingAttempts.length > 0) {
         console.warn('[Agent] Response claims booking but verification failed');
         text = "I attempted to save your appointment, but I wasn't able to verify it was successfully recorded. Please contact the care team to confirm your appointment.";
+      }
+    }
+    if (reminderFailureClarification) {
+      const reminderAttemptFailed = executionLogsFinal.some(
+        (log) => log.toolCall.name === 'set_reminder' && log.result.success === false
+      );
+      const soundsLikeReminderFailure = /\b(?:cannot|can't|unable|failed|could not|couldn't)\b.*\b(?:remind|reminder)\b/i.test(text);
+      if (reminderAttemptFailed || soundsLikeReminderFailure) {
+        logAgentFlow(variant, 'validation', {
+          action: 'override_reminder_failure_with_clarification',
+          missingInfo: reminderFailureClarification.missingInfo,
+          reason: reminderFailureClarification.reason,
+        });
+        text = reminderFailureClarification.question;
       }
     }
     // ========================================================================
@@ -1630,6 +1829,11 @@ Provide a clear, user-friendly response based on these results.`,
       text: finalText,
       requestHandoff,
     };
+
+    if (reminderFailureClarification) {
+      finalResult.needsInfo = true;
+      finalResult.missingInfo = reminderFailureClarification.missingInfo;
+    }
 
     // Include plan status if we have a plan
     if (executionPlan) {
