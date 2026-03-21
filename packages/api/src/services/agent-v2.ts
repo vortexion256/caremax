@@ -327,6 +327,12 @@ function hasReminderTimeHint(text: string): boolean {
   return REMINDER_TIME_REGEX.test(text);
 }
 
+function looksLikeBareReminderRequest(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return /^(remind me|set (?:a )?reminder|create (?:a )?reminder|i need a reminder|help me set a reminder)[.!?]*$/.test(normalized);
+}
+
 function extractReminderMessageCandidate(text: string): string | null {
   const normalized = text.trim();
   if (!normalized) return null;
@@ -412,9 +418,11 @@ function getReminderClarification(
 
   if (missingInfo.includes('reminder_message') && missingInfo.includes('reminder_time')) {
     return {
-      question: 'Sure — what should I remind you about, and when should I send it?',
+      question: looksLikeBareReminderRequest(normalizedTask)
+        ? 'Sure — what should I remind you about?'
+        : 'Sure — what should I remind you about, and when should I send it?',
       missingInfo,
-      reason: 'missing_message_and_time',
+      reason: looksLikeBareReminderRequest(normalizedTask) ? 'missing_message_then_time' : 'missing_message_and_time',
     };
   }
 
@@ -935,7 +943,7 @@ async function runAgentRuntime(
 5. Trust the database and conversation notes, not your internal memory. Always verify state from tool results and the provided notes context.\n\n`;
 
     if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
-      systemContent += `Reminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- If the user has not clearly provided BOTH the reminder message and the reminder time, do NOT call set_reminder yet; ask only for the single missing detail.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.\n\n`;
+      systemContent += `Reminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user says things like "remind me", "set a reminder", or "remember to remind me", help them create the reminder step-by-step.\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- If the user has not clearly provided BOTH the reminder message and the reminder time, do NOT call set_reminder yet; ask only for the single missing detail.\n- If the user gives relative reminder times such as today, tomorrow, tonight, next week, this afternoon, or in 2 hours, call get_current_datetime first, resolve the exact reminder time using the tenant Agent Settings timezone, and only then call set_reminder.\n- Never invent the current date, time, or timezone. The tenant Agent Settings timezone is authoritative.\n- Store reminder text as a clear sentence, for example "Reminder: Please take your medication".\n- When confirming a saved reminder, make the content explicit, for example "Reminder: You told me to remind you to take your medication at [time/date]".\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.\n\n`;
     }
 
     // Add RAG records if enabled
@@ -1084,11 +1092,11 @@ async function runAgentRuntime(
     if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
       const setReminderTool = new DynamicStructuredTool({
         name: 'set_reminder',
-        description: 'Schedule a future reminder message for WhatsApp users.',
+        description: 'Schedule a future reminder message for WhatsApp users only after you have the reminder content and an exact datetime resolved in the tenant Agent Settings timezone.',
         schema: z.object({
           message: z.string(),
-          remindAtIso: z.string(),
-          timezone: z.string().optional(),
+          remindAtIso: z.string().describe('Reminder datetime in ISO format. Resolve relative dates like today, tomorrow, next week, or in 2 hours using get_current_datetime and the tenant Agent Settings timezone before calling this tool.'),
+          timezone: z.string().optional().describe('Optional IANA timezone, but the tenant Agent Settings timezone remains authoritative.'),
           targetType: z.enum(['self', 'next_of_kin']),
           targetExternalUserId: z.string().optional(),
         }),
