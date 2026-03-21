@@ -25,6 +25,48 @@ import { createWhatsAppReminder, deleteUserReminder, editUserReminder, listUserR
 import { FieldValue } from 'firebase-admin/firestore';
 import { getHealthProfile, logVitals } from './health-tools.js';
 
+function buildCurrentDateTimePayload(timezone: string) {
+  const now = new Date();
+  const resolvedTimezone = timezone.trim() || 'UTC';
+  const localNow = new Intl.DateTimeFormat('en-GB', {
+    timeZone: resolvedTimezone,
+    dateStyle: 'full',
+    timeStyle: 'long',
+  }).format(now);
+  const localDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: resolvedTimezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+  const localTime = new Intl.DateTimeFormat('en-US', {
+    timeZone: resolvedTimezone,
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  }).format(now);
+  const localNowIso = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: resolvedTimezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now).replace(' ', 'T');
+
+  return {
+    timezone: resolvedTimezone,
+    localNow,
+    localDate,
+    localTime,
+    localNowIso,
+    unixMs: now.getTime(),
+  };
+}
+
 // Record agent activity for dashboard visualization
 async function recordActivity(tenantId: string, type: string): Promise<void> {
   try {
@@ -984,6 +1026,22 @@ export class AgentOrchestrator {
           result = {
             success: false,
             error: 'Invalid arguments for getHealthProfile',
+          };
+        }
+        break;
+
+      case 'get_current_datetime':
+        {
+          const tenantConfig = await getAgentConfig(this.tenantId);
+          const configuredTimezone = tenantConfig.agentTimezone?.trim() || 'UTC';
+          result = {
+            success: true,
+            action: 'read',
+            data: buildCurrentDateTimePayload(
+              typeof toolCall.args.timezone === 'string' && toolCall.args.timezone.trim().length > 0
+                ? toolCall.args.timezone
+                : configuredTimezone,
+            ),
           };
         }
         break;
