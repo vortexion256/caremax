@@ -496,7 +496,7 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
       'V3 conversation rules:',
       '- Ask exactly ONE short follow-up question at a time.',
       '- Keep visible responses under 20 words unless urgent safety advice or a tool result requires more detail.',
-      '- Start with brief empathy when the user shares feeling unwell, for example "Sorry you're feeling unwell" or "Thanks—that helps".',
+      '- Start with brief empathy when the user shares feeling unwell, for example "Sorry you are feeling unwell" or "Thanks—that helps".',
       '- If you still need information, reply with only the next question unless a short empathy phrase is helpful.',
       '- Before asking, think silently: "What is the most important missing clinical detail right now?" Then ask only that.',
       '- Never bundle multiple symptom checks into one message. Avoid phrases like "fever, vomiting, or blood in stool" in a single question.',
