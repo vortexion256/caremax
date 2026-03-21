@@ -17,6 +17,50 @@ import { buildNokRelayOutboundMessage, createRelayTicket, markRelayTicketSendFai
 import { normalizeWhatsAppExternalUserId } from './user-identity.js';
 import { getHealthProfile, logVitals } from './health-tools.js';
 
+function buildCurrentDateTimePayload(timezone: string, countryCode: string) {
+  const now = new Date();
+  const resolvedTimezone = timezone.trim() || 'UTC';
+  const resolvedCountryCode = countryCode.trim().toUpperCase() || 'US';
+  const localNow = new Intl.DateTimeFormat('en-GB', {
+    timeZone: resolvedTimezone,
+    dateStyle: 'full',
+    timeStyle: 'long',
+  }).format(now);
+  const localDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: resolvedTimezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+  const localTime = new Intl.DateTimeFormat('en-US', {
+    timeZone: resolvedTimezone,
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  }).format(now);
+  const localNowIso = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: resolvedTimezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now).replace(' ', 'T');
+
+  return {
+    timezone: resolvedTimezone,
+    countryCode: resolvedCountryCode,
+    localNow,
+    localDate,
+    localTime,
+    localNowIso,
+    unixMs: now.getTime(),
+  };
+}
+
 export type AgentResult = { text: string; requestHandoff?: boolean };
 
 const AGENT_FALLBACK_MODELS = ['gemini-3-flash-preview', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
@@ -527,25 +571,13 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   }
 
 
-  const resolvedTimezone = config.agentTimezone?.trim() || 'UTC';
-  const resolvedCountryCode = config.agentCountryCode?.trim()?.toUpperCase() || 'US';
-  const now = new Date();
-  const locationNow = new Intl.DateTimeFormat('en-GB', {
-    timeZone: resolvedTimezone,
-    dateStyle: 'full',
-    timeStyle: 'long',
-  }).format(now);
-  const isoInTimezone = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: resolvedTimezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(now).replace(' ', 'T');
-  const timeInstruction = `Date/time grounding: Use this as the current local date/time unless the user specifies another timezone. Timezone=${resolvedTimezone}, country=${resolvedCountryCode}, localNow=${locationNow}, localNowISO=${isoInTimezone}. If user asks for date/time, answer from this context and mention timezone.`;
+  const configuredTimeContext = buildCurrentDateTimePayload(
+    config.agentTimezone ?? 'UTC',
+    config.agentCountryCode ?? 'US',
+  );
+  const resolvedTimezone = configuredTimeContext.timezone;
+  const resolvedCountryCode = configuredTimeContext.countryCode;
+  const timeInstruction = `Date/time grounding: Use this as the current local date/time unless the user specifies another timezone. Timezone=${resolvedTimezone}, country=${resolvedCountryCode}, localNow=${configuredTimeContext.localNow}, localNowISO=${configuredTimeContext.localNowIso}. If user asks for date/time, answer from this context and mention timezone.`;
 
   const latestUserText = history.filter((m) => m.role === 'user').pop()?.content;
   if (config.xPersonProfileEnabled) {
@@ -594,8 +626,9 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   }
 
   let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}${conversationLanguageInstruction ? `\n\n${conversationLanguageInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}\n\nIMPORTANT - Agent Notebook: As you interact with users, observe patterns and create notes for admin review in the Agent Notebook. Use create_note to track analytics and insights such as: most common questions asked by users, frequently asked about topics or items, important keywords or trends, user behavior patterns, or any insights that would help improve the service. You can also use list_notes to see existing notes for this conversation and update_note to refine or add information to an existing note. Create or update notes ONLY when necessary, such as when you notice significant patterns (e.g., multiple users asking about the same thing, trending topics, common confusion points) or important individual insights that require admin attention. Avoid creating redundant or trivial notes. These notes help admins understand user needs and improve the service.${existingNotesContext}${xPersonProfileContext}${reminderSnapshotContext}`;
+  systemContent += `\n\nTime handling rules:\n- The tenant-configured timezone in Agent Settings is authoritative.\n- Never guess or invent the current date/time.\n- Before you mention the current time, compare a reminder to now, explain why a reminder has or has not triggered yet, or interpret words like today/tonight/this afternoon, call get_current_datetime first.\n- Use get_current_datetime output as the source of truth for reminder timing language.`;
   if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
-    systemContent += `\n\nReminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.`;
+    systemContent += `\n\nReminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- When discussing whether a reminder should already have fired, call get_current_datetime first instead of inferring the current time.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.`;
   }
   if (config.ragEnabled) {
     const lastUser = history.filter((m) => m.role === 'user').pop();
@@ -987,6 +1020,17 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
       return `Message sent to contact successfully via ${sentVia}. Reference code: ${relayTicket.relayTicketId}.`;
     },
   });
+  const getCurrentDateTimeTool = new DynamicStructuredTool({
+    name: 'get_current_datetime',
+    description: 'Get the current date/time using the tenant Agent Settings timezone. Always use this timezone as the source of truth for current-time answers and reminder timing.',
+    schema: z.object({}),
+    func: async () => JSON.stringify(
+      buildCurrentDateTimePayload(
+        configuredTimeContext.timezone,
+        configuredTimeContext.countryCode,
+      )
+    ),
+  });
   const setReminderTool = new DynamicStructuredTool({
     name: 'set_reminder',
     description: 'Schedule a future reminder message for WhatsApp users. Use only after the user clearly confirms date/time and reminder message.',
@@ -1018,7 +1062,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         tenantId,
         message,
         remindAtIso,
-        timezone,
+        timezone: resolvedTimezone,
         externalUserId: options.externalUserId,
         targetExternalUserId: resolvedTargetExternalUserId,
         targetType: resolvedTargetType,
@@ -1095,7 +1139,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         reminderId,
         message,
         remindAtIso,
-        timezone,
+        timezone: resolvedTimezone,
       });
       return JSON.stringify(updated);
     },
@@ -1157,7 +1201,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
   if (sheetsEnabled && googleSheetsList.length > 0) tools.push(queryGoogleSheetTool);
   if (config.xPersonProfileEnabled) tools.push(xPersonProfileTool);
   if (config.xPersonProfileEnabled) tools.push(sendNextOfKinMessageTool);
-  tools.push(logVitalsTool, getHealthProfileTool);
+  tools.push(getCurrentDateTimeTool, logVitalsTool, getHealthProfileTool);
   if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
     tools.push(sendWhatsAppMessageToContactTool, setReminderTool, listUserRemindersTool, getUpcomingRemindersTool, editReminderTool, deleteReminderTool);
   }
@@ -1322,6 +1366,13 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
         } catch (e) {
           console.error('update_note error:', e);
           content = e instanceof Error ? e.message : 'Failed to update note.';
+        }
+      } else if (tc.name === 'get_current_datetime') {
+        try {
+          content = await getCurrentDateTimeTool.invoke({});
+        } catch (e) {
+          console.error('get_current_datetime error:', e);
+          content = e instanceof Error ? e.message : 'Failed to fetch current date/time.';
         }
       } else if (tc.name === 'set_reminder' && (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta')) {
         try {
