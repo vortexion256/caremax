@@ -499,6 +499,50 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
   return '';
 }
 
+function buildCurrentDateTimePayload(timezone: string, countryCode: string) {
+  const now = new Date();
+  const resolvedTimezone = timezone.trim() || 'UTC';
+  const resolvedCountryCode = countryCode.trim().toUpperCase() || 'US';
+  const localNow = new Intl.DateTimeFormat('en-GB', {
+    timeZone: resolvedTimezone,
+    dateStyle: 'full',
+    timeStyle: 'long',
+  }).format(now);
+  const localDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: resolvedTimezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+  const localTime = new Intl.DateTimeFormat('en-US', {
+    timeZone: resolvedTimezone,
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  }).format(now);
+  const localNowIso = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: resolvedTimezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now).replace(' ', 'T');
+
+  return {
+    timezone: resolvedTimezone,
+    countryCode: resolvedCountryCode,
+    localNow,
+    localDate,
+    localTime,
+    localNowIso,
+    unixMs: now.getTime(),
+  };
+}
+
 
 async function runAgentRuntime(
   tenantId: string,
@@ -881,6 +925,7 @@ async function runAgentRuntime(
     if (options?.conversationLanguageCode && options?.conversationLanguageName) {
       systemContent += `Conversation language flag: ${options.conversationLanguageName} (${options.conversationLanguageCode}). Reply in natural ${options.conversationLanguageName} unless the user explicitly asks to switch languages.\n\n`;
     }
+    systemContent += `Time handling rules:\n- The tenant-configured timezone in Agent Settings is authoritative.\n- Never guess or invent the current date/time.\n- Before you mention the current time, compare a requested reminder time to now, or interpret words like today/tonight/this afternoon using the current clock, call get_current_datetime first.\n- Use get_current_datetime output as the source of truth for reminder timing language.\n\n`;
 
     // Add tool instructions
     systemContent += `CRITICAL RULES:
@@ -956,6 +1001,25 @@ async function runAgentRuntime(
     // STEP 6: CREATE TOOLS (Strict contracts)
     // ========================================================================
     const tools: DynamicStructuredTool[] = [];
+    const configuredTimeContext = buildCurrentDateTimePayload(
+      config.agentTimezone ?? 'UTC',
+      config.agentCountryCode ?? 'US',
+    );
+
+    const getCurrentDateTimeTool = new DynamicStructuredTool({
+      name: 'get_current_datetime',
+      description: 'Get the current date/time using the tenant Agent Settings timezone. Use before mentioning the current time or reasoning about reminder timing relative to now.',
+      schema: z.object({
+        timezone: z.string().optional().describe('Optional IANA timezone override. If omitted, uses the tenant Agent Settings timezone.'),
+      }),
+      func: async ({ timezone }) => JSON.stringify(
+        buildCurrentDateTimePayload(
+          typeof timezone === 'string' && timezone.trim().length > 0 ? timezone : configuredTimeContext.timezone,
+          configuredTimeContext.countryCode,
+        )
+      ),
+    });
+    tools.push(getCurrentDateTimeTool);
 
     // Create note tool
     const createNoteTool = new DynamicStructuredTool({
