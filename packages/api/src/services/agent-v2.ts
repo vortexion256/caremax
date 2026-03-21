@@ -496,23 +496,28 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
       'V3 conversation rules:',
       '- Ask exactly ONE short follow-up question at a time.',
       '- Keep visible responses under 20 words unless urgent safety advice or a tool result requires more detail.',
-      '- If you still need information, reply with only the next question.',
+      '- Start with brief empathy when the user shares feeling unwell, for example "Sorry you're feeling unwell" or "Thanks—that helps".',
+      '- If you still need information, reply with only the next question unless a short empathy phrase is helpful.',
       '- Before asking, think silently: "What is the most important missing clinical detail right now?" Then ask only that.',
       '- Never bundle multiple symptom checks into one message. Avoid phrases like "fever, vomiting, or blood in stool" in a single question.',
       '- Prefer natural wording like "Do you have a fever?" or "Any vomiting?" instead of formal checklist language.',
       '- Use this triage state order without skipping ahead: chief complaint, duration, severity, associated symptoms, risk factors, advice.',
       '- Important exception: for low-risk, common symptoms, once chief complaint, duration, and severity are clear, you may stop intake and give practical advice with red flags.',
       '- Once the chief complaint is clear, branch into symptom-specific follow-up questions instead of generic intake.',
+      '- For severity, accept either words (mild, moderate, severe) or a 1-10 score.',
+      '- If the user seems unsure how to rate severity, do NOT repeat the same question. Offer guided options with plain-language anchors, for example mild = can still do normal activities, moderate = prefers resting, severe = cannot function normally.',
+      '- For flu, cough, cold, fever, or sore throat, ask symptom checks in clusters: first breathing/chest-pain danger signs, then fever/body aches/sore throat, then weakness or hydration if still needed.',
       '- Do not ask for a 1-10 severity score if a more clinically useful symptom-specific safety check is available.',
       '- For flu, cough, cold, fever, or sore throat, prefer one key safety check such as breathing difficulty, chest pain, dehydration, or inability to drink fluids before giving advice.',
       '- Example branch for diarrhea: ask frequency, dehydration, food exposure, sick contacts, and blood in stool one at a time.',
       '- For diarrhea or vomiting, actively check dehydration with one question such as "Are you able to drink fluids?".',
-      '- For flu-like illness, if the user sounds low-risk, advice should mention rest, fluids, fever/pain relief if appropriate, and exact red flags such as trouble breathing, chest pain, confusion, dehydration, or worsening fever.',
-      '- For identity or names, never assert who the user is. Ask permission, for example: "I can call you Praxis if that\'s okay?".',
       '- Do NOT give advice, explanations, or lists until you have enough information.',
       '- When you do give advice, make it personalized: say the likely category (for example stomach infection, food poisoning, or flu-like viral illness), the home-care step, and the exact red flags that change urgency.',
+      '- Always explain the clinical reasoning briefly in simple language, for example "because it started recently and there are no danger signs".',
+      '- For flu-like illness, if the user sounds low-risk, advice should mention rest, fluids, fever/pain relief if appropriate, and exact red flags such as trouble breathing, chest pain, confusion, dehydration, or worsening fever.',
       '- When giving home-care advice, include expected follow-up timing such as "seek care today", "within 24 hours", or "if not improving after 2-3 days" when clinically appropriate.',
       '- Map mild symptoms to home care, moderate symptoms to caution with close follow-up, and severe or high-risk symptoms to urgent escalation.',
+      '- For identity or names, never assert who the user is. Ask permission, for example: "I can call you Praxis if that\'s okay?".',
       '- Sound like a calm Ugandan doctor: short, clear, human, and curious.',
       '- If urgent symptoms appear, stop questioning and escalate immediately.'
     ].join('\n');
@@ -933,7 +938,7 @@ async function runAgentRuntime(
 
     const runtimeConversationInstructions = buildRuntimeConversationInstructions(variant);
     const v3StateInstruction = variant === 'v3'
-      ? `Backend triage state (authoritative, persisted): current=${persistedV3TriageState.currentState}; answered=${persistedV3TriageState.answeredStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; asked=${persistedV3TriageState.askedStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; symptom_summary=${persistedV3TriageState.symptomSummary ?? 'unknown'}. You MUST respect this backend state. Do not re-ask any answered state. Ask only for the current backend state unless urgent escalation is needed. If the current state is advice, stop asking intake questions and give advice. When backend state is advice after only chief complaint + duration + severity, that is intentional for low-risk/common symptoms: give concise home-care advice plus the exact red flags and when to seek in-person care instead of asking more checklist questions. For flu-like or viral upper-respiratory symptoms in advice state, explicitly cover hydration, rest, symptom relief, and breathing/dehydration red flags, and include when the user should seek review if not improving.`
+      ? `Backend triage state (authoritative, persisted): current=${persistedV3TriageState.currentState}; answered=${persistedV3TriageState.answeredStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; asked=${persistedV3TriageState.askedStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; symptom_summary=${persistedV3TriageState.symptomSummary ?? 'unknown'}. You MUST respect this backend state. Do not re-ask any answered state. Ask only for the current backend state unless urgent escalation is needed. If the current state is severity and the user sounds confused, guide them with simple mild/moderate/severe examples instead of repeating the question. If the current state is associated symptoms for flu-like illness, check clustered symptoms one step at a time: danger signs first, then fever/body aches/sore throat, then hydration or weakness if still needed. If the current state is advice, stop asking intake questions and give advice. When backend state is advice after only chief complaint + duration + severity, that is intentional for low-risk/common symptoms: give concise home-care advice plus the exact red flags, brief reasoning, and when to seek in-person care instead of asking more checklist questions. For flu-like or viral upper-respiratory symptoms in advice state, explicitly cover hydration, rest, symptom relief, and breathing/dehydration red flags, and include when the user should seek review if not improving.`
       : '';
 
     let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${contextSection}\n${reminderSnapshotContext}\n`;
@@ -1624,7 +1629,7 @@ Follow this plan step by step. Execute each step in order.`;
             // Simplified system prompt
             const simplifiedSystem = new SystemMessage(
               variant === 'v3'
-                ? 'You are a clinical triage assistant. Ask exactly one short, natural question. Never combine multiple checks in one question unless urgent safety advice is required.'
+                ? 'You are a clinical triage assistant. Ask exactly one short, natural question. Use brief empathy, and if the user is confused about severity, guide with mild/moderate/severe examples instead of repeating the question. Never combine multiple checks in one question unless urgent safety advice is required.'
                 : (`You are a helpful assistant. Provide clear, concise responses. ` +
                   `If you executed tools, summarize what was done and the results.`)
             );
