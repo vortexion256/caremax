@@ -481,8 +481,17 @@ function getReminderFailureClarification(
 }
 
 function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): string {
+  const sharedRules = [
+    'Shared conversation rules:',
+    '- If the latest user message is only a simple greeting such as "hi", "hello", "hey", or "how are you", reply with one short, warm greeting only.',
+    '- After a simple greeting, do NOT introduce yourself as a clinical triage assistant unless the user asks who you are.',
+    '- After a simple greeting, do NOT ask a symptom, triage, profile, or next-of-kin question until the user gives a health concern or asks for help.',
+    '- Keep greetings natural, for example: "Hi! How can I help?" or "Hello! What can I help with today?".'
+  ];
+
   if (variant === 'v3') {
     return [
+      ...sharedRules,
       'V3 conversation rules:',
       '- Ask exactly ONE short follow-up question at a time.',
       '- Keep visible responses under 20 words unless urgent safety advice or a tool result requires more detail.',
@@ -504,7 +513,7 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
     ].join('\n');
   }
 
-  return '';
+  return sharedRules.join('\n');
 }
 
 function buildCurrentDateTimePayload(timezone: string, countryCode: string) {
