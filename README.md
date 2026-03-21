@@ -140,7 +140,7 @@ Notes:
 - The saved conversation language flag is what decides the voice stack at send time:
   - English (`en`/`eng`/`english`) uses the tenant's configured English provider (`google-cloud-tts` or `elevenlabs`), and falls back to `google-cloud-tts` when another provider is selected
   - Luganda (`lg`/`luganda`) and the supported local-language flags use `sunbird`
-- When an incoming WhatsApp message appears to change the conversation language flag, the system now acknowledges the change and asks the user to confirm before continuing in the new language. This language-switch detection only runs for longer messages (at least 5 words or 21 characters) to avoid short-message misfires, especially for local-language switches.
+- When an incoming WhatsApp message appears to change the conversation language flag, the system now acknowledges the change and asks the user to confirm before continuing in the new language. This language-switch detection only runs for longer messages (at least 3 words or 16 characters) to avoid short-message misfires, especially for local-language switches.
 
 For the Google Cloud synthesis path, the voice and output format are configurable with env vars:
 
