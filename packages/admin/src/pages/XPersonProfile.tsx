@@ -19,9 +19,6 @@ type PatientProfile = {
 };
 
 type ViewMode = 'card' | 'table';
-type SortMode = 'updated_desc' | 'name_asc' | 'custom_fields_desc' | 'duration_desc';
-type ProfileFilter = 'all' | 'missing_name' | 'missing_phone' | 'with_custom_fields';
-
 type ProfileFormState = { name: string; phone: string; location: string; attributesText: string };
 
 const metricCardStyle: CSSProperties = {
@@ -114,9 +111,6 @@ export default function PatientProfilePage() {
   const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [searchText, setSearchText] = useState('');
-  const [channelFilter, setChannelFilter] = useState<'all' | 'widget' | 'whatsapp' | 'unknown'>('all');
-  const [profileFilter, setProfileFilter] = useState<ProfileFilter>('all');
-  const [sortMode, setSortMode] = useState<SortMode>('updated_desc');
   const [creating, setCreating] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [createForm, setCreateForm] = useState<ProfileFormState>({ name: '', phone: '', location: '', attributesText: '' });
@@ -171,44 +165,23 @@ export default function PatientProfilePage() {
 
   const filteredProfiles = useMemo(() => {
     const query = searchText.trim().toLowerCase();
-    const matchesQuery = (profile: PatientProfile) => {
-      if (!query) return true;
-      const haystack = [
-        profile.profileId,
-        profile.userId,
-        profile.externalUserId,
-        profile.name,
-        profile.phone,
-        profile.location,
-        profile.lastConversationId,
-        ...Object.entries(profile.attributes ?? {}).flatMap(([key, value]) => [key, value]),
-      ].filter(Boolean).join(' ').toLowerCase();
-      return haystack.includes(query);
-    };
-
-    const matchesProfileFilter = (profile: PatientProfile) => {
-      switch (profileFilter) {
-        case 'missing_name': return !profile.name?.trim();
-        case 'missing_phone': return !profile.phone?.trim();
-        case 'with_custom_fields': return Object.keys(profile.attributes ?? {}).length > 0;
-        default: return true;
-      }
-    };
-
     return normalizedProfiles
-      .filter((profile) => (channelFilter === 'all' ? true : profile.channel === channelFilter))
-      .filter(matchesProfileFilter)
-      .filter(matchesQuery)
-      .sort((a, b) => {
-        switch (sortMode) {
-          case 'name_asc': return deriveProfileName(a).localeCompare(deriveProfileName(b));
-          case 'custom_fields_desc': return Object.keys(b.attributes ?? {}).length - Object.keys(a.attributes ?? {}).length;
-          case 'duration_desc': return (b.conversationDurationLastConversationSeconds ?? -1) - (a.conversationDurationLastConversationSeconds ?? -1);
-          case 'updated_desc':
-          default: return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
-        }
-      });
-  }, [normalizedProfiles, channelFilter, profileFilter, searchText, sortMode]);
+      .filter((profile) => {
+        if (!query) return true;
+        const haystack = [
+          profile.profileId,
+          profile.userId,
+          profile.externalUserId,
+          profile.name,
+          profile.phone,
+          profile.location,
+          profile.lastConversationId,
+          ...Object.entries(profile.attributes ?? {}).flatMap(([key, value]) => [key, value]),
+        ].filter(Boolean).join(' ').toLowerCase();
+        return haystack.includes(query);
+      })
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  }, [normalizedProfiles, searchText]);
 
   const filteredSummary = useMemo(() => ({
     total: filteredProfiles.length,
@@ -515,51 +488,26 @@ export default function PatientProfilePage() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(280px, 2fr) repeat(3, minmax(180px, 1fr))', gap: 10, alignItems: 'end' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10 }}>
           <label style={{ display: 'grid', gap: 6, minWidth: 0 }}>
             <span>Search</span>
             <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Search name, phone, location, IDs, or custom fields" style={inputStyle} />
           </label>
-          <label style={{ display: 'grid', gap: 6, minWidth: 0 }}>
-            <span>Channel</span>
-            <select value={channelFilter} onChange={(e) => setChannelFilter(e.target.value as typeof channelFilter)} style={inputStyle}>
-              <option value="all">All channels</option>
-              <option value="widget">Widget</option>
-              <option value="whatsapp">WhatsApp</option>
-              <option value="unknown">Unknown</option>
-            </select>
-          </label>
-          <label style={{ display: 'grid', gap: 6, minWidth: 0 }}>
-            <span>Profile health</span>
-            <select value={profileFilter} onChange={(e) => setProfileFilter(e.target.value as ProfileFilter)} style={inputStyle}>
-              <option value="all">All profiles</option>
-              <option value="missing_name">Missing name</option>
-              <option value="missing_phone">Missing phone</option>
-              <option value="with_custom_fields">Has custom fields</option>
-            </select>
-          </label>
-          <label style={{ display: 'grid', gap: 6, minWidth: 0 }}>
-            <span>Sort</span>
-            <select value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)} style={inputStyle}>
-              <option value="updated_desc">Most recently updated</option>
-              <option value="name_asc">Name A–Z</option>
-              <option value="custom_fields_desc">Most custom fields</option>
-              <option value="duration_desc">Longest recent conversation</option>
-            </select>
-          </label>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, minmax(0, 1fr))', gap: 10, flex: 1 }}>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
             <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Matching profiles</span><strong>{filteredSummary.total}</strong></div>
             <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Missing name</span><strong>{filteredSummary.missingName}</strong></div>
             <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Missing phone</span><strong>{filteredSummary.missingPhone}</strong></div>
             <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>With custom fields</span><strong>{filteredSummary.withCustomFields}</strong></div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ color: '#475569', fontWeight: 600 }}>View:</span>
-            <button type="button" onClick={() => setViewMode('table')} style={{ ...secondaryButtonStyle, background: viewMode === 'table' ? '#2563eb' : '#fff', color: viewMode === 'table' ? '#fff' : '#0f172a', borderColor: viewMode === 'table' ? '#2563eb' : '#cbd5e1' }}>Table</button>
-            <button type="button" onClick={() => setViewMode('card')} style={{ ...secondaryButtonStyle, background: viewMode === 'card' ? '#2563eb' : '#fff', color: viewMode === 'card' ? '#fff' : '#0f172a', borderColor: viewMode === 'card' ? '#2563eb' : '#cbd5e1' }}>Card</button>
+          <div style={{ display: 'flex', alignItems: isMobile ? 'stretch' : 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', flexDirection: isMobile ? 'column' : 'row' }}>
+            <span style={{ color: '#475569', fontWeight: 600 }}>View</span>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
+              <button type="button" onClick={() => setViewMode('table')} style={{ ...secondaryButtonStyle, flex: isMobile ? 1 : undefined, background: viewMode === 'table' ? '#2563eb' : '#fff', color: viewMode === 'table' ? '#fff' : '#0f172a', borderColor: viewMode === 'table' ? '#2563eb' : '#cbd5e1' }}>Table</button>
+              <button type="button" onClick={() => setViewMode('card')} style={{ ...secondaryButtonStyle, flex: isMobile ? 1 : undefined, background: viewMode === 'card' ? '#2563eb' : '#fff', color: viewMode === 'card' ? '#fff' : '#0f172a', borderColor: viewMode === 'card' ? '#2563eb' : '#cbd5e1' }}>Card</button>
+            </div>
           </div>
         </div>
       </section>
