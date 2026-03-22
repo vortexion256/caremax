@@ -1,6 +1,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
 import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
+import { logOutgoingWhatsAppMessageToConversation } from './whatsapp-conversation-log.js';
 
 export type XPersonProfileData = {
   tenantId: string;
@@ -647,10 +648,23 @@ export async function sendWhatsAppNotificationToProfiles(params: {
   const results: Array<{ profileId: string; status: 'sent' | 'failed'; recipient: string; error?: string }> = [];
   for (const profile of targetProfiles) {
     try {
-      await sendWhatsAppOutboundMessage({
+      const sendResult = await sendWhatsAppOutboundMessage({
         tenantId: params.tenantId,
         to: profile.whatsappContact,
         body: message,
+      });
+      await logOutgoingWhatsAppMessageToConversation({
+        tenantId: params.tenantId,
+        externalUserId: profile.externalUserId ?? profile.whatsappContact,
+        content: message,
+        role: 'human_agent',
+        preferredChannel: sendResult.channel,
+        conversationId: profile.lastConversationId,
+        fallbackUserId: profile.userId,
+        metadata: {
+          source: 'special_whatsapp_notification',
+          profileId: profile.profileId,
+        },
       });
       results.push({ profileId: profile.profileId, status: 'sent', recipient: profile.whatsappContact });
     } catch (error) {

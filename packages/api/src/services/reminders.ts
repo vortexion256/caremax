@@ -6,7 +6,7 @@ import {
   createRelayTicket,
   storeRelayTicketOutboundMessageLink,
 } from './whatsapp-relay.js';
-import { buildScopedUserId } from './user-identity.js';
+import { logOutgoingWhatsAppMessageToConversation, resolveOrCreateWhatsAppConversation } from './whatsapp-conversation-log.js';
 
 export type ReminderStatus = 'pending' | 'sent' | 'failed' | 'cancelled';
 
@@ -74,51 +74,6 @@ function buildReminderDeletionConfirmation(message: string): string {
   return normalized
     ? `Reminder cancelled: ${normalized}`
     : 'Reminder cancelled.';
-}
-
-async function resolveOrCreatePatientConversation(params: {
-  tenantId: string;
-  externalUserId: string;
-  preferredChannel: WhatsAppChannel;
-}): Promise<{ conversationId: string; userId?: string; channel: WhatsAppChannel }> {
-  const normalizedExternalUserId = params.externalUserId.trim();
-
-  for (const channel of [params.preferredChannel, params.preferredChannel === 'whatsapp_meta' ? 'whatsapp' : 'whatsapp_meta'] as const) {
-    const existingConversationSnap = await db.collection('conversations')
-      .where('tenantId', '==', params.tenantId)
-      .where('channel', '==', channel)
-      .where('externalUserId', '==', normalizedExternalUserId)
-      .where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
-      .orderBy('updatedAt', 'desc')
-      .limit(1)
-      .get();
-
-    if (!existingConversationSnap.empty) {
-      const doc = existingConversationSnap.docs[0];
-      const data = doc.data() ?? {};
-      return {
-        conversationId: doc.id,
-        userId: typeof data.userId === 'string' ? data.userId : undefined,
-        channel,
-      };
-    }
-  }
-
-  const createdRef = await db.collection('conversations').add({
-    tenantId: params.tenantId,
-    userId: buildScopedUserId(params.preferredChannel, normalizedExternalUserId),
-    externalUserId: normalizedExternalUserId,
-    channel: params.preferredChannel,
-    status: 'open',
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
-  });
-
-  return {
-    conversationId: createdRef.id,
-    userId: buildScopedUserId(params.preferredChannel, normalizedExternalUserId),
-    channel: params.preferredChannel,
-  };
 }
 
 function getTimeZoneOffsetMinutes(at: Date, timeZone: string): number {
@@ -282,10 +237,11 @@ export async function dispatchDueReminders(options?: {
 
       if (shouldRelayNokReply) {
         const ownerExternalUserId = data.ownerExternalUserId?.trim() ?? '';
-        const patientConversation = await resolveOrCreatePatientConversation({
+        const patientConversation = await resolveOrCreateWhatsAppConversation({
           tenantId: data.tenantId,
           externalUserId: ownerExternalUserId,
           preferredChannel: channel,
+          fallbackUserId: typeof data.userId === 'string' ? data.userId : undefined,
         });
 
         const relayTicket = await createRelayTicket({
@@ -326,40 +282,48 @@ export async function dispatchDueReminders(options?: {
       const shouldNotifyOwner =
         shouldRelayNokReply;
 
-      if (typeof data.conversationId === 'string' && data.conversationId.trim().length > 0) {
-        await db.collection('messages').add({
-          conversationId: data.conversationId,
-          tenantId: data.tenantId,
-          role: 'assistant',
-          content: outboundBody,
-          channel,
-          inputType: 'text',
-          metadata: {
-            source: 'reminder_dispatch',
-            reminderId: doc.id,
-            reminderStatus: 'sent',
-            reminderTargetType: data.targetType === 'next_of_kin' ? 'next_of_kin' : 'self',
-            ...(relayTicketId ? { relayTicketId } : {}),
-          },
-          createdAt: FieldValue.serverTimestamp(),
-        });
-
-        await db.collection('conversations').doc(data.conversationId).set({
-          updatedAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
-      }
+      await logOutgoingWhatsAppMessageToConversation({
+        tenantId: data.tenantId,
+        externalUserId: recipientExternalUserId,
+        content: outboundBody,
+        preferredChannel: outboundResult.channel,
+        conversationId: data.targetType === 'self' ? data.conversationId : undefined,
+        fallbackUserId: typeof data.userId === 'string' ? data.userId : undefined,
+        metadata: {
+          source: 'reminder_dispatch',
+          reminderId: doc.id,
+          reminderStatus: 'sent',
+          reminderTargetType: data.targetType === 'next_of_kin' ? 'next_of_kin' : 'self',
+          ...(relayTicketId ? { relayTicketId } : {}),
+        },
+      });
 
       if (shouldNotifyOwner) {
         try {
-          await sendWhatsAppOutboundMessage({
+          const ownerNotificationBody = buildReminderOwnerNotification(
+            data.message,
+            data.dueAt instanceof Timestamp ? data.dueAt.toDate().toISOString() : new Date().toISOString(),
+            typeof data.timezone === 'string' && data.timezone.trim() ? data.timezone : 'UTC',
+          );
+          const ownerNotifyResult = await sendWhatsAppOutboundMessage({
             tenantId: data.tenantId,
             to: data.ownerExternalUserId!.trim(),
-            body: buildReminderOwnerNotification(
-              data.message,
-              data.dueAt instanceof Timestamp ? data.dueAt.toDate().toISOString() : new Date().toISOString(),
-              typeof data.timezone === 'string' && data.timezone.trim() ? data.timezone : 'UTC',
-            ),
+            body: ownerNotificationBody,
             preferredChannel: channel,
+          });
+          await logOutgoingWhatsAppMessageToConversation({
+            tenantId: data.tenantId,
+            externalUserId: data.ownerExternalUserId!.trim(),
+            content: ownerNotificationBody,
+            preferredChannel: ownerNotifyResult.channel,
+            conversationId: typeof data.conversationId === 'string' ? data.conversationId : undefined,
+            fallbackUserId: typeof data.userId === 'string' ? data.userId : undefined,
+            metadata: {
+              source: 'reminder_dispatch_owner_notification',
+              reminderId: doc.id,
+              reminderStatus: 'sent',
+              reminderTargetType: 'next_of_kin',
+            },
           });
           ownerNotified += 1;
           await doc.ref.update({
