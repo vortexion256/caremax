@@ -266,6 +266,37 @@ function formatExistingRecordsForPrompt(records: { recordId: string; title: stri
     .join('\n\n');
 }
 
+/** MIME types Gemini supports (avif, etc. are not). */
+const GEMINI_SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
+/** Fetch image from URL and return as base64 data URL. Converts AVIF/unsupported types to JPEG via sharp. */
+async function fetchImageAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    let contentType = res.headers.get('content-type')?.split(';')[0]?.trim() || 'image/jpeg';
+    let b64: string;
+
+    if (!GEMINI_SUPPORTED_IMAGE_TYPES.has(contentType.toLowerCase())) {
+      try {
+        const sharp = (await import('sharp')).default;
+        const jpeg = await sharp(buf).jpeg({ quality: 90 }).toBuffer();
+        b64 = jpeg.toString('base64');
+        contentType = 'image/jpeg';
+      } catch (e) {
+        console.warn('Image conversion failed (install sharp for AVIF/unsupported types):', e);
+        return null;
+      }
+    } else {
+      b64 = buf.toString('base64');
+    }
+    return `data:${contentType};base64,${b64}`;
+  } catch {
+    return null;
+  }
+}
+
 async function toLangChainMessages(
   history: { role: string; content: string; imageUrls?: string[] }[]
 ): Promise<BaseMessage[]> {
@@ -278,8 +309,8 @@ async function toLangChainMessages(
         if (m.content?.trim()) content.push({ type: 'text', text: m.content });
         for (const url of imageUrls) {
           if (!url?.trim()) continue;
-          // In production, fetch and convert images here
-          content.push({ type: 'image_url', image_url: { url } });
+          const dataUrl = await fetchImageAsDataUrl(url.trim());
+          if (dataUrl) content.push({ type: 'image_url', image_url: { url: dataUrl } });
         }
         if (content.length === 0) content.push({ type: 'text', text: '(User sent an image with no text)' });
         out.push(new HumanMessage({ content }));
