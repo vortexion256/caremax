@@ -164,7 +164,7 @@ export default function PatientProfilePage() {
 
   const formatDuration = (seconds?: number | string | null) => {
     const normalizedSeconds = normalizeDurationSeconds(seconds);
-    if (typeof normalizedSeconds !== 'number' || Number.isNaN(normalizedSeconds)) return '—';
+    if (typeof normalizedSeconds !== 'number' || Number.isNaN(normalizedSeconds)) return '0s';
     if (normalizedSeconds < 60) return `${normalizedSeconds}s`;
     const mins = Math.floor(normalizedSeconds / 60);
     const remSeconds = normalizedSeconds % 60;
