@@ -380,7 +380,7 @@ export default function PatientProfilePage() {
           <div style={{ display: 'grid', gap: 12 }}>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
               <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Display name</span><strong>{deriveProfileName(profile)}</strong></div>
-              <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Recent duration</span><strong>{formatDuration(profile.conversationDurationLastConversationSeconds)}</strong></div>
+              <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Conversation duration</span><strong>{formatDuration(profile.conversationDurationLastConversationSeconds)}</strong></div>
               <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Custom fields</span><strong>{customAttributes.length}</strong></div>
               <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Created</span><strong>{formatUpdatedAt(profile.createdAt)}</strong></div>
             </div>
@@ -424,7 +424,7 @@ export default function PatientProfilePage() {
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
             <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Phone</span><span>{profile.phone || '—'}</span></div>
             <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Location</span><span>{profile.location || '—'}</span></div>
-            <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Last duration</span><span>{formatDuration(profile.conversationDurationLastConversationSeconds)}</span></div>
+            <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Conversation duration</span><span>{formatDuration(profile.conversationDurationLastConversationSeconds)}</span></div>
             <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Custom fields</span><span>{customAttributes.length}</span></div>
           </div>
 
@@ -564,7 +564,7 @@ export default function PatientProfilePage() {
                 <th style={{ padding: '12px 14px' }}>Channel</th>
                 <th style={{ padding: '12px 14px' }}>Phone</th>
                 <th style={{ padding: '12px 14px' }}>Location</th>
-                <th style={{ padding: '12px 14px' }}>Last duration</th>
+                <th style={{ padding: '12px 14px' }}>Conversation duration</th>
                 <th style={{ padding: '12px 14px' }}>Custom fields</th>
                 <th style={{ padding: '12px 14px' }}>Updated</th>
                 <th style={{ padding: '12px 14px' }}>Action</th>

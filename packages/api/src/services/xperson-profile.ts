@@ -181,6 +181,8 @@ export function extractCustomProfileAttributes(text: string, customFields: XPers
   return extracted;
 }
 
+const CONVERSATION_SESSION_GAP_MS = 30 * 60 * 1000;
+const MAX_CONVERSATION_DURATION_MESSAGES = 500;
 
 export async function getConversationDurationSeconds(conversationId: string): Promise<number | undefined> {
   if (!clean(conversationId)) return undefined;
@@ -189,15 +191,34 @@ export async function getConversationDurationSeconds(conversationId: string): Pr
     .collection('messages')
     .where('conversationId', '==', conversationId)
     .orderBy('createdAt', 'asc')
-    .limitToLast(500)
+    .limit(MAX_CONVERSATION_DURATION_MESSAGES)
     .get();
 
   if (snap.empty) return 0;
 
-  const first = snap.docs[0]?.data()?.createdAt?.toMillis?.();
-  const last = snap.docs[snap.docs.length - 1]?.data()?.createdAt?.toMillis?.();
-  if (typeof first !== 'number' || typeof last !== 'number') return undefined;
-  return Math.max(0, Math.round((last - first) / 1000));
+  const timestamps = snap.docs
+    .map((doc) => doc.data()?.createdAt?.toMillis?.())
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+  if (timestamps.length === 0) return undefined;
+  if (timestamps.length === 1) return 0;
+
+  let sessionStart = timestamps[0];
+  let previousTimestamp = timestamps[0];
+  let totalDurationMs = 0;
+
+  for (let index = 1; index < timestamps.length; index += 1) {
+    const timestamp = timestamps[index];
+    if ((timestamp - previousTimestamp) > CONVERSATION_SESSION_GAP_MS) {
+      totalDurationMs += Math.max(0, previousTimestamp - sessionStart);
+      sessionStart = timestamp;
+    }
+    previousTimestamp = timestamp;
+  }
+
+  totalDurationMs += Math.max(0, previousTimestamp - sessionStart);
+
+  return Math.max(0, Math.round(totalDurationMs / 1000));
 }
 
 export async function upsertXPersonProfile(params: {
