@@ -552,6 +552,65 @@ export async function listRecentlyActiveWhatsAppProfiles(params: {
   }
 }
 
+export type TenantSpecialNotification = {
+  id: string;
+  tenantId: string;
+  message: string;
+  profileIds: string[];
+  requestedBy?: string | null;
+  activeWithinHours?: number | null;
+  sentCount: number;
+  failedCount: number;
+  createdAt?: number | null;
+  results: Array<{ profileId: string; status: 'sent' | 'failed'; recipient: string; error?: string }>;
+};
+
+function mapTenantSpecialNotification(id: string, value: FirebaseFirestore.DocumentData | undefined): TenantSpecialNotification {
+  const rawResults = Array.isArray(value?.results) ? value.results : [];
+  return {
+    id,
+    tenantId: clean(value?.tenantId) ?? '',
+    message: clean(value?.message) ?? '',
+    profileIds: Array.isArray(value?.profileIds) ? value.profileIds.map((item) => clean(item)).filter((item): item is string => Boolean(item)) : [],
+    requestedBy: clean(value?.requestedBy) ?? null,
+    activeWithinHours: typeof value?.activeWithinHours === 'number' && Number.isFinite(value.activeWithinHours) ? value.activeWithinHours : null,
+    sentCount: typeof value?.sentCount === 'number' && Number.isFinite(value.sentCount) ? value.sentCount : 0,
+    failedCount: typeof value?.failedCount === 'number' && Number.isFinite(value.failedCount) ? value.failedCount : 0,
+    createdAt: value?.createdAt?.toMillis?.() ?? null,
+    results: rawResults.map((result) => ({
+      profileId: clean(result?.profileId) ?? '',
+      status: result?.status === 'failed' ? 'failed' : 'sent',
+      recipient: clean(result?.recipient) ?? '',
+      ...(clean(result?.error) ? { error: clean(result?.error) } : {}),
+    })),
+  };
+}
+
+export async function listTenantSpecialNotifications(params: { tenantId: string; limit?: number }): Promise<TenantSpecialNotification[]> {
+  const limit = Math.min(Math.max(Math.trunc(params.limit ?? 100), 1), 200);
+  const snap = await db
+    .collection('tenant_special_notifications')
+    .where('tenantId', '==', params.tenantId)
+    .orderBy('createdAt', 'desc')
+    .limit(limit)
+    .get();
+
+  return snap.docs.map((doc) => mapTenantSpecialNotification(doc.id, doc.data()));
+}
+
+export async function deleteTenantSpecialNotification(params: { tenantId: string; notificationId: string }): Promise<{ deleted: boolean }> {
+  const notificationId = clean(params.notificationId);
+  if (!notificationId) return { deleted: false };
+
+  const ref = db.collection('tenant_special_notifications').doc(notificationId);
+  const snap = await ref.get();
+  if (!snap.exists) return { deleted: false };
+  if (clean(snap.data()?.tenantId) !== params.tenantId) return { deleted: false };
+
+  await ref.delete();
+  return { deleted: true };
+}
+
 export async function sendWhatsAppNotificationToProfiles(params: {
   tenantId: string;
   message: string;

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireAdmin, requireTenantParam } from '../middleware/auth.js';
-import { deleteXPersonProfileById, getXPersonProfile, listRecentlyActiveWhatsAppProfiles, listXPersonProfiles, sendWhatsAppNotificationToProfiles, updateXPersonProfileById, upsertXPersonProfile } from '../services/xperson-profile.js';
+import { deleteTenantSpecialNotification, deleteXPersonProfileById, getXPersonProfile, listRecentlyActiveWhatsAppProfiles, listTenantSpecialNotifications, listXPersonProfiles, sendWhatsAppNotificationToProfiles, updateXPersonProfileById, upsertXPersonProfile } from '../services/xperson-profile.js';
 
 export const xPersonProfileRouter: Router = Router({ mergeParams: true });
 
@@ -66,6 +66,16 @@ const whatsappNotificationSchema = z.object({
   profileIds: z.array(z.string().min(1)).max(1000).optional(),
 });
 
+xPersonProfileRouter.get('/whatsapp-notifications', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const limit = Number(req.query.limit);
+  const notifications = await listTenantSpecialNotifications({
+    tenantId,
+    limit: Number.isFinite(limit) ? limit : 100,
+  });
+  res.json({ notifications });
+});
+
 xPersonProfileRouter.post('/whatsapp-notifications', async (req, res) => {
   const tenantId = res.locals.tenantId as string;
   const uid = res.locals.uid as string | undefined;
@@ -94,6 +104,19 @@ xPersonProfileRouter.post('/whatsapp-notifications', async (req, res) => {
     const message = error instanceof Error ? error.message : 'Failed to send WhatsApp notifications.';
     res.status(400).json({ error: message });
   }
+});
+
+xPersonProfileRouter.delete('/whatsapp-notifications/:notificationId', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const notificationId = typeof req.params.notificationId === 'string' ? req.params.notificationId : '';
+  const result = await deleteTenantSpecialNotification({ tenantId, notificationId });
+
+  if (!result.deleted) {
+    res.status(404).json({ error: 'Outbox message not found' });
+    return;
+  }
+
+  res.status(204).send();
 });
 
 
