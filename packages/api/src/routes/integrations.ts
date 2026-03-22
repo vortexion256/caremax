@@ -23,6 +23,7 @@ import { join } from 'path';
 import { promises as fs } from 'fs';
 import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
+import { isExplicitHumanRequest, isUrgentHandoffSituation } from '../services/handoff-policy.js';
 
 const execFile = promisify(execFileCb);
 
@@ -1869,11 +1870,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       return;
     }
 
-    const wantsHumanAgain =
-      /\b(talk|speak|connect|transfer|hand me off|get me)\s+(to|with)\s+(a\s+)?(human|real\s+person|person|agent|someone|care\s+team|staff|representative)/i.test(body) ||
-      /\b(let me\s+)?(talk|speak)\s+to\s+(a\s+)?(human|person|someone)/i.test(body) ||
-      /\b(want|need)\s+to\s+(speak|talk)\s+to\s+(a\s+)?(human|person|someone)/i.test(body) ||
-      /\b(real\s+person|human\s+agent|live\s+agent)/i.test(body);
+    const wantsHumanAgain = isExplicitHumanRequest(body) || isUrgentHandoffSituation(body);
 
     if (wantsHumanAgain) {
       const alreadyRequestedHandoff = status === 'handoff_requested';

@@ -15,6 +15,12 @@ import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
 import { buildNokRelayOutboundMessage, createRelayTicket, markRelayTicketSendFailed, storeRelayTicketOutboundMessageLink } from './whatsapp-relay.js';
 import { normalizeWhatsAppExternalUserId } from './user-identity.js';
 import { getHealthProfile, logVitals } from './health-tools.js';
+import {
+  isExplicitHumanRequest,
+  isUnhelpfulAssistantReply,
+  isUrgentHandoffSituation,
+  shouldTriggerRepeatedFailureHandoff,
+} from './handoff-policy.js';
 
 function buildCurrentDateTimePayload(timezone: string, countryCode: string) {
   const now = new Date();
@@ -426,43 +432,8 @@ async function toLangChainMessages(
 /** True if the last assistant message suggests they couldn't help or were uncertain (so a follow-up may warrant escalation). */
 function lastReplyWasUnhelpfulOrUncertain(history: { role: string; content: string }[]): boolean {
   const lastAssistant = [...history].reverse().find((m) => m.role === 'assistant');
-  if (!lastAssistant?.content) return false;
-  const c = lastAssistant.content.toLowerCase();
-  const phrases = [
-    "i'm not sure",
-    "i am not sure",
-    "i can't",
-    "i cannot",
-    "i don't have",
-    "i do not have",
-    "rephrase",
-    "contact your doctor",
-    "speak with a doctor",
-    "recommend speaking",
-    "recommend talking",
-    "cannot diagnose",
-    "can't diagnose",
-    "beyond my",
-    "outside my",
-    "outside of my",
-    "not able to help",
-    "unable to help",
-    "don't have enough",
-    "don't have that information",
-    "couldn't find",
-    "could not find",
-    "no information",
-    "please rephrase",
-    "try rephrasing",
-  ];
-  return phrases.some((p) => c.includes(p));
+  return isUnhelpfulAssistantReply(lastAssistant?.content);
 }
-
-/** True if there are at least two user messages (so we're in a multi-turn exchange and "repeat ask" makes sense). */
-function hasMultipleUserTurns(history: { role: string }[]): boolean {
-  return history.filter((m) => m.role === 'user').length >= 2;
-}
-
 
 export async function runAgent(
   tenantId: string,
@@ -506,21 +477,20 @@ export async function runAgent(
 
   const escalationInstruction = `
 Escalation to a human: When EITHER of the following is true, you MUST end your reply with exactly "${HANDOFF_MARKER}" on a new line (the user will not see this; the system will connect them to a care team member).
-1) The user expresses in any way that they want to speak to a human, a real person, the care team, or an agent—including indirect phrasings like "can I talk to someone?", "I want a person", "not a bot", "real human", "actual person", "get me a human", "speak to staff", "connect me with support".
-2) You have already tried to help with the same or similar question and could not resolve it, or the user is asking again / rephrasing after you gave an uncertain or unhelpful answer—in that case escalate so a human can take over instead of repeating that you cannot help.`;
+1) The user clearly and explicitly asks to speak to a human, a real person, the care team, or a live agent.
+2) The situation appears urgent or safety-sensitive and a human should review it promptly.
+3) You have already failed to resolve the same issue after 3 to 5 consecutive turns, especially if your recent replies were uncertain, repetitive, or unhelpful. In that case escalate instead of continuing the loop.`;
   const followUpHint =
-    hasMultipleUserTurns(history) && lastReplyWasUnhelpfulOrUncertain(history)
+    shouldTriggerRepeatedFailureHandoff(history) && lastReplyWasUnhelpfulOrUncertain(history)
       ? ` The user has sent another message after you previously could not fully help. You MUST end your reply with "${HANDOFF_MARKER}" to escalate to a human.`
       : '';
 
   const lastUserContent = history.filter((m) => m.role === 'user').pop()?.content ?? '';
-  const userWantsHuman =
-    /\b(talk|speak|connect|transfer|hand me off|get me)\s+(to|with)\s+(a\s+)?(human|real\s+person|person|agent|someone|care\s+team|staff|representative)/i.test(lastUserContent) ||
-    /\b(let me\s+)?(talk|speak)\s+to\s+(a\s+)?(human|person|someone)/i.test(lastUserContent) ||
-    /\b(want|need)\s+to\s+(speak|talk)\s+to\s+(a\s+)?(human|person|someone)/i.test(lastUserContent) ||
-    /\b(real\s+person|human\s+agent|live\s+agent)/i.test(lastUserContent);
+  const userWantsHuman = isExplicitHumanRequest(lastUserContent);
+  const urgentHandoff = isUrgentHandoffSituation(lastUserContent);
+  const repeatedFailureHandoff = shouldTriggerRepeatedFailureHandoff(history);
 
-  if (userWantsHuman) {
+  if (userWantsHuman || urgentHandoff || repeatedFailureHandoff) {
     const handoffMessage =
       `I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.
 
