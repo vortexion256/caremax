@@ -13,7 +13,7 @@ import { verifyMarzPayTransaction } from '../services/marzpay.js';
 import { createTenantNotification } from '../services/tenant-notifications.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { resolveConversationIdentity } from '../services/user-identity.js';
-import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, upsertXPersonProfile } from '../services/xperson-profile.js';
+import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, syncXPersonProfileConversationDuration, upsertXPersonProfile } from '../services/xperson-profile.js';
 import { claimTwilioWebhookMessage, resolveRelayReplyQuotedContext, resolveRelayTicketIdFromReplyContext, routeNokRelayReply } from '../services/whatsapp-relay.js';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
@@ -2202,6 +2202,20 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       createdAt: FieldValue.serverTimestamp(),
     });
 
+    try {
+      if (agentConfigData?.xPersonProfileEnabled === true) {
+        await syncXPersonProfileConversationDuration({
+          tenantId,
+          conversationId: conversationRef.id,
+          userId: identity.scopedUserId,
+          externalUserId: identity.externalUserId,
+          channel: 'whatsapp',
+        });
+      }
+    } catch (profileError) {
+      console.warn('[Integrations] Failed to sync XPersonProfile duration after Twilio WhatsApp reply:', profileError);
+    }
+
     void recordAgentActivity(tenantId, 'whatsapp-sent');
     void recordAgentActivity(tenantId, 'twilio');
 
@@ -2605,6 +2619,30 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
           void recordAgentActivity(tenantId, 'whatsapp-received');
           void recordAgentActivity(tenantId, 'meta');
 
+          try {
+            if (agentConfigData?.xPersonProfileEnabled === true) {
+              const conversationDurationLastConversationSeconds = await getConversationDurationSeconds(conversationRef.id);
+              const customFields = normalizeXPersonCustomFields(agentConfigData?.xPersonProfileCustomFields);
+              const extractedAttributes = extractCustomProfileAttributes(body, customFields);
+              await upsertXPersonProfile({
+                tenantId,
+                userId: identity.scopedUserId,
+                externalUserId: identity.externalUserId,
+                channel: 'whatsapp',
+                conversationId: conversationRef.id,
+                details: {
+                  ...extractDefaultProfileFields(body),
+                  ...(typeof conversationDurationLastConversationSeconds === 'number'
+                    ? { conversationDurationLastConversationSeconds }
+                    : {}),
+                },
+                ...(Object.keys(extractedAttributes).length > 0 ? { attributes: extractedAttributes } : {}),
+              });
+            }
+          } catch (profileError) {
+            console.warn('[Integrations] Failed to upsert XPersonProfile from Meta WhatsApp webhook:', profileError);
+          }
+
           const historySnap = await db.collection('messages')
             .where('conversationId', '==', conversationRef.id)
             .orderBy('createdAt', 'desc')
@@ -2705,6 +2743,20 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             channel: 'whatsapp_meta',
             createdAt: FieldValue.serverTimestamp(),
           });
+
+          try {
+            if (agentConfigData?.xPersonProfileEnabled === true) {
+              await syncXPersonProfileConversationDuration({
+                tenantId,
+                conversationId: conversationRef.id,
+                userId: identity.scopedUserId,
+                externalUserId: identity.externalUserId,
+                channel: 'whatsapp',
+              });
+            }
+          } catch (profileError) {
+            console.warn('[Integrations] Failed to sync XPersonProfile duration after Meta WhatsApp reply:', profileError);
+          }
 
           void recordAgentActivity(tenantId, 'whatsapp-meta-sent');
           void recordAgentActivity(tenantId, 'whatsapp-sent');
