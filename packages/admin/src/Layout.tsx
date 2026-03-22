@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { useTenant } from './TenantContext';
@@ -110,12 +110,30 @@ export default function Layout() {
     },
   ];
 
-  const initialExpandedState = navGroups.reduce<Record<string, boolean>>((acc, group) => {
-    acc[group.key] = group.items.some((item) => location.pathname === item.path);
-    return acc;
-  }, {});
+  const activeGroupKeys = useMemo(() => new Set(
+    navGroups.filter((group) => group.items.some((item) => location.pathname === item.path)).map((group) => group.key)
+  ), [location.pathname, isPlatformAdmin]);
 
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(initialExpandedState);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => navGroups.reduce<Record<string, boolean>>((acc, group) => {
+    acc[group.key] = activeGroupKeys.has(group.key);
+    return acc;
+  }, {}));
+
+  useEffect(() => {
+    setExpandedGroups((prev) => {
+      const next = { ...prev };
+      let changed = false;
+
+      activeGroupKeys.forEach((groupKey) => {
+        if (!prev[groupKey]) {
+          next[groupKey] = true;
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, [activeGroupKeys]);
 
   const toggleGroup = (groupKey: string) => {
     setExpandedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
@@ -147,13 +165,13 @@ export default function Layout() {
         to={path}
         onClick={() => isMobile && setMenuOpen(false)}
         style={{
-          padding: isSubItem ? '9px 12px 9px 14px' : '11px 12px',
+          padding: isSubItem ? '7px 10px 7px 12px' : '9px 10px',
           borderRadius: 10,
           textDecoration: 'none',
           color: active ? '#1d4ed8' : '#334155',
           fontWeight: active ? 700 : 500,
           background: active ? '#dbeafe' : 'transparent',
-          fontSize: isSubItem ? 13 : 14,
+          fontSize: isSubItem ? 12 : 13,
           border: active ? '1px solid #bfdbfe' : '1px solid transparent',
           boxShadow: active ? '0 1px 2px rgba(37, 99, 235, 0.12)' : 'none'
         }}
@@ -271,7 +289,7 @@ export default function Layout() {
 
         {isMobile && (
           <div style={{
-            marginBottom: 14,
+            marginBottom: 10,
             borderRadius: 12,
             padding: '10px 12px',
             background: '#fff',
@@ -288,10 +306,10 @@ export default function Layout() {
             border: '1px solid #e2e8f0',
             borderRadius: 12,
             background: '#fff',
-            padding: '6px',
+            padding: '5px',
             display: 'flex',
             flexDirection: 'column',
-            gap: 4
+            gap: 2
           }}>
             <div style={{ padding: '2px 8px 4px', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: '#94a3b8', textTransform: 'uppercase' }}>
               Workspace
@@ -300,8 +318,7 @@ export default function Layout() {
           </div>
 
           {navGroups.map((group) => {
-            const hasActiveItem = group.items.some((item) => location.pathname === item.path);
-            const isExpanded = expandedGroups[group.key] || hasActiveItem;
+            const isExpanded = expandedGroups[group.key];
 
             return (
               <div key={group.key} style={{ border: '1px solid #e2e8f0', borderRadius: 12, background: '#fff', overflow: 'hidden' }}>
@@ -312,12 +329,12 @@ export default function Layout() {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '11px 12px',
+                    padding: '9px 10px',
                     background: 'transparent',
                     border: 'none',
                     cursor: 'pointer',
                     color: '#334155',
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: 700,
                     textTransform: 'uppercase',
                     letterSpacing: '0.04em'
@@ -328,7 +345,7 @@ export default function Layout() {
                 </button>
 
                 {isExpanded && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '0 6px 8px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 5px 6px' }}>
                     {group.items.map((item) => renderNavLink(item, true))}
                   </div>
                 )}
@@ -345,17 +362,19 @@ export default function Layout() {
           flexDirection: 'column',
           gap: 6
         }}>
-          <div style={{
-            padding: '10px 12px',
-            marginBottom: 2,
-            background: '#fff',
-            borderRadius: 10,
-            border: '1px solid #e2e8f0'
-          }}>
-            <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Organization</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginTop: 2, wordBreak: 'break-word' }}>{name || tenantId}</div>
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, wordBreak: 'break-all' }}>{email || '—'}</div>
-          </div>
+          {!isMobile && (
+            <div style={{
+              padding: '10px 12px',
+              marginBottom: 2,
+              background: '#fff',
+              borderRadius: 10,
+              border: '1px solid #e2e8f0'
+            }}>
+              <div style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Organization</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', marginTop: 2, wordBreak: 'break-word' }}>{name || tenantId}</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, wordBreak: 'break-all' }}>{email || '—'}</div>
+            </div>
+          )}
 
           {isPlatformAdmin && (
             <Link
