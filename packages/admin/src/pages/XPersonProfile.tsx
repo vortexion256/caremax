@@ -11,7 +11,7 @@ type PatientProfile = {
   name?: string;
   phone?: string;
   location?: string;
-  conversationDurationLastConversationSeconds?: number;
+  conversationDurationLastConversationSeconds?: number | string | null;
   attributes?: Record<string, string>;
   lastConversationId?: string;
   updatedAt?: number | null;
@@ -67,9 +67,10 @@ function Modal({ title, subtitle, onClose, children, isMobile }: { title: string
         inset: 0,
         background: 'rgba(15, 23, 42, 0.48)',
         display: 'grid',
-        placeItems: 'center',
+        placeItems: isMobile ? 'start center' : 'center',
         padding: isMobile ? 12 : 24,
         zIndex: 1000,
+        overflowY: 'auto',
       }}
     >
       <div
@@ -77,7 +78,9 @@ function Modal({ title, subtitle, onClose, children, isMobile }: { title: string
         style={{
           width: '100%',
           maxWidth: 980,
-          maxHeight: '90vh',
+          maxHeight: isMobile ? 'calc(100vh - 24px)' : '90vh',
+          marginTop: isMobile ? 8 : 0,
+          marginBottom: isMobile ? 8 : 0,
           overflow: 'auto',
           borderRadius: 20,
           background: '#fff',
@@ -124,14 +127,28 @@ export default function PatientProfilePage() {
     return 'unknown';
   };
 
-  const normalizedProfiles = useMemo(() => profiles.map((profile) => ({ ...profile, channel: inferChannel(profile) })), [profiles]);
+  const normalizeDurationSeconds = (value: PatientProfile['conversationDurationLastConversationSeconds']) => {
+    if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.trunc(value));
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return Math.max(0, Math.trunc(parsed));
+    }
+    return undefined;
+  };
+
+  const normalizedProfiles = useMemo(() => profiles.map((profile) => ({
+    ...profile,
+    channel: inferChannel(profile),
+    conversationDurationLastConversationSeconds: normalizeDurationSeconds(profile.conversationDurationLastConversationSeconds),
+  })), [profiles]);
   const selectedProfile = useMemo(() => normalizedProfiles.find((profile) => profile.profileId === expandedProfileId) ?? null, [normalizedProfiles, expandedProfileId]);
 
-  const formatDuration = (seconds?: number) => {
-    if (typeof seconds !== 'number' || Number.isNaN(seconds)) return '—';
-    if (seconds < 60) return `${seconds}s`;
-    const mins = Math.floor(seconds / 60);
-    const remSeconds = seconds % 60;
+  const formatDuration = (seconds?: number | string | null) => {
+    const normalizedSeconds = normalizeDurationSeconds(seconds);
+    if (typeof normalizedSeconds !== 'number' || Number.isNaN(normalizedSeconds)) return '—';
+    if (normalizedSeconds < 60) return `${normalizedSeconds}s`;
+    const mins = Math.floor(normalizedSeconds / 60);
+    const remSeconds = normalizedSeconds % 60;
     return remSeconds === 0 ? `${mins}m` : `${mins}m ${remSeconds}s`;
   };
 
@@ -182,13 +199,6 @@ export default function PatientProfilePage() {
       })
       .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
   }, [normalizedProfiles, searchText]);
-
-  const filteredSummary = useMemo(() => ({
-    total: filteredProfiles.length,
-    missingName: filteredProfiles.filter((profile) => !profile.name?.trim()).length,
-    missingPhone: filteredProfiles.filter((profile) => !profile.phone?.trim()).length,
-    withCustomFields: filteredProfiles.filter((profile) => Object.keys(profile.attributes ?? {}).length > 0).length,
-  }), [filteredProfiles]);
 
   const widgetProfiles = useMemo(() => filteredProfiles.filter((profile) => profile.channel === 'widget'), [filteredProfiles]);
   const whatsappProfiles = useMemo(() => filteredProfiles.filter((profile) => profile.channel === 'whatsapp'), [filteredProfiles]);
@@ -495,19 +505,13 @@ export default function PatientProfilePage() {
           </label>
         </div>
 
-        <div style={{ display: 'grid', gap: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
-            <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Matching profiles</span><strong>{filteredSummary.total}</strong></div>
-            <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Missing name</span><strong>{filteredSummary.missingName}</strong></div>
-            <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>Missing phone</span><strong>{filteredSummary.missingPhone}</strong></div>
-            <div style={metricCardStyle}><span style={{ fontSize: 12, color: '#64748b' }}>With custom fields</span><strong>{filteredSummary.withCustomFields}</strong></div>
-          </div>
-          <div style={{ display: 'flex', alignItems: isMobile ? 'stretch' : 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', flexDirection: isMobile ? 'column' : 'row' }}>
-            <span style={{ color: '#475569', fontWeight: 600 }}>View</span>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
-              <button type="button" onClick={() => setViewMode('table')} style={{ ...secondaryButtonStyle, flex: isMobile ? 1 : undefined, background: viewMode === 'table' ? '#2563eb' : '#fff', color: viewMode === 'table' ? '#fff' : '#0f172a', borderColor: viewMode === 'table' ? '#2563eb' : '#cbd5e1' }}>Table</button>
-              <button type="button" onClick={() => setViewMode('card')} style={{ ...secondaryButtonStyle, flex: isMobile ? 1 : undefined, background: viewMode === 'card' ? '#2563eb' : '#fff', color: viewMode === 'card' ? '#fff' : '#0f172a', borderColor: viewMode === 'card' ? '#2563eb' : '#cbd5e1' }}>Card</button>
-            </div>
+        <div style={{ display: 'flex', alignItems: isMobile ? 'stretch' : 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', flexDirection: isMobile ? 'column' : 'row' }}>
+          <span style={{ color: '#475569', fontWeight: 600 }}>
+            {filteredProfiles.length} profile{filteredProfiles.length === 1 ? '' : 's'} found
+          </span>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
+            <button type="button" onClick={() => setViewMode('table')} style={{ ...secondaryButtonStyle, flex: isMobile ? 1 : undefined, background: viewMode === 'table' ? '#2563eb' : '#fff', color: viewMode === 'table' ? '#fff' : '#0f172a', borderColor: viewMode === 'table' ? '#2563eb' : '#cbd5e1' }}>Table</button>
+            <button type="button" onClick={() => setViewMode('card')} style={{ ...secondaryButtonStyle, flex: isMobile ? 1 : undefined, background: viewMode === 'card' ? '#2563eb' : '#fff', color: viewMode === 'card' ? '#fff' : '#0f172a', borderColor: viewMode === 'card' ? '#2563eb' : '#cbd5e1' }}>Card</button>
           </div>
         </div>
       </section>
