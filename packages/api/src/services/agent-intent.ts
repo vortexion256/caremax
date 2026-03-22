@@ -10,6 +10,7 @@ import { HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/m
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { extractTokenUsage, recordUsage } from './token-usage.js';
+import { isExplicitHumanRequest, isUrgentHandoffSituation } from './handoff-policy.js';
 
 export interface ExtractedIntent {
   intent: 'book_appointment' | 'check_availability' | 'query_information' | 'general_conversation' | 'request_human' | 'confirm_action';
@@ -43,13 +44,14 @@ export async function extractIntent(
 3. Which tools might be needed
 
 You do NOT execute tools or make decisions - you only extract information.
+Be conservative with request_human: choose it only when the user clearly asks for a human or the situation is urgent enough that a human should step in.
 
 Intents:
 - book_appointment: User wants to schedule/book an appointment
 - check_availability: User wants to check if a doctor or time slot is free/available
 - query_information: User wants to look up information (general facts, policies, etc.)
 - general_conversation: General chat, questions, greetings
-- request_human: User wants to speak with a human
+- request_human: User clearly asks to speak with a human, or the situation is urgent and should be escalated to a human
 - confirm_action: User is confirming an action (e.g., "yes", "proceed", "do it", "that's correct")
 
 Extract entities like: patientName, phone, date, time, doctor, notes, query.`;
@@ -117,7 +119,6 @@ Extract the intent and entities. Use extract_intent to structure your response.`
   }
 
   // Fallback: simple heuristic extraction
-  const messageLower = userMessage.toLowerCase();
   let intent: ExtractedIntent['intent'] = 'general_conversation';
   let requiresTools = false;
   const suggestedTools: string[] = [];
@@ -134,7 +135,7 @@ Extract the intent and entities. Use extract_intent to structure your response.`
     intent = 'query_information';
     requiresTools = true;
     suggestedTools.push('query_google_sheet');
-  } else if (/\b(talk|speak|human|person|agent|representative)\b/i.test(userMessage)) {
+  } else if (isExplicitHumanRequest(userMessage) || isUrgentHandoffSituation(userMessage)) {
     intent = 'request_human';
     requiresTools = false;
   }

@@ -9,6 +9,7 @@ import type { ConversationStatus } from '../types/index.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { resolveConversationIdentity } from '../services/user-identity.js';
 import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, syncXPersonProfileConversationDuration, upsertXPersonProfile } from '../services/xperson-profile.js';
+import { isExplicitHumanRequest, isUrgentHandoffSituation } from '../services/handoff-policy.js';
 
 export const conversationRouter: Router = Router({ mergeParams: true });
 
@@ -314,11 +315,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
     return;
   }
 
-  const wantsHumanAgain = (text: string) =>
-    /\b(talk|speak|connect|transfer|hand me off|get me)\s+(to|with)\s+(a\s+)?(human|real\s+person|person|agent|someone|care\s+team|staff|representative)/i.test(text) ||
-    /\b(let me\s+)?(talk|speak)\s+to\s+(a\s+)?(human|person|someone)/i.test(text) ||
-    /\b(want|need)\s+to\s+(speak|talk)\s+to\s+(a\s+)?(human|person|someone)/i.test(text) ||
-    /\b(real\s+person|human\s+agent|live\s+agent)/i.test(text);
+  const wantsHumanAgain = (text: string) => isExplicitHumanRequest(text) || isUrgentHandoffSituation(text);
 
   if (alreadyRequestedHandoff && wantsHumanAgain(content)) {
     const shortMessage =

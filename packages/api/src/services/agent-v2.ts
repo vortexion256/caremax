@@ -49,6 +49,11 @@ import {
   type ExecutionPlan,
   type EmptyResponseAnalysis,
 } from './agent-planner.js';
+import {
+  isExplicitHumanRequest,
+  isUrgentHandoffSituation,
+  shouldTriggerRepeatedFailureHandoff,
+} from './handoff-policy.js';
 
 export type AgentResult = {
   text: string;
@@ -682,12 +687,17 @@ async function runAgentRuntime(
       conversationId: options?.conversationId,
       modelName: config.model,
     });
-    const wantsHumanHandoff = intent.intent === 'request_human';
+    const latestUserMessage = [...history].reverse().find((message) => message.role === 'user')?.content ?? currentTask;
+    const wantsHumanHandoff = intent.intent === 'request_human' || isExplicitHumanRequest(latestUserMessage);
+    const urgentHandoff = isUrgentHandoffSituation(latestUserMessage);
+    const repeatedFailureHandoff = shouldTriggerRepeatedFailureHandoff(history);
     logAgentFlow(variant, 'intent', {
       intent: intent.intent,
       entities: intent.entities,
       currentTask,
       wantsHumanHandoff,
+      urgentHandoff,
+      repeatedFailureHandoff,
     });
 
     const reminderClarification = getReminderClarification(currentTask, history, intent, options);
@@ -706,9 +716,9 @@ async function runAgentRuntime(
     }
 
     // Early exit for human handoff
-    if (wantsHumanHandoff) {
+    if (wantsHumanHandoff || urgentHandoff || repeatedFailureHandoff) {
       logAgentFlow(variant, 'handoff', {
-        reason: 'intent_requested_human',
+        reason: wantsHumanHandoff ? 'intent_requested_human' : urgentHandoff ? 'urgent_case' : 'repeated_failed_turns',
       });
       return {
         text: "I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.\n\nIf your need is urgent, please call your care team or 911 in an emergency.",
@@ -1060,7 +1070,7 @@ async function runAgentRuntime(
     }
 
     systemContent += `How you should think: ${config.thinkingInstructions}\n\n`;
-    systemContent += `Escalation: If you cannot help or user wants a human, end your reply with "${HANDOFF_MARKER}"\n`;
+    systemContent += `Escalation: End your reply with "${HANDOFF_MARKER}" only when the user clearly asks for a human, the situation is urgent and needs human review, or the same issue has remained unresolved after 3 to 5 consecutive turns.\n`;
 
     // ========================================================================
     // STEP 5: PREPARE MESSAGES (Optimized conversation history)
@@ -1922,7 +1932,9 @@ Provide a clear, user-friendly response based on these results.`,
     const requestHandoff =
       markerPresent ||
       wantsHumanHandoff ||
-      /speak with (a )?(care )?(coordinator|team|human|agent)/i.test(text);
+      urgentHandoff ||
+      repeatedFailureHandoff ||
+      isExplicitHumanRequest(text);
     logAgentFlow(variant, 'validation', {
       executionLogCount: executionLogsFinal.length,
       verifiedBookingCount: verifiedBookings.length,
