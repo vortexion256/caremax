@@ -226,6 +226,31 @@ export async function getConversationDurationSeconds(conversationId: string): Pr
   return Math.max(0, Math.round(totalDurationMs / 1000));
 }
 
+export async function syncXPersonProfileConversationDuration(params: {
+  tenantId: string;
+  conversationId?: string;
+  userId?: string;
+  externalUserId?: string;
+  channel?: 'widget' | 'whatsapp' | 'unknown';
+}): Promise<number | undefined> {
+  const conversationId = clean(params.conversationId);
+  if (!conversationId) return undefined;
+
+  const conversationDurationLastConversationSeconds = await getConversationDurationSeconds(conversationId);
+  if (typeof conversationDurationLastConversationSeconds !== 'number') return undefined;
+
+  await upsertXPersonProfile({
+    tenantId: params.tenantId,
+    userId: params.userId,
+    externalUserId: params.externalUserId,
+    channel: params.channel,
+    conversationId,
+    details: { conversationDurationLastConversationSeconds },
+  });
+
+  return conversationDurationLastConversationSeconds;
+}
+
 export async function upsertXPersonProfile(params: {
   tenantId: string;
   userId?: string;
