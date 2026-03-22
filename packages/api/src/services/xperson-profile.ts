@@ -1,5 +1,6 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
+import { sendWhatsAppOutboundMessage } from './whatsapp-outbound.js';
 
 export type XPersonProfileData = {
   tenantId: string;
@@ -20,6 +21,10 @@ export type XPersonProfileData = {
 export type XPersonCustomField = {
   field: string;
   description?: string;
+};
+
+export type ActiveWhatsAppProfile = XPersonProfileData & {
+  whatsappContact: string;
 };
 
 function clean(value: unknown): string | undefined {
@@ -423,4 +428,152 @@ export async function listXPersonProfiles(tenantId: string, limit = 200): Promis
       createdAt: data.createdAt?.toMillis?.() ?? null,
     } satisfies XPersonProfileData;
   });
+}
+
+export async function listRecentlyActiveWhatsAppProfiles(params: {
+  tenantId: string;
+  activeWithinHours?: number;
+  limit?: number;
+}): Promise<ActiveWhatsAppProfile[]> {
+  const activeWithinHours = Number.isFinite(params.activeWithinHours) ? Math.max(1, Math.min(168, Math.trunc(params.activeWithinHours ?? 22))) : 22;
+  const limit = Number.isFinite(params.limit) ? Math.max(1, Math.min(1000, Math.trunc(params.limit ?? 500))) : 500;
+  const cutoffMs = Date.now() - activeWithinHours * 60 * 60 * 1000;
+
+  const mapProfile = (data: FirebaseFirestore.DocumentData): XPersonProfileData => ({
+    tenantId: data.tenantId,
+    profileId: data.profileId,
+    userId: data.userId ?? undefined,
+    externalUserId: data.externalUserId ?? undefined,
+    channel: data.channel ?? 'unknown',
+    name: data.name ?? undefined,
+    phone: data.phone ?? undefined,
+    location: data.location ?? undefined,
+    conversationDurationLastConversationSeconds:
+      typeof data.conversationDurationLastConversationSeconds === 'number' ? data.conversationDurationLastConversationSeconds : undefined,
+    attributes: data.attributes ?? {},
+    lastConversationId: data.lastConversationId ?? undefined,
+    updatedAt: data.updatedAt?.toMillis?.() ?? null,
+    createdAt: data.createdAt?.toMillis?.() ?? null,
+  });
+
+  const attachWhatsappContact = (profile: XPersonProfileData): ActiveWhatsAppProfile | null => {
+    const externalUserId = clean(profile.externalUserId);
+    const phone = normalizePhone(profile.phone);
+    const whatsappContact = externalUserId?.toLowerCase().startsWith('whatsapp:')
+      ? externalUserId
+      : (phone ? `whatsapp:${phone}` : undefined);
+    if (!whatsappContact) return null;
+    return { ...profile, phone, whatsappContact };
+  };
+
+  const dedupeProfiles = (profiles: XPersonProfileData[]): ActiveWhatsAppProfile[] => {
+    const seenContacts = new Set<string>();
+    return profiles
+      .filter((profile) => (profile.updatedAt ?? 0) >= cutoffMs)
+      .filter((profile) => profile.channel === 'whatsapp')
+      .map(attachWhatsappContact)
+      .filter((profile): profile is ActiveWhatsAppProfile => Boolean(profile))
+      .filter((profile) => {
+        const key = profile.whatsappContact.toLowerCase();
+        if (seenContacts.has(key)) return false;
+        seenContacts.add(key);
+        return true;
+      })
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      .slice(0, limit);
+  };
+
+  try {
+    const snap = await db
+      .collection('xperson_profiles')
+      .where('tenantId', '==', params.tenantId)
+      .where('channel', '==', 'whatsapp')
+      .where('updatedAt', '>=', new Date(cutoffMs))
+      .orderBy('updatedAt', 'desc')
+      .limit(limit)
+      .get();
+
+    return dedupeProfiles(snap.docs.map((doc) => mapProfile(doc.data())));
+  } catch (error) {
+    console.warn('Falling back to broad profile scan for recently active WhatsApp contacts:', error);
+    const fallbackSnap = await db
+      .collection('xperson_profiles')
+      .where('tenantId', '==', params.tenantId)
+      .orderBy('updatedAt', 'desc')
+      .limit(Math.max(limit * 3, limit))
+      .get();
+    return dedupeProfiles(fallbackSnap.docs.map((doc) => mapProfile(doc.data())));
+  }
+}
+
+export async function sendWhatsAppNotificationToProfiles(params: {
+  tenantId: string;
+  message: string;
+  profileIds?: string[];
+  selectAllActive?: boolean;
+  activeWithinHours?: number;
+  requestedBy?: string;
+}): Promise<{
+  matchedProfiles: number;
+  sentCount: number;
+  failedCount: number;
+  results: Array<{ profileId: string; status: 'sent' | 'failed'; recipient: string; error?: string }>;
+}> {
+  const message = clean(params.message);
+  if (!message || message.length < 3) {
+    throw new Error('Notification message must be at least 3 characters long.');
+  }
+
+  const activeProfiles = await listRecentlyActiveWhatsAppProfiles({
+    tenantId: params.tenantId,
+    activeWithinHours: params.activeWithinHours ?? 22,
+    limit: 1000,
+  });
+
+  const requestedProfileIds = new Set((params.profileIds ?? []).map((value) => clean(value)).filter((value): value is string => Boolean(value)));
+  const targetProfiles = params.selectAllActive
+    ? activeProfiles
+    : activeProfiles.filter((profile) => requestedProfileIds.has(profile.profileId));
+
+  if (targetProfiles.length === 0) {
+    throw new Error('No active WhatsApp contacts matched the selected recipients.');
+  }
+
+  const results: Array<{ profileId: string; status: 'sent' | 'failed'; recipient: string; error?: string }> = [];
+  for (const profile of targetProfiles) {
+    try {
+      await sendWhatsAppOutboundMessage({
+        tenantId: params.tenantId,
+        to: profile.whatsappContact,
+        body: message,
+      });
+      results.push({ profileId: profile.profileId, status: 'sent', recipient: profile.whatsappContact });
+    } catch (error) {
+      results.push({
+        profileId: profile.profileId,
+        status: 'failed',
+        recipient: profile.whatsappContact,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  await db.collection('tenant_special_notifications').add({
+    tenantId: params.tenantId,
+    message,
+    profileIds: targetProfiles.map((profile) => profile.profileId),
+    requestedBy: params.requestedBy ?? null,
+    activeWithinHours: params.activeWithinHours ?? 22,
+    sentCount: results.filter((result) => result.status === 'sent').length,
+    failedCount: results.filter((result) => result.status === 'failed').length,
+    createdAt: FieldValue.serverTimestamp(),
+    results,
+  });
+
+  return {
+    matchedProfiles: targetProfiles.length,
+    sentCount: results.filter((result) => result.status === 'sent').length,
+    failedCount: results.filter((result) => result.status === 'failed').length,
+    results,
+  };
 }

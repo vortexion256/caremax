@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireAdmin, requireTenantParam } from '../middleware/auth.js';
-import { deleteXPersonProfileById, getXPersonProfile, listXPersonProfiles, updateXPersonProfileById, upsertXPersonProfile } from '../services/xperson-profile.js';
+import { deleteXPersonProfileById, getXPersonProfile, listRecentlyActiveWhatsAppProfiles, listXPersonProfiles, sendWhatsAppNotificationToProfiles, updateXPersonProfileById, upsertXPersonProfile } from '../services/xperson-profile.js';
 
 export const xPersonProfileRouter: Router = Router({ mergeParams: true });
 
@@ -20,6 +20,18 @@ xPersonProfileRouter.get('/lookup', async (req, res) => {
   const externalUserId = typeof req.query.externalUserId === 'string' ? req.query.externalUserId : undefined;
   const profile = await getXPersonProfile({ tenantId, userId, externalUserId });
   res.json({ profile });
+});
+
+xPersonProfileRouter.get('/whatsapp-active', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const activeWithinHours = Number(req.query.activeWithinHours);
+  const limit = Number(req.query.limit);
+  const profiles = await listRecentlyActiveWhatsAppProfiles({
+    tenantId,
+    activeWithinHours: Number.isFinite(activeWithinHours) ? activeWithinHours : 22,
+    limit: Number.isFinite(limit) ? limit : 500,
+  });
+  res.json({ profiles, activeWithinHours: Number.isFinite(activeWithinHours) ? activeWithinHours : 22 });
 });
 
 const upsertSchema = z.object({
@@ -45,6 +57,43 @@ xPersonProfileRouter.post('/upsert', async (req, res) => {
 
   const result = await upsertXPersonProfile({ tenantId, ...parsed.data });
   res.json({ ok: true, ...result });
+});
+
+const whatsappNotificationSchema = z.object({
+  message: z.string().trim().min(3).max(1000),
+  selectAllActive: z.boolean().optional(),
+  activeWithinHours: z.number().int().min(1).max(168).optional(),
+  profileIds: z.array(z.string().min(1)).max(1000).optional(),
+});
+
+xPersonProfileRouter.post('/whatsapp-notifications', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const uid = res.locals.uid as string | undefined;
+  const parsed = whatsappNotificationSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+
+  if (!parsed.data.selectAllActive && (!parsed.data.profileIds || parsed.data.profileIds.length === 0)) {
+    res.status(400).json({ error: 'Select at least one active WhatsApp contact or choose Send to all active contacts.' });
+    return;
+  }
+
+  try {
+    const result = await sendWhatsAppNotificationToProfiles({
+      tenantId,
+      message: parsed.data.message,
+      profileIds: parsed.data.profileIds,
+      selectAllActive: parsed.data.selectAllActive === true,
+      activeWithinHours: parsed.data.activeWithinHours ?? 22,
+      requestedBy: uid,
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to send WhatsApp notifications.';
+    res.status(400).json({ error: message });
+  }
 });
 
 

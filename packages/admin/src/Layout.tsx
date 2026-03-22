@@ -96,6 +96,7 @@ export default function Layout() {
         { path: '/integrations', label: 'Integrations' },
         { path: '/whatsapp', label: 'WhatsApp Agent' },
         { path: '/patient-profile', label: 'Patient Profile' },
+        { path: '/special-messages', label: 'Special Messages' },
         { path: '/embed', label: 'Embed Widget' },
         ...(isPlatformAdmin ? [{ path: '/advanced-prompts', label: 'Advanced Prompts' }] : []),
       ],
