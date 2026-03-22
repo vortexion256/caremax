@@ -57,6 +57,10 @@ const secondaryButtonStyle: CSSProperties = {
 };
 
 function Modal({ title, subtitle, onClose, children, isMobile }: { title: string; subtitle?: string; onClose: () => void; children: ReactNode; isMobile: boolean }) {
+  const mobileBottomClearance = 'calc(env(safe-area-inset-bottom, 0px) + 72px)';
+  const mobileVerticalPadding = isMobile ? `12px 12px ${mobileBottomClearance}` : '24px';
+  const mobileMaxHeight = `calc(100dvh - ${mobileBottomClearance} - 12px)`;
+
   return (
     <div
       role="dialog"
@@ -68,7 +72,7 @@ function Modal({ title, subtitle, onClose, children, isMobile }: { title: string
         background: 'rgba(15, 23, 42, 0.48)',
         display: 'grid',
         placeItems: isMobile ? 'start center' : 'center',
-        padding: isMobile ? 12 : 24,
+        padding: mobileVerticalPadding,
         zIndex: 1000,
         overflowY: 'auto',
       }}
@@ -78,9 +82,9 @@ function Modal({ title, subtitle, onClose, children, isMobile }: { title: string
         style={{
           width: '100%',
           maxWidth: 980,
-          maxHeight: isMobile ? 'calc(100vh - 24px)' : '90vh',
+          maxHeight: isMobile ? mobileMaxHeight : '90vh',
           marginTop: isMobile ? 8 : 0,
-          marginBottom: isMobile ? 8 : 0,
+          marginBottom: isMobile ? 'calc(env(safe-area-inset-bottom, 0px) + 24px)' : 0,
           overflow: 'auto',
           borderRadius: 20,
           background: '#fff',
