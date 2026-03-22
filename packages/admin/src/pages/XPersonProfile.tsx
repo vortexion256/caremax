@@ -56,7 +56,21 @@ const secondaryButtonStyle: CSSProperties = {
   padding: '9px 14px',
 };
 
-function Modal({ title, subtitle, onClose, children, isMobile }: { title: string; subtitle?: string; onClose: () => void; children: ReactNode; isMobile: boolean }) {
+function Modal({
+  title,
+  subtitle,
+  onClose,
+  children,
+  isMobile,
+  maxHeight,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: ReactNode;
+  isMobile: boolean;
+  maxHeight?: string;
+}) {
   const mobileTopClearance = 'calc(env(safe-area-inset-top, 0px) + 80px)';
   const mobileBottomClearance = 'calc(env(safe-area-inset-bottom, 0px) + 72px)';
   const mobileVerticalPadding = isMobile ? `${mobileTopClearance} 12px ${mobileBottomClearance}` : '24px';
@@ -83,7 +97,7 @@ function Modal({ title, subtitle, onClose, children, isMobile }: { title: string
         style={{
           width: '100%',
           maxWidth: 980,
-          maxHeight: isMobile ? mobileMaxHeight : '90vh',
+          maxHeight: isMobile ? mobileMaxHeight : (maxHeight ?? '90vh'),
           marginTop: 0,
           marginBottom: isMobile ? 'calc(env(safe-area-inset-bottom, 0px) + 24px)' : 0,
           overflow: 'auto',
@@ -613,6 +627,7 @@ export default function PatientProfilePage() {
           subtitle="Review patient details, edit core fields, and manage custom profile attributes in one focused dialog."
           onClose={() => { setExpandedProfileId(null); setEditingProfileId(null); }}
           isMobile={isMobile}
+          maxHeight="80vh"
         >
           {renderProfileDetails(selectedProfile)}
         </Modal>
