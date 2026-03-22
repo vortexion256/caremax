@@ -28,6 +28,7 @@ import { isGoogleConnected } from './google-sheets.js';
 import { getAgentConfig, type GoogleSheetEntry } from './agent.js';
 import { AgentOrchestrator, ToolCall } from './agent-orchestrator.js';
 import { buildAgentContext, formatContextForPrompt, trimConversationHistory } from './agent-memory.js';
+import { processEncounterEvidence } from './encounter-state.js';
 import { extractIntent, ExtractedIntent } from './agent-intent.js';
 import { decomposeQuestion, DecomposedQuestion } from './agent-decomposer.js';
 import { extractTokenUsage, recordUsage, type UsageMetadata } from './token-usage.js';
@@ -631,6 +632,21 @@ async function runAgentRuntime(
       apiKey,
     });
 
+    if (options?.conversationId) {
+      try {
+        await processEncounterEvidence({
+          tenantId,
+          conversationId: options.conversationId,
+          userId: options.userId,
+          externalUserId: options.externalUserId,
+          history,
+          model,
+        });
+      } catch (encounterError) {
+        console.warn('[Agent V2] Failed to process encounter evidence:', encounterError);
+      }
+    }
+
     // ========================================================================
     // STEP 1: DECOMPOSITION (Decomposer layer)
     // ========================================================================
@@ -990,7 +1006,8 @@ async function runAgentRuntime(
 2. TOOL EXECUTION IS MANDATORY: You are NOT allowed to confirm a booking, update, or deletion in your response unless you have JUST received a successful tool result (success=true) in the current turn.
 3. NO HALLUCINATIONS: If you do not call a tool, or if the tool fails, you MUST NOT tell the user the action was successful. Instead, explain the error or ask for missing information.
 4. VERIFICATION: Only confirm bookings if the tool returned success=true AND verification passed.
-5. Trust the database and conversation notes, not your internal memory. Always verify state from tool results and the provided notes context.\n\n`;
+5. Trust the database and conversation notes, not your internal memory. Always verify state from tool results and the provided notes context.
+6. If "Encounter facts captured from prior user evidence" includes medication or image-derived facts, treat them as authoritative context for this conversation. Do not say you cannot see the prior image when those facts are present; instead, use them in your answer and mention the medication or evidence explicitly when relevant.\n\n`;
 
     if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
       systemContent += `Reminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user says things like "remind me", "set a reminder", or "remember to remind me", help them create the reminder step-by-step.\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- If the user has not clearly provided BOTH the reminder message and the reminder time, do NOT call set_reminder yet; ask only for the single missing detail.\n- If the user gives relative reminder times such as today, tomorrow, tonight, next week, this afternoon, or in 2 hours, call get_current_datetime first, resolve the exact reminder time using the tenant Agent Settings timezone, and only then call set_reminder.\n- Never invent the current date, time, or timezone. The tenant Agent Settings timezone is authoritative.\n- Store reminder text as a clear sentence, for example "Reminder: Please take your medication".\n- When confirming a saved reminder, make the content explicit, for example "Reminder: You told me to remind you to take your medication at [time/date]".\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.\n\n`;
@@ -1879,6 +1896,20 @@ Provide a clear, user-friendly response based on these results.`,
         });
         text = reminderFailureClarification.question;
       }
+    }
+    const hasEncounterMedicationFacts = agentContext.structuredState.encounterFacts.some(
+      (fact) => fact.factType === 'medication'
+    );
+    const mentionsImageBlindness = /\b(can('| )?not|can't|unable to)\b.*\b(see|view|process)\b.*\b(image|photo|picture)\b/i.test(text);
+    if (hasEncounterMedicationFacts && mentionsImageBlindness) {
+      const medicationSummary = agentContext.structuredState.encounterFacts
+        .filter((fact) => fact.factType === 'medication')
+        .slice(0, 2)
+        .map((fact) => `${fact.title}: ${fact.value}`)
+        .join('; ');
+      text = medicationSummary
+        ? `I can take into account the medication image you shared earlier. I have these encounter facts noted for this conversation: ${medicationSummary}. Tell me what specific advice or explanation you want about it, and I'll stay grounded in that context.`
+        : `I can take into account the image you shared earlier in this conversation. Tell me what specific advice or explanation you want, and I'll answer using that context.`;
     }
     // ========================================================================
     // STEP 10: HANDOFF DETECTION

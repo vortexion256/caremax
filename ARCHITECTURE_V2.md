@@ -224,6 +224,43 @@ Test the new architecture by:
 2. **Reflection Layer**: Add self-critique after tool execution
 3. **Multi-Model**: Use different models for intent extraction vs response formatting
 4. **Advanced Memory**: Semantic search for long-term memory retrieval
+5. **Perception / Encounter State Layer**: Add a deterministic layer that converts incoming multimodal evidence (for example images, documents, audio, and extracted medication names) into structured encounter facts that persist for the active conversation and, when appropriate, user-scoped memory. This helps the agent remember that "the user already showed Clarinase" without relying on raw chat history alone.
+
+### Recommendation for multimodal continuity
+
+For the kind of issue where a user first shares an image of a medication and later expects advice to stay grounded in that image, the best next step is usually **to strengthen the orchestrator path rather than add a separate always-on "seer agent" first**.
+
+Why:
+
+1. The current architecture already separates reasoning from state and explicitly says the LLM should not be trusted as the memory engine.
+2. `agent-memory.ts` already supports recent messages plus structured state, but today that structured state is mostly notes, plans, and summaries.
+3. A new deterministic **perception-to-facts** stage can turn image understanding into reusable state such as:
+   - `medication_detected: Clarinase`
+   - `evidence_source: user_uploaded_image`
+   - `confidence: high`
+   - `captured_at_turn: 1`
+   - `safety_flags: decongestant, antihistamine`
+4. The orchestrator can then inject those facts into subsequent medication, symptom, and triage decisions so later responses stay aligned with what the user already shared.
+
+Recommended implementation order:
+
+1. **Perception extraction**
+   - When a message contains `imageUrls`, run image understanding once and extract structured facts.
+2. **Structured encounter state**
+   - Save those facts as conversation-scoped encounter memory, and optionally promote safe user-specific facts to user-scoped memory when identity is reliable.
+3. **Context builder updates**
+   - Include the active encounter facts in `buildAgentContext()` before the model answers.
+4. **Orchestrator policy checks**
+   - Require medication-related answers to cross-check against stored encounter facts before responding.
+5. **Supervisor/planner awareness**
+   - Let the supervisor see those facts for planning, but keep the source of truth in deterministic state rather than a second independent agent.
+
+When a separate "seer" agent makes sense:
+
+- If you want a specialized multimodal worker that only interprets images/documents/audio and outputs structured facts.
+- If you need richer perception pipelines such as OCR, package recognition, dosage extraction, and uncertainty scoring.
+
+Even then, that "seer" should act as a **subsystem that writes facts into orchestrator-controlled state**, not as a parallel source of conversational truth.
 
 ## Files Created
 

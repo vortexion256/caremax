@@ -14,6 +14,7 @@ import { BaseMessage } from '@langchain/core/messages';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../config/firebase.js';
 import { listNotes } from './agent-notes.js';
+import { listEncounterFacts } from './encounter-state.js';
 import { ExecutionLog } from './agent-orchestrator.js';
 import { ExecutionPlan } from './agent-planner.js';
 
@@ -106,6 +107,14 @@ export interface StructuredState {
     content: string;
     patientName?: string;
   }>;
+  encounterFacts: Array<{
+    factType: string;
+    title: string;
+    value: string;
+    evidenceSource: string;
+    confidence: string;
+    safetyFlags: string[];
+  }>;
   activePlan?: ExecutionPlan;
   lastUpdated: Date;
 }
@@ -122,6 +131,7 @@ export async function loadStructuredState(
   const state: StructuredState = {
     appointments: [],
     notes: [],
+    encounterFacts: [],
     lastUpdated: new Date(),
   };
 
@@ -139,6 +149,21 @@ export async function loadStructuredState(
         content: n.content,
         patientName: n.patientName ?? undefined,
       }));
+      if (conversationId) {
+        const encounterFacts = await listEncounterFacts(tenantId, {
+          conversationId,
+          ...(userId ? { userId } : {}),
+          limit: 20,
+        });
+        state.encounterFacts = encounterFacts.map((fact) => ({
+          factType: fact.factType,
+          title: fact.title,
+          value: fact.value,
+          evidenceSource: fact.evidenceSource,
+          confidence: fact.confidence,
+          safetyFlags: fact.safetyFlags,
+        }));
+      }
 
       // Load active plan for this conversation only.
       if (conversationId) {
@@ -394,6 +419,14 @@ export function formatContextForPrompt(context: AgentContext): string {
     parts.push(
       `Existing notes in this conversation:\n${context.structuredState.notes
         .map((n, i) => `${i + 1}. [${n.category}] ${n.content}${n.patientName ? ` (User: ${n.patientName})` : ''}`)
+        .join('\n')}\n`
+    );
+  }
+
+  if (context.structuredState.encounterFacts.length > 0) {
+    parts.push(
+      `Encounter facts captured from prior user evidence:\n${context.structuredState.encounterFacts
+        .map((fact, index) => `${index + 1}. [${fact.factType}] ${fact.title}: ${fact.value} (source: ${fact.evidenceSource}; confidence: ${fact.confidence}${fact.safetyFlags.length > 0 ? `; safety: ${fact.safetyFlags.join(', ')}` : ''})`)
         .join('\n')}\n`
     );
   }
