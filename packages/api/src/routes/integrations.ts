@@ -397,7 +397,7 @@ async function sendMetaWhatsAppTextMessage(params: {
   accessToken: string;
   to: string;
   body: string;
-}): Promise<void> {
+}): Promise<string | undefined> {
   const res = await fetch(`https://graph.facebook.com/v22.0/${encodeURIComponent(params.phoneNumberId)}/messages`, {
     method: 'POST',
     headers: {
@@ -418,6 +418,14 @@ async function sendMetaWhatsAppTextMessage(params: {
   if (!res.ok) {
     throw new Error(`Meta WhatsApp outbound send failed (${res.status}): ${await res.text()}`);
   }
+
+  try {
+    const payload = await res.json() as { messages?: Array<{ id?: unknown }> };
+    const providerMessageId = payload.messages?.[0]?.id;
+    return typeof providerMessageId === 'string' ? providerMessageId : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function sendMetaWhatsAppAudioMessage(params: {
@@ -425,7 +433,7 @@ async function sendMetaWhatsAppAudioMessage(params: {
   accessToken: string;
   to: string;
   mediaUrl: string;
-}): Promise<void> {
+}): Promise<string | undefined> {
   const res = await fetch(`https://graph.facebook.com/v22.0/${encodeURIComponent(params.phoneNumberId)}/messages`, {
     method: 'POST',
     headers: {
@@ -446,6 +454,81 @@ async function sendMetaWhatsAppAudioMessage(params: {
   if (!res.ok) {
     throw new Error(`Meta WhatsApp outbound audio send failed (${res.status}): ${await res.text()}`);
   }
+
+  try {
+    const payload = await res.json() as { messages?: Array<{ id?: unknown }> };
+    const providerMessageId = payload.messages?.[0]?.id;
+    return typeof providerMessageId === 'string' ? providerMessageId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+type StoredReplyContext = {
+  quotedMessageId?: string;
+  quotedContent?: string;
+  quotedRole?: string;
+};
+
+function sanitizeQuotedContent(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) return undefined;
+  return normalized.slice(0, 280);
+}
+
+async function resolveConversationReplyContext(params: {
+  conversationId: string;
+  providerMessageId?: string | null;
+}): Promise<StoredReplyContext | undefined> {
+  const providerMessageId = params.providerMessageId?.trim();
+  if (!providerMessageId) return undefined;
+
+  const snap = await db.collection('messages')
+    .where('conversationId', '==', params.conversationId)
+    .where('providerMessageId', '==', providerMessageId)
+    .limit(1)
+    .get();
+
+  if (snap.empty) return undefined;
+
+  const data = snap.docs[0].data() as { content?: unknown; role?: unknown };
+  const quotedContent = sanitizeQuotedContent(data.content);
+  if (!quotedContent) return undefined;
+
+  return {
+    quotedMessageId: providerMessageId,
+    quotedContent,
+    quotedRole: typeof data.role === 'string' ? data.role : undefined,
+  };
+}
+
+function buildReplyAwareHistoryMessage(data: {
+  role?: unknown;
+  content?: unknown;
+  imageUrls?: unknown;
+  metadata?: unknown;
+}): { role: 'user' | 'assistant'; content: string; imageUrls: string[] } {
+  const role = data.role === 'assistant' ? 'assistant' : 'user';
+  const content = typeof data.content === 'string' ? data.content : '';
+  const imageUrls = Array.isArray(data.imageUrls)
+    ? data.imageUrls.filter((value): value is string => typeof value === 'string')
+    : [];
+  const metadata = data.metadata && typeof data.metadata === 'object'
+    ? data.metadata as { replyContext?: StoredReplyContext }
+    : undefined;
+  const quotedContent = sanitizeQuotedContent(metadata?.replyContext?.quotedContent);
+  const quotedRole = metadata?.replyContext?.quotedRole === 'assistant' ? 'assistant' : 'user';
+
+  if (role === 'user' && quotedContent) {
+    return {
+      role,
+      content: `Replying to previous ${quotedRole} message: "${quotedContent}"\nUser message: ${content}`,
+      imageUrls,
+    };
+  }
+
+  return { role, content, imageUrls };
 }
 
 async function getMetaWhatsAppMediaDownloadInfo(params: {
@@ -1649,6 +1732,10 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         updatedAt: FieldValue.serverTimestamp(),
       })
       : existingConversationSnap.docs[0].ref;
+    const replyContext = await resolveConversationReplyContext({
+      conversationId: conversationRef.id,
+      providerMessageId: repliedToMessageId,
+    });
 
     const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
     const agentConfigData = agentConfigDoc.data() as Record<string, unknown> | undefined;
@@ -1678,10 +1765,19 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       role: 'user',
       content: body,
       imageUrls,
+      ...(providerMessageId ? { providerMessageId } : {}),
       ...(cameFromVoiceNote && storedVoiceNoteAudioUrl ? { audioUrl: storedVoiceNoteAudioUrl } : {}),
       channel: 'whatsapp',
       inputType: cameFromVoiceNote ? 'voice' : 'text',
-      ...(Object.keys(inboundMessageMetadata).length > 0 ? { metadata: inboundMessageMetadata } : {}),
+      ...(Object.keys({
+        ...inboundMessageMetadata,
+        ...(replyContext ? { replyContext } : {}),
+      }).length > 0 ? {
+        metadata: {
+          ...inboundMessageMetadata,
+          ...(replyContext ? { replyContext } : {}),
+        },
+      } : {}),
       createdAt: FieldValue.serverTimestamp(),
     });
 
@@ -1944,11 +2040,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
     const history = historySnap.docs.reverse().flatMap((doc) => {
       const data = doc.data();
       if (shouldFilterLanguageFlowMessage(data.metadata)) return [];
-      return {
-        role: data.role,
-        content: data.content,
-        imageUrls: data.imageUrls ?? [],
-      };
+      return buildReplyAwareHistoryMessage(data);
     });
 
     const pendingReplyText = WHATSAPP_PENDING_REPLY_TEXT;
@@ -2027,6 +2119,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
 
     let hasVoiceReply = false;
     let voiceUrl: string | null = null;
+    let assistantProviderMessageId: string | undefined;
     if (shouldTryVoiceReply) {
       try {
         voiceUrl = await generateVoiceMediaUrl({
@@ -2091,11 +2184,19 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
       throw new Error(`Twilio outbound send failed (${twilioRes.status}): ${errorText}`);
     }
 
+    try {
+      const twilioPayload = await twilioRes.json() as { sid?: unknown };
+      assistantProviderMessageId = typeof twilioPayload.sid === 'string' ? twilioPayload.sid : undefined;
+    } catch {
+      assistantProviderMessageId = undefined;
+    }
+
     await db.collection('messages').add({
       conversationId,
       tenantId,
       role: 'assistant',
       content: responseText,
+      ...(assistantProviderMessageId ? { providerMessageId: assistantProviderMessageId } : {}),
       ...(voiceUrl ? { audioUrl: voiceUrl, inputType: 'voice', metadata: { source: 'voice_note' } } : {}),
       channel: 'whatsapp',
       createdAt: FieldValue.serverTimestamp(),
@@ -2398,6 +2499,10 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
               updatedAt: FieldValue.serverTimestamp(),
             })
             : existingConversationSnap.docs[0].ref;
+          const replyContext = await resolveConversationReplyContext({
+            conversationId: conversationRef.id,
+            providerMessageId: repliedToMessageId,
+          });
 
           const conversationDataBeforeMessage = (await conversationRef.get()).data() as Record<string, unknown> | undefined;
           const languageStateBeforeMessage = resolveConversationLanguageState(conversationDataBeforeMessage);
@@ -2427,7 +2532,15 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             ...(cameFromVoiceNote && voiceNoteAudioUrl ? { audioUrl: voiceNoteAudioUrl, inputType: 'voice' } : {}),
             channel: 'whatsapp_meta',
             providerMessageId: messageId,
-            ...(Object.keys(inboundMessageMetadata).length > 0 ? { metadata: inboundMessageMetadata } : {}),
+            ...(Object.keys({
+              ...inboundMessageMetadata,
+              ...(replyContext ? { replyContext } : {}),
+            }).length > 0 ? {
+              metadata: {
+                ...inboundMessageMetadata,
+                ...(replyContext ? { replyContext } : {}),
+              },
+            } : {}),
             createdAt: FieldValue.serverTimestamp(),
           });
 
@@ -2501,11 +2614,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
           const history = historySnap.docs.reverse().flatMap((doc) => {
             const data = doc.data() as { role?: 'user' | 'assistant' | string; content?: string; imageUrls?: string[] };
             if (shouldFilterLanguageFlowMessage((data as { metadata?: unknown }).metadata)) return [];
-            return {
-              role: data.role === 'assistant' ? 'assistant' : 'user',
-              content: data.content ?? '',
-              imageUrls: data.imageUrls ?? [],
-            };
+            return buildReplyAwareHistoryMessage(data);
           });
 
           let responseText = '';
@@ -2546,6 +2655,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
           const shouldCleanVoiceText = voiceThreshold <= 0 || exceedsVoiceThreshold;
           let voiceReplySent = false;
           let voiceUrl: string | null = null;
+          let assistantProviderMessageId: string | undefined;
 
           if (shouldTryVoiceReply) {
             try {
@@ -2562,7 +2672,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
                 elevenLabsVoiceId,
               });
               if (voiceUrl) {
-                await sendMetaWhatsAppAudioMessage({
+                assistantProviderMessageId = await sendMetaWhatsAppAudioMessage({
                   phoneNumberId,
                   accessToken,
                   to: identity.externalUserId,
@@ -2577,7 +2687,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
           }
 
           if (!voiceReplySent) {
-            await sendMetaWhatsAppTextMessage({
+            assistantProviderMessageId = await sendMetaWhatsAppTextMessage({
               phoneNumberId,
               accessToken,
               to: identity.externalUserId,
@@ -2590,6 +2700,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             tenantId,
             role: 'assistant',
             content: responseText,
+            ...(assistantProviderMessageId ? { providerMessageId: assistantProviderMessageId } : {}),
             ...(voiceReplySent && voiceUrl ? { audioUrl: voiceUrl, inputType: 'voice', metadata: { source: 'voice_note' } } : {}),
             channel: 'whatsapp_meta',
             createdAt: FieldValue.serverTimestamp(),
