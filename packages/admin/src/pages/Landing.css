@@ -368,11 +368,7 @@ main {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background:
-    radial-gradient(circle at 16% 22%, rgba(125, 211, 252, 0.35), transparent 46%),
-    radial-gradient(circle at 84% 11%, rgba(196, 181, 253, 0.32), transparent 42%),
-    radial-gradient(circle at 62% 75%, rgba(191, 219, 254, 0.27), transparent 42%),
-    linear-gradient(145deg, #f8fbff 0%, #f1f5ff 58%, #f9f7ff 100%);
+  background: transparent;
 }
 
 .auth-page-shell {
