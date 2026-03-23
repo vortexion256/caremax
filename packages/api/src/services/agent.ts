@@ -489,14 +489,10 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   const userWantsHuman = isExplicitHumanRequest(lastUserContent);
   const urgentHandoff = isUrgentHandoffSituation(lastUserContent);
   const repeatedFailureHandoff = shouldTriggerRepeatedFailureHandoff(history);
-
-  if (userWantsHuman || urgentHandoff || repeatedFailureHandoff) {
-    const handoffMessage =
-      `I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.
-
-If your need is urgent, please call your care team or 911 in an emergency.`;
-    return { text: handoffMessage, requestHandoff: true };
-  }
+  const handoffAlreadyRequired = userWantsHuman || urgentHandoff || repeatedFailureHandoff;
+  const supportiveHandoffInstruction = handoffAlreadyRequired
+    ? `\n\nThis turn already requires escalation to a human. Do NOT ask another intake question. Give a short, natural reply that (a) acknowledges what the user said, (b) offers the best safe interim support, coping step, or next action they can use while waiting, and (c) ends with "${HANDOFF_MARKER}" on a new line. Do not reply with only a transfer notice unless absolutely no safe interim guidance can be given. Avoid robotic wording.`
+    : '';
 
 
 
@@ -586,7 +582,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
     );
   }
 
-  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}${conversationLanguageInstruction ? `\n\n${conversationLanguageInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}${xPersonProfileContext}${reminderSnapshotContext}`;
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}${conversationLanguageInstruction ? `\n\n${conversationLanguageInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}${supportiveHandoffInstruction}\n\nHow you should think: ${config.thinkingInstructions}${xPersonProfileContext}${reminderSnapshotContext}`;
   systemContent += `\n\nTime handling rules:\n- The tenant-configured timezone in Agent Settings is authoritative.\n- Never guess or invent the current date/time.\n- Before you mention the current time, compare a reminder to now, explain why a reminder has or has not triggered yet, or interpret words like today/tonight/this afternoon, call get_current_datetime first.\n- Use get_current_datetime output as the source of truth for reminder timing language.`;
   if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
     systemContent += `\n\nReminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user says things like "remind me", "set a reminder", or "remember to remind me", help them create the reminder step-by-step.\n- If the user has not clearly given BOTH the reminder content and the reminder date/time, ask only for the single missing detail next.\n- If the user uses relative time words such as today, tomorrow, tonight, next week, this afternoon, or in 2 hours, call get_current_datetime first and resolve them using the tenant Agent Settings timezone before calling set_reminder.\n- Never invent the current date or timezone; the tenant Agent Settings timezone is the source of truth.\n- Store reminder content as a clear sentence, for example "Reminder: Please take your medication".\n- When confirming a saved reminder, make the content explicit, for example "Reminder: You told me to remind you to take your medication at [time/date]".\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- When discussing whether a reminder should already have fired, call get_current_datetime first instead of inferring the current time.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.`;
