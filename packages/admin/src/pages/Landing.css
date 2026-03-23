@@ -30,12 +30,21 @@ main {
 }
 
 .landing-header {
-  position: sticky;
-  top: 0;
+  position: fixed;
+  top: 16px;
+  left: 0;
+  right: 0;
   z-index: 100;
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  margin: 0 auto;
+  width: min(1120px, calc(100% - 24px));
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08));
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 18px 40px -24px rgba(15, 23, 42, 0.7);
+  border-radius: 22px;
 }
 
 .landing-header-content,
@@ -46,8 +55,12 @@ main {
   gap: 20px;
 }
 
+.landing-header-content {
+  width: 100%;
+}
+
 .brand-wrap { display: flex; align-items: center; gap: 12px; }
-.brand-wrap h1 { margin: 0; font-size: 26px; letter-spacing: -0.03em; }
+.brand-wrap h1 { margin: 0; font-size: 26px; letter-spacing: -0.03em; color: #eff6ff; }
 
 .brand-icon {
   width: 38px;
@@ -69,15 +82,19 @@ main {
   cursor: pointer;
   transition: all .2s ease;
 }
-.nav-ghost-btn { padding: 10px 16px; background: transparent; color: #475569; }
-.nav-primary-btn { padding: 12px 20px; background: #0f172a; color: white; }
+.nav-ghost-btn { padding: 10px 16px; background: rgba(255, 255, 255, 0.08); color: #e2e8f0; }
+.nav-primary-btn { padding: 12px 20px; background: linear-gradient(135deg, rgba(14, 165, 233, 0.9), rgba(37, 99, 235, 0.92)); color: white; box-shadow: 0 12px 24px -16px rgba(56, 189, 248, 0.75); }
+.nav-ghost-btn:hover, .nav-primary-btn:hover, .cta-primary:hover, .cta-secondary:hover, .pricing-btn:hover {
+  transform: translateY(-1px);
+}
 
 
 .hero-section {
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  padding: 86px 0 56px;
+  margin-top: 0;
+  padding: 168px 0 72px;
   background:
     linear-gradient(135deg, rgba(15, 23, 42, 0.82), rgba(2, 132, 199, 0.58)),
     url('/assets/tech_bg.png') center/cover no-repeat;
@@ -335,5 +352,31 @@ main {
 
   .signup-layout-intro > div {
     margin-left: 0 !important;
+  }
+}
+
+
+@media (max-width: 767px) {
+  .landing-header {
+    top: 12px;
+    width: calc(100% - 20px);
+    border-radius: 18px;
+  }
+
+  .brand-wrap h1 {
+    font-size: 22px;
+  }
+
+  .landing-nav-links {
+    gap: 8px;
+  }
+
+  .nav-ghost-btn,
+  .nav-primary-btn {
+    padding: 10px 14px;
+  }
+
+  .hero-section {
+    padding-top: 148px;
   }
 }
