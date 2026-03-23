@@ -189,7 +189,17 @@ main {
 .hero-section.vanta-enabled .hero-content h2 span {
   color: #bae6fd;
 }
-.hero-content { position: relative; z-index: 1; text-align: center; }
+.hero-content {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: calc(100vh - 320px);
+  padding-top: clamp(12px, 2vh, 28px);
+}
 .hero-content h2 {
   margin: 0 0 20px;
   font-size: clamp(38px, 8vw, 70px);
@@ -207,7 +217,7 @@ main {
   -webkit-text-stroke: 1px rgba(186, 230, 253, 0.8);
 }
 .hero-content p {
-  max-width: 790px;
+  max-width: 860px;
   margin: 0 auto 36px;
   font-size: clamp(17px, 2.5vw, 22px);
   color: rgba(248, 250, 252, 0.98);
@@ -456,5 +466,10 @@ main {
   .hero-section {
     min-height: 100svh;
     padding-top: calc(148px + var(--landing-header-offset));
+  }
+
+  .hero-content {
+    min-height: calc(100svh - 280px);
+    padding-top: 0;
   }
 }
