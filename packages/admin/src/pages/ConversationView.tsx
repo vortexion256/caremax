@@ -236,11 +236,14 @@ export default function ConversationView() {
             const isUser = msg.role === 'user';
             const isVoiceNote = msg.inputType === 'voice' || msg.metadata?.source === 'voice_note';
             const isReminderMessage = msg.metadata?.source === 'reminder_dispatch';
+            const isSpecialMessage = msg.metadata?.source === 'special_whatsapp_notification';
             const speakerLabel = msg.metadata?.source === 'nok_relay'
               ? 'Next of Kin'
               : isReminderMessage
                 ? 'Reminder'
-                : msg.role === 'user'
+                : isSpecialMessage
+                  ? 'Special Messages'
+                  : msg.role === 'user'
                   ? 'User'
                   : msg.role === 'human_agent'
                     ? 'Human Agent'
@@ -269,6 +272,11 @@ export default function ConversationView() {
                       Reminder sent
                     </span>
                   )}
+                  {isSpecialMessage && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#7c2d12', background: '#ffedd5', borderRadius: 999, padding: '2px 8px' }}>
+                      Special message sent
+                    </span>
+                  )}
                   {msg.createdAt && (
                     <span style={{ fontSize: 10, color: '#cbd5e1' }}>
                       {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -281,12 +289,12 @@ export default function ConversationView() {
                     borderRadius: 16,
                     borderTopLeftRadius: isUser ? 4 : 16,
                     borderTopRightRadius: isUser ? 16 : 4,
-                    background: isUser ? '#fff' : msg.role === 'human_agent' ? '#2563eb' : isReminderMessage ? '#ecfeff' : '#e2e8f0',
-                    color: msg.role === 'human_agent' ? '#fff' : '#1e293b',
+                    background: isUser ? '#fff' : isSpecialMessage ? '#fff7ed' : msg.role === 'human_agent' ? '#2563eb' : isReminderMessage ? '#ecfeff' : '#e2e8f0',
+                    color: msg.role === 'human_agent' && !isSpecialMessage ? '#fff' : '#1e293b',
                     fontSize: 14,
                     lineHeight: 1.5,
                     boxShadow: isUser ? '0 1px 2px 0 rgb(0 0 0 / 0.05)' : 'none',
-                    border: isUser ? '1px solid #e2e8f0' : isReminderMessage ? '1px solid #99f6e4' : 'none'
+                    border: isUser ? '1px solid #e2e8f0' : isReminderMessage ? '1px solid #99f6e4' : isSpecialMessage ? '1px solid #fdba74' : 'none'
                   }}
                 >
                   {msg.audioUrl && (

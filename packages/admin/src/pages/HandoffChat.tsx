@@ -168,11 +168,14 @@ export default function HandoffChat() {
         {messages.map((m) => {
           const isVoiceNote = m.inputType === 'voice' || m.metadata?.source === 'voice_note';
           const isReminderMessage = m.metadata?.source === 'reminder_dispatch';
+          const isSpecialMessage = m.metadata?.source === 'special_whatsapp_notification';
           const speakerLabel = m.metadata?.source === 'nok_relay'
             ? 'Next of Kin'
             : isReminderMessage
               ? 'Reminder'
-              : m.role === 'user'
+              : isSpecialMessage
+                ? 'Special Messages'
+                : m.role === 'user'
                 ? 'User'
                 : m.role === 'human_agent'
                   ? 'You (Agent)'
@@ -204,6 +207,7 @@ export default function HandoffChat() {
               <span>{speakerLabel}</span>
               {isVoiceNote ? <span style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', background: '#f3e8ff', borderRadius: 999, padding: '2px 8px' }}>Voice note</span> : null}
               {isReminderMessage ? <span style={{ fontSize: 10, fontWeight: 700, color: '#0f766e', background: '#ccfbf1', borderRadius: 999, padding: '2px 8px' }}>Reminder sent</span> : null}
+              {isSpecialMessage ? <span style={{ fontSize: 10, fontWeight: 700, color: '#7c2d12', background: '#ffedd5', borderRadius: 999, padding: '2px 8px' }}>Special message sent</span> : null}
             </div>
             <div
               style={{
@@ -211,12 +215,12 @@ export default function HandoffChat() {
                 borderRadius: 16,
                 borderTopLeftRadius: m.role === 'user' ? 4 : 16,
                 borderTopRightRadius: m.role === 'user' ? 16 : 4,
-                backgroundColor: m.role === 'user' ? '#fff' : m.role === 'human_agent' ? '#2563eb' : isReminderMessage ? '#ecfeff' : '#e2e8f0',
-                color: m.role === 'human_agent' ? '#fff' : '#1e293b',
+                backgroundColor: m.role === 'user' ? '#fff' : isSpecialMessage ? '#fff7ed' : m.role === 'human_agent' ? '#2563eb' : isReminderMessage ? '#ecfeff' : '#e2e8f0',
+                color: m.role === 'human_agent' && !isSpecialMessage ? '#fff' : '#1e293b',
                 fontSize: 14,
                 lineHeight: 1.5,
                 boxShadow: m.role === 'user' ? '0 1px 2px 0 rgb(0 0 0 / 0.05)' : 'none',
-                border: m.role === 'user' ? '1px solid #e2e8f0' : isReminderMessage ? '1px solid #99f6e4' : 'none'
+                border: m.role === 'user' ? '1px solid #e2e8f0' : isReminderMessage ? '1px solid #99f6e4' : isSpecialMessage ? '1px solid #fdba74' : 'none'
               }}
             >
               {m.audioUrl ? <audio controls preload="none" src={m.audioUrl} style={{ width: '100%', marginBottom: m.content ? 10 : 0 }} /> : null}
