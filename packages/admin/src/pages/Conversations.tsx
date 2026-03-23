@@ -69,7 +69,7 @@ export default function Conversations() {
     setError(null);
     setLastDoc(null);
     setHasMore(true);
-    
+
     const q = query(
       collection(firestore, 'conversations'),
       where('tenantId', '==', tenantId),
@@ -82,8 +82,7 @@ export default function Conversations() {
         const docs = snap.docs;
         const conversations: ConversationItem[] = await Promise.all(docs.map(async (d) => {
           const data = d.data();
-          
-          // Fetch last message and check for human participation
+
           const messagesRef = collection(firestore, 'messages');
           const lastMsgQuery = query(
             messagesRef,
@@ -134,6 +133,10 @@ export default function Conversations() {
     return true;
   });
 
+  const activeCount = list.filter((conv) => conv.updatedAt && nowMs - conv.updatedAt <= ACTIVE_WINDOW_MS).length;
+  const whatsappCount = list.filter((conv) => conv.channel === 'whatsapp').length;
+  const humanAssistedCount = list.filter((conv) => conv.hasHumanParticipant).length;
+
   const isConversationActive = (conv: ConversationItem) => {
     if (!conv.updatedAt) return false;
     return nowMs - conv.updatedAt <= ACTIVE_WINDOW_MS;
@@ -142,7 +145,7 @@ export default function Conversations() {
   const loadMore = () => {
     if (!tenantId || !lastDoc || loadingMore || !hasMore) return;
     setLoadingMore(true);
-    
+
     const q = query(
       collection(firestore, 'conversations'),
       where('tenantId', '==', tenantId),
@@ -156,8 +159,7 @@ export default function Conversations() {
         const docs = snap.docs;
         const moreConversations: ConversationItem[] = await Promise.all(docs.map(async (d) => {
           const data = d.data();
-          
-          // Fetch last message and check for human participation
+
           const messagesRef = collection(firestore, 'messages');
           const lastMsgQuery = query(
             messagesRef,
@@ -273,39 +275,27 @@ export default function Conversations() {
           setPendingDeleteConversationId(null);
         }}
       />
-      <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 24 : 32 }}>Conversations</h1>
-      <p style={{ color: '#64748b', marginBottom: 32, maxWidth: 800 }}>
-        Monitor all user interactions and oversee AI performance.
-      </p>
 
-      <div style={{ marginBottom: 24 }}>
-        <select
-          value={filter}
-          onChange={(e) => setFilter(e.target.value as typeof filter)}
-          style={{
-            padding: '10px 12px',
-            borderRadius: 8,
-            border: '1px solid #e2e8f0',
-            background: '#fff',
-            color: '#334155',
-            fontSize: 14,
-            fontWeight: 500,
-            minWidth: 180,
-            cursor: 'pointer'
-          }}
-          aria-label="Filter conversations"
-        >
-          <option value="all">All</option>
-          <option value="ai_only">AI Only</option>
-          <option value="ai_human">AI + Human</option>
-        </select>
-      </div>
-
-      {error && (
-        <div style={{ padding: 12, background: '#fef2f2', color: '#991b1b', borderRadius: 8, marginBottom: 24, fontSize: 14 }}>
-          {error}
-        </div>
-      )}
+      <section
+        style={{
+          background: 'linear-gradient(135deg, #0f172a 0%, #1d4ed8 58%, #38bdf8 100%)',
+          color: '#fff',
+          borderRadius: 24,
+          padding: isMobile ? 20 : 28,
+          marginBottom: 24,
+          boxShadow: '0 24px 60px rgba(15, 23, 42, 0.16)'
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24, justifyContent: 'space-between' }}>
+          <div style={{ maxWidth: 720 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderRadius: 999, background: 'rgba(255,255,255,0.14)', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
+              Inbox
+            </div>
+            <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? 28 : 36, lineHeight: 1.1 }}>Conversations</h1>
+            <p style={{ color: 'rgba(255,255,255,0.8)', margin: 0, fontSize: 15, lineHeight: 1.6 }}>
+              Monitor every customer thread with a cleaner chat-style inbox, faster scan patterns, and clearer handoff visibility.
+            </p>
+          </div>
 
       {filteredList.length === 0 ? (
         <div style={{ padding: 48, textAlign: 'center', background: '#f8fafc', borderRadius: 12, border: '1px dashed #e2e8f0', color: '#94a3b8' }}>
@@ -345,69 +335,204 @@ export default function Conversations() {
                   User: {conv.userId.slice(0, 8)}... • {conv.updatedAt ? new Date(conv.updatedAt).toLocaleString() : '-'}
                 </div>
               </div>
-              
-              <div style={{ display: 'flex', gap: 8, width: isMobile ? '100%' : 'auto' }}>
-                <Link
-                  to={`/conversations/${conv.conversationId}`}
-                  style={{
-                    padding: '8px 16px',
-                    background: '#f8fafc',
-                    color: '#2563eb',
-                    textDecoration: 'none',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 8,
-                    textAlign: 'center',
-                    flex: 1,
-                    minWidth: isMobile ? 0 : 100
-                  }}
-                >
-                  View
-                </Link>
-                <button
-                  onClick={() => setPendingDeleteConversationId(conv.conversationId)}
-                  style={{
-                    padding: '8px 16px',
-                    background: '#fff',
-                    color: '#ef4444',
-                    border: '1px solid #fee2e2',
-                    borderRadius: 8,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    flex: 1,
-                    minWidth: isMobile ? 0 : 100
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
-              </div>
-            );
-          })}
-          
-          {hasMore && (
-            <button
-              onClick={loadMore}
-              disabled={loadingMore}
-              style={{
-                marginTop: 12,
-                padding: '12px',
-                background: 'transparent',
-                border: '1px solid #e2e8f0',
-                borderRadius: 8,
-                color: '#64748b',
-                cursor: 'pointer',
-                fontSize: 14,
-                fontWeight: 500
-              }}
-            >
-              {loadingMore ? 'Loading more...' : 'Load more conversations'}
-            </button>
-          )}
+            ))}
+          </div>
         </div>
-      )}
+      </section>
+
+      <div
+        style={{
+          background: '#fff',
+          border: '1px solid #e2e8f0',
+          borderRadius: 24,
+          padding: isMobile ? 16 : 20,
+          boxShadow: '0 18px 48px rgba(15, 23, 42, 0.08)'
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 16, justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>Chat inbox</div>
+            <div style={{ fontSize: 14, color: '#64748b' }}>
+              {filteredList.length} conversation{filteredList.length === 1 ? '' : 's'} shown, sorted by most recent activity.
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {filterOptions.map((option) => {
+              const active = filter === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setFilter(option.value)}
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: 999,
+                    border: active ? '1px solid #2563eb' : '1px solid #cbd5e1',
+                    background: active ? '#eff6ff' : '#fff',
+                    color: active ? '#1d4ed8' : '#475569',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    boxShadow: active ? '0 8px 24px rgba(37, 99, 235, 0.12)' : 'none'
+                  }}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {error && (
+          <div style={{ padding: 12, background: '#fef2f2', color: '#991b1b', borderRadius: 12, marginBottom: 24, fontSize: 14 }}>
+            {error}
+          </div>
+        )}
+
+        {filteredList.length === 0 ? (
+          <div style={{ padding: 48, textAlign: 'center', background: '#f8fafc', borderRadius: 18, border: '1px dashed #cbd5e1', color: '#94a3b8' }}>
+            No conversations found.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {filteredList.map((conv) => {
+              const isActive = isConversationActive(conv);
+              const hasHuman = !!conv.hasHumanParticipant;
+              const initials = hasHuman ? 'AH' : 'AI';
+
+              return (
+                <div
+                  key={conv.conversationId}
+                  style={{
+                    border: isActive ? '1px solid #93c5fd' : '1px solid #e2e8f0',
+                    borderRadius: 20,
+                    padding: isMobile ? 16 : 18,
+                    background: isActive ? 'linear-gradient(180deg, #f8fbff 0%, #ffffff 100%)' : '#fff',
+                    display: 'flex',
+                    flexDirection: isMobile ? 'column' : 'row',
+                    alignItems: isMobile ? 'stretch' : 'center',
+                    gap: 16,
+                    boxShadow: isActive ? '0 16px 38px rgba(59, 130, 246, 0.10)' : '0 10px 24px rgba(15, 23, 42, 0.04)'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        width: 54,
+                        height: 54,
+                        minWidth: 54,
+                        borderRadius: 18,
+                        background: hasHuman ? 'linear-gradient(135deg, #16a34a 0%, #22c55e 100%)' : 'linear-gradient(135deg, #2563eb 0%, #38bdf8 100%)',
+                        color: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 15,
+                        fontWeight: 800,
+                        letterSpacing: '0.04em'
+                      }}
+                    >
+                      {initials}
+                    </div>
+
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>#{conv.conversationId.slice(0, 8)}</span>
+                        <span style={{ padding: '5px 10px', borderRadius: 999, background: hasHuman ? '#ecfdf5' : '#eff6ff', color: hasHuman ? '#15803d' : '#2563eb', fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                          {hasHuman ? 'AI + Human' : 'AI Only'}
+                        </span>
+                        {conv.channel === 'whatsapp' && (
+                          <span style={{ padding: '5px 10px', borderRadius: 999, background: '#dcfce7', color: '#166534', fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                            WhatsApp
+                          </span>
+                        )}
+                        {isActive && (
+                          <span style={{ padding: '5px 10px', borderRadius: 999, background: '#dbeafe', color: '#1d4ed8', fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                            Active now
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ fontSize: 15, color: '#0f172a', fontWeight: 600, marginBottom: 6, lineHeight: 1.5 }}>
+                        {truncateText(conv.lastMessage, isMobile ? 72 : 120)}
+                      </div>
+
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 12, color: '#64748b' }}>
+                        <span>User {truncateText(conv.userId, 14)}</span>
+                        <span>•</span>
+                        <span>{formatRelativeTime(conv.updatedAt)}</span>
+                        <span>•</span>
+                        <span>{conv.updatedAt ? new Date(conv.updatedAt).toLocaleString() : '-'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', gap: 10, width: isMobile ? '100%' : 'auto' }}>
+                    <Link
+                      to={`/conversations/${conv.conversationId}`}
+                      style={{
+                        padding: '10px 16px',
+                        background: '#0f172a',
+                        color: '#fff',
+                        textDecoration: 'none',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        borderRadius: 12,
+                        textAlign: 'center',
+                        minWidth: isMobile ? 0 : 132,
+                        flex: isMobile ? 1 : undefined,
+                        boxShadow: '0 12px 24px rgba(15, 23, 42, 0.16)'
+                      }}
+                    >
+                      Open chat
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setPendingDeleteConversationId(conv.conversationId)}
+                      style={{
+                        padding: '10px 16px',
+                        background: '#fff',
+                        color: '#ef4444',
+                        border: '1px solid #fecaca',
+                        borderRadius: 12,
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        minWidth: isMobile ? 0 : 132,
+                        flex: isMobile ? 1 : undefined
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {hasMore && (
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loadingMore}
+                style={{
+                  marginTop: 8,
+                  padding: '14px 18px',
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 14,
+                  color: '#334155',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  fontWeight: 700
+                }}
+              >
+                {loadingMore ? 'Loading more...' : 'Load more conversations'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

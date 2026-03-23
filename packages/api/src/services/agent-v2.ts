@@ -536,6 +536,7 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
       '- Start with brief empathy when the user shares feeling unwell, for example "Sorry you are feeling unwell" or "Thanks—that helps".',
       '- If you still need information, reply with only the next question unless a short empathy phrase is helpful.',
       '- Before asking, think silently: "What is the most important missing clinical detail right now?" Then ask only that.',
+      '- Avoid interrogation-style wording. Sound like a calm human clinician, not a checklist.',
       '- Never bundle multiple symptom checks into one message. Avoid phrases like "fever, vomiting, or blood in stool" in a single question.',
       '- Prefer natural wording like "Do you have a fever?" or "Any vomiting?" instead of formal checklist language.',
       '- Use this triage state order without skipping ahead: chief complaint, duration, severity, associated symptoms, risk factors, advice.',
@@ -554,6 +555,7 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
       '- For flu-like illness, if the user sounds low-risk, advice should mention rest, fluids, fever/pain relief if appropriate, and exact red flags such as trouble breathing, chest pain, confusion, dehydration, or worsening fever.',
       '- When giving home-care advice, include expected follow-up timing such as "seek care today", "within 24 hours", or "if not improving after 2-3 days" when clinically appropriate.',
       '- Map mild symptoms to home care, moderate symptoms to caution with close follow-up, and severe or high-risk symptoms to urgent escalation.',
+      '- If escalation or handoff is needed, do not reply with only a transfer notice. First give the best brief, safe interim guidance, coping step, or next action the user can follow while waiting.',
       '- For identity or names, never assert who the user is. Ask permission, for example: "I can call you Praxis if that\'s okay?".',
       '- Sound like a calm Ugandan doctor: short, clear, human, and curious.',
       '- If urgent symptoms appear, stop questioning and escalate immediately.'
@@ -691,6 +693,7 @@ async function runAgentRuntime(
     const wantsHumanHandoff = intent.intent === 'request_human' || isExplicitHumanRequest(latestUserMessage);
     const urgentHandoff = isUrgentHandoffSituation(latestUserMessage);
     const repeatedFailureHandoff = shouldTriggerRepeatedFailureHandoff(history);
+    const handoffAlreadyRequired = wantsHumanHandoff || urgentHandoff || repeatedFailureHandoff;
     logAgentFlow(variant, 'intent', {
       intent: intent.intent,
       entities: intent.entities,
@@ -698,6 +701,7 @@ async function runAgentRuntime(
       wantsHumanHandoff,
       urgentHandoff,
       repeatedFailureHandoff,
+      handoffAlreadyRequired,
     });
 
     const reminderClarification = getReminderClarification(currentTask, history, intent, options);
@@ -712,17 +716,6 @@ async function runAgentRuntime(
         text: reminderClarification.question,
         needsInfo: true,
         missingInfo: reminderClarification.missingInfo,
-      };
-    }
-
-    // Early exit for human handoff
-    if (wantsHumanHandoff || urgentHandoff || repeatedFailureHandoff) {
-      logAgentFlow(variant, 'handoff', {
-        reason: wantsHumanHandoff ? 'intent_requested_human' : urgentHandoff ? 'urgent_case' : 'repeated_failed_turns',
-      });
-      return {
-        text: "I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.\n\nIf your need is urgent, please call your care team or 911 in an emergency.",
-        requestHandoff: true,
       };
     }
 
@@ -1071,6 +1064,9 @@ async function runAgentRuntime(
 
     systemContent += `How you should think: ${config.thinkingInstructions}\n\n`;
     systemContent += `Escalation: End your reply with "${HANDOFF_MARKER}" only when the user clearly asks for a human, the situation is urgent and needs human review, or the same issue has remained unresolved after 3 to 5 consecutive turns.\n`;
+    if (handoffAlreadyRequired) {
+      systemContent += `This turn already requires escalation to a human. Do NOT ask another intake question. Give a short, natural reply that (1) acknowledges what the user said, (2) gives the best safe interim support, coping step, or next action they can use while waiting, and (3) ends with "${HANDOFF_MARKER}" on a new line. Do not reply with only a transfer notice unless absolutely no safe interim guidance can be given.\n`;
+    }
 
     // ========================================================================
     // STEP 5: PREPARE MESSAGES (Optimized conversation history)
