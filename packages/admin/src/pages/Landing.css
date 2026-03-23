@@ -1,4 +1,5 @@
 .landing-shell {
+  --landing-header-offset: 112px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -19,6 +20,7 @@
 
 main {
   flex: 1;
+  margin-top: calc(-1 * var(--landing-header-offset));
 }
 
 .landing-container {
@@ -128,7 +130,8 @@ main {
   overflow: hidden;
   isolation: isolate;
   margin-top: 0;
-  padding: 168px 0 72px;
+  min-height: 100vh;
+  padding: calc(168px + var(--landing-header-offset)) 0 72px;
   background: url('/assets/tech_bg.png') center/cover no-repeat;
 }
 .hero-section::after {
@@ -417,6 +420,10 @@ main {
 
 
 @media (max-width: 767px) {
+  .landing-shell {
+    --landing-header-offset: 96px;
+  }
+
   .landing-header {
     top: 0;
     width: 100%;
@@ -437,6 +444,7 @@ main {
   }
 
   .hero-section {
-    padding-top: 148px;
+    min-height: 100svh;
+    padding-top: calc(148px + var(--landing-header-offset));
   }
 }
