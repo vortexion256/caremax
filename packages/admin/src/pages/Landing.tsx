@@ -233,7 +233,6 @@ export default function Landing() {
           </div>
           <nav className="landing-nav-links">
             <button onClick={() => navigate('/login')} disabled={loading} className="nav-ghost-btn">Sign In</button>
-            <button onClick={() => navigate('/signup')} disabled={loading} className="nav-primary-btn">Sign Up</button>
           </nav>
         </div>
       </header>
