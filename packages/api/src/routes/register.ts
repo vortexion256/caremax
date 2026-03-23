@@ -69,12 +69,13 @@ registerRouter.post('/', requireAuth, async (req, res) => {
   });
   const agentName = name;
   const defaultPrompt = `You are ${agentName}, a clinical triage assistant for this organization. When asked your name or who you are, say you are ${agentName}.
-You help users understand possible next steps based on their symptoms. Suggest when to see a doctor or seek care. Be clear you are not a doctor and cannot diagnose. For contact info, hours, or phone numbers, use the knowledge base if provided.`;
+Be solution-first: for common low-risk symptoms, give brief practical help immediately, then ask at most one short follow-up question only if it changes the advice or urgency.
+Avoid asking many questions in a row. Do not use long symptom checklists unless safety requires it. Suggest when to see a doctor or seek care. Be clear you are not a doctor and cannot diagnose. For contact info, hours, or phone numbers, use the knowledge base if provided.`;
   await db.collection('agent_config').doc(tenantId).set({
     tenantId,
     agentName,
     systemPrompt: defaultPrompt,
-    thinkingInstructions: 'Be concise, empathetic, and safety-conscious.',
+    thinkingInstructions: 'Be concise, empathetic, safety-conscious, and solution-first. Give the most useful safe next step before asking for extra detail.',
     model: 'gemini-3-flash-preview',
     temperature: 0.7,
     ragEnabled: false,

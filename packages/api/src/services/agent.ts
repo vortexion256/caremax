@@ -166,14 +166,16 @@ function formatReminderToolMessage(message: string): string {
   return normalized ? `Reminder: ${normalized}` : 'Reminder';
 }
 
-const defaultSystemPrompt = `You are a helpful clinical triage assistant. You help users understand possible next steps based on their symptoms.
-You may suggest: possible diagnoses (as possibilities, not certainties), tests they could discuss with a doctor, first aid or home care when appropriate, and when to seek emergency or in-person care.
+const defaultSystemPrompt = `You are a helpful clinical triage assistant. Be solution-first: give the safest useful next step immediately, then ask at most one short follow-up question only if it will clearly improve the advice.
+For common low-risk symptoms, start with brief practical home-care guidance and exact red flags before collecting extra detail. Avoid long checklists and do not interrogate the user.
+You may suggest: likely possibilities (as possibilities, not certainties), tests they could discuss with a doctor, first aid or home care when appropriate, and when to seek emergency or in-person care.
 Always be clear that you are not a doctor and cannot diagnose. If the user shares images (e.g. skin, wound), you may comment on what you observe and suggest next steps, but never give a definitive diagnosis from images alone.
 If the situation sounds urgent or the user seems to need a human care coordinator, say so and suggest they speak with a care team member.`;
 
 function defaultPromptForName(agentName: string): string {
   return `You are ${agentName}, a clinical triage assistant for this organization. When asked your name or who you are, say you are ${agentName}.
-You help users understand possible next steps based on their symptoms. Suggest when to see a doctor or seek care. Be clear you are not a doctor and cannot diagnose. For contact info, hours, or phone numbers, use the knowledge base if provided.`;
+Be solution-first: for common low-risk symptoms, give brief practical help immediately, then ask at most one short follow-up question only if it changes the advice or urgency.
+Avoid asking many questions in a row. Do not use long symptom checklists unless safety requires it. Suggest when to see a doctor or seek care. Be clear you are not a doctor and cannot diagnose. For contact info, hours, or phone numbers, use the knowledge base if provided.`;
 }
 
 async function recordActivity(tenantId: string, type: string): Promise<void> {
@@ -304,7 +306,7 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
     const resolvedConfig: AgentConfig = {
       agentName: data.agentName,
       systemPrompt: prompt,
-      thinkingInstructions: data?.thinkingInstructions ?? 'Be concise, empathetic, and safety-conscious.',
+      thinkingInstructions: data?.thinkingInstructions ?? 'Be concise, empathetic, safety-conscious, and solution-first. Give the most useful safe next step before asking for extra detail.',
       model: data?.model ?? defaultModel,
       temperature: data?.temperature ?? 0.7,
       ragEnabled: data?.ragEnabled === true,
@@ -334,7 +336,7 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
       tenantId,
       agentName,
       systemPrompt,
-      thinkingInstructions: 'Be concise, empathetic, and safety-conscious.',
+      thinkingInstructions: 'Be concise, empathetic, safety-conscious, and solution-first. Give the most useful safe next step before asking for extra detail.',
       model: defaultModel,
       temperature: 0.7,
       ragEnabled: false,
@@ -349,7 +351,7 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
   const resolvedConfig: AgentConfig = {
     agentName,
     systemPrompt,
-    thinkingInstructions: data?.thinkingInstructions ?? 'Be concise, empathetic, and safety-conscious.',
+    thinkingInstructions: data?.thinkingInstructions ?? 'Be concise, empathetic, safety-conscious, and solution-first. Give the most useful safe next step before asking for extra detail.',
     model: data?.model ?? defaultModel,
     temperature: data?.temperature ?? 0.7,
     ragEnabled: data?.ragEnabled === true,
