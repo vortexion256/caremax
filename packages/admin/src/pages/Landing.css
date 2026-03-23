@@ -79,14 +79,14 @@ main {
   isolation: isolate;
   padding: 86px 0 56px;
   background:
-    linear-gradient(135deg, rgba(15, 23, 42, 0.82), rgba(2, 132, 199, 0.58)),
+    linear-gradient(135deg, rgba(15, 23, 42, 0.56), rgba(2, 132, 199, 0.28)),
     url('/assets/tech_bg.png') center/cover no-repeat;
 }
 .hero-section::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.18), rgba(15, 23, 42, 0.42));
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.22));
   z-index: 0;
   pointer-events: none;
 }
