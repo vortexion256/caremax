@@ -47,7 +47,7 @@ export default function Dashboard() {
     : isExpiredPaidPackage
       ? 'Package Expired'
       : billing?.isTrialPlan
-        ? `Trial active: ${billing.daysRemaining ?? 0} day(s) remaining.`
+        ? `Trial Active: ${billing.daysRemaining ?? 0} day(s) remaining.`
         : `SUBSCRIPTION ACTIVE. (${activePlanName})`;
 
   const billingDescription = isExpiredTrial
