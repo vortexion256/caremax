@@ -15,6 +15,14 @@
 .landing-shell > main,
 .landing-shell > footer {
   position: relative;
+}
+
+.landing-shell > header {
+  z-index: 200;
+}
+
+.landing-shell > main,
+.landing-shell > footer {
   z-index: 1;
 }
 
@@ -56,6 +64,8 @@ main {
 }
 
 .landing-header-content {
+  position: relative;
+  z-index: 1;
   width: 100%;
   background: transparent !important;
   backdrop-filter: none !important;
