@@ -133,6 +133,33 @@ export default function Conversations() {
     return true;
   });
 
+  const filterOptions: Array<{ value: 'all' | 'ai_only' | 'ai_human'; label: string }> = [
+    { value: 'all', label: 'All conversations' },
+    { value: 'ai_only', label: 'AI only' },
+    { value: 'ai_human', label: 'AI + human' },
+  ];
+
+  const truncateText = (value: string | undefined, maxLength: number) => {
+    if (!value) return 'No messages yet';
+    return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+  };
+
+  const formatRelativeTime = (timestamp: number | null) => {
+    if (!timestamp) return 'No recent activity';
+
+    const diffMs = Math.max(0, nowMs - timestamp);
+    const diffMinutes = Math.floor(diffMs / 60000);
+
+    if (diffMinutes < 1) return 'Just now';
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  };
+
   const activeCount = list.filter((conv) => conv.updatedAt && nowMs - conv.updatedAt <= ACTIVE_WINDOW_MS).length;
   const whatsappCount = list.filter((conv) => conv.channel === 'whatsapp').length;
   const humanAssistedCount = list.filter((conv) => conv.hasHumanParticipant).length;
@@ -297,43 +324,26 @@ export default function Conversations() {
             </p>
           </div>
 
-      {filteredList.length === 0 ? (
-        <div style={{ padding: 48, textAlign: 'center', background: '#f8fafc', borderRadius: 12, border: '1px dashed #e2e8f0', color: '#94a3b8' }}>
-          No conversations found.
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {filteredList.map((conv) => {
-            const isActive = isConversationActive(conv);
-
-            return (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(140px, 1fr))', gap: 12, width: isMobile ? '100%' : 'min(420px, 100%)' }}>
+            {[
+              { label: 'Active now', value: activeCount, tone: 'rgba(34, 197, 94, 0.18)' },
+              { label: 'WhatsApp', value: whatsappCount, tone: 'rgba(16, 185, 129, 0.18)' },
+              { label: 'Human assisted', value: humanAssistedCount, tone: 'rgba(255, 255, 255, 0.16)' },
+            ].map((stat) => (
               <div
-              key={conv.conversationId}
-              style={{
-                border: isActive ? '2px solid #16a34a' : '1px solid #e2e8f0',
-                borderRadius: 12,
-                padding: 20,
-                background: 'white',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 20,
-                flexWrap: isMobile ? 'wrap' : 'nowrap'
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                  {getStatusBadge(conv)}
-                  {getChannelBadge(conv)}
-                  {isActive && <span className="conversation-active-badge">ACTIVE</span>}
-                  <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>{formatConversationIdentifier(conv)}</span>
+                key={stat.label}
+                style={{
+                  padding: '16px 18px',
+                  borderRadius: 18,
+                  background: stat.tone,
+                  border: '1px solid rgba(255,255,255,0.16)',
+                  backdropFilter: 'blur(12px)'
+                }}
+              >
+                <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.72)', marginBottom: 8 }}>
+                  {stat.label}
                 </div>
-                <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 500, marginBottom: 4 }}>
-                  {conv.lastMessage && conv.lastMessage.length > 100 ? `${conv.lastMessage.slice(0, 100)}...` : conv.lastMessage}
-                </div>
-                <div style={{ fontSize: 12, color: '#64748b' }}>
-                  User: {conv.userId.slice(0, 8)}... • {conv.updatedAt ? new Date(conv.updatedAt).toLocaleString() : '-'}
-                </div>
+                <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1 }}>{stat.value}</div>
               </div>
             ))}
           </div>
