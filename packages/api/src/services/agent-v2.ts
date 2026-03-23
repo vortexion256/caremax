@@ -25,7 +25,7 @@ import { db } from '../config/firebase.js';
 import { getRagContext } from './rag.js';
 import { createRecord, createModificationRequest, getRecord, listRecords } from './auto-agent-brain.js';
 import { isGoogleConnected } from './google-sheets.js';
-import { getAgentConfig, type GoogleSheetEntry } from './agent.js';
+import { getAgentConfig, type AgentExperienceMode, type GoogleSheetEntry } from './agent.js';
 import { AgentOrchestrator, ToolCall } from './agent-orchestrator.js';
 import { buildAgentContext, formatContextForPrompt, trimConversationHistory } from './agent-memory.js';
 import { processEncounterEvidence } from './encounter-state.js';
@@ -185,14 +185,23 @@ function getNextUnansweredTriageState(answeredStates: TriageState[]): TriageStat
   return TRIAGE_STATE_ORDER.find((state) => !answeredStates.includes(state)) ?? 'advice';
 }
 
+function countFollowUpQuestions(triageState: PersistedTriageState): number {
+  return triageState.askedStates.filter((state) => state !== 'chief_complaint').length;
+}
+
 function shouldFastTrackV3Advice(
   triageState: PersistedTriageState,
-  history: { role: string; content: string; imageUrls?: string[] }[]
+  history: { role: string; content: string; imageUrls?: string[] }[],
+  experienceMode: AgentExperienceMode
 ): boolean {
   if (!triageState.answeredStates.includes('chief_complaint')) return false;
   if (!triageState.answeredStates.includes('duration')) return false;
   if (!triageState.answeredStates.includes('severity')) return false;
   if (triageState.answeredStates.includes('advice')) return true;
+
+  const followUpQuestionsAsked = countFollowUpQuestions(triageState);
+  const maxFollowUps = experienceMode === 'quick' ? 3 : 5;
+  if (followUpQuestionsAsked >= maxFollowUps) return true;
 
   const combinedUserText = history
     .filter((message) => message.role === 'user')
@@ -211,7 +220,11 @@ function shouldFastTrackV3Advice(
   return true;
 }
 
-function prepareV3TriageState(history: { role: string; content: string; imageUrls?: string[] }[], persisted: PersistedTriageState): PersistedTriageState {
+function prepareV3TriageState(
+  history: { role: string; content: string; imageUrls?: string[] }[],
+  persisted: PersistedTriageState,
+  experienceMode: AgentExperienceMode
+): PersistedTriageState {
   const nextState = normalizeTriageState(persisted);
   const lastUserMessage = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
 
@@ -228,7 +241,7 @@ function prepareV3TriageState(history: { role: string; content: string; imageUrl
 
   nextState.answeredStates = Array.from(new Set(nextState.answeredStates));
 
-  if (shouldFastTrackV3Advice(nextState, history)) {
+  if (shouldFastTrackV3Advice(nextState, history, experienceMode)) {
     nextState.currentState = 'advice';
     return nextState;
   }
@@ -517,7 +530,7 @@ function getReminderFailureClarification(
   return null;
 }
 
-function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): string {
+function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant, experienceMode: AgentExperienceMode): string {
   const sharedRules = [
     'Shared conversation rules:',
     '- If the latest user message is only a simple greeting such as "hi", "hello", "hey", or "how are you", reply with one short, warm greeting only.',
@@ -539,6 +552,7 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
       '- Before asking, think silently: "What is the most important missing clinical detail right now, and can I already help safely without asking it?" Then either help first or ask only that.',
       '- Never bundle multiple symptom checks into one message. Avoid phrases like "fever, vomiting, or blood in stool" in a single question.',
       '- Prefer natural wording like "Do you have a fever?" or "Any vomiting?" instead of formal checklist language.',
+      `- Current tenant mode is ${experienceMode}. In quick mode, ask no more than 3 follow-up questions before giving guidance. In guided mode, ask no more than 5 follow-up questions before giving guidance.`,
       '- Use this triage state order without skipping ahead: chief complaint, duration, severity, associated symptoms, risk factors, advice.',
       '- Important exception: for low-risk, common symptoms, once chief complaint, duration, and severity are clear, you may stop intake and give practical advice with red flags.',
       '- Once the chief complaint is clear, branch into symptom-specific follow-up questions instead of generic intake.',
@@ -550,6 +564,7 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
       '- Example branch for diarrhea: ask frequency, dehydration, food exposure, sick contacts, and blood in stool one at a time.',
       '- For diarrhea or vomiting, actively check dehydration with one question such as "Are you able to drink fluids?".',
       '- Do NOT stall for unnecessary detail. Once you have enough information for safe first-line guidance, give the advice clearly and stop the intake loop.',
+      '- If you are close to the question limit, stop asking and give the safest useful guidance plus red flags and when to seek care.',
       '- When you do give advice, make it personalized: say the likely category (for example stomach infection, food poisoning, or flu-like viral illness), the home-care step, and the exact red flags that change urgency.',
       '- Always explain the clinical reasoning briefly in simple language, for example "because it started recently and there are no danger signs".',
       '- For flu-like illness, if the user sounds low-risk, advice should mention rest, fluids, fever/pain relief if appropriate, and exact red flags such as trouble breathing, chest pain, confusion, dehydration, or worsening fever.',
@@ -769,7 +784,7 @@ async function runAgentRuntime(
     if (variant === 'v3' && options?.conversationId) {
       try {
         const conversationDoc = await db.collection('conversations').doc(options.conversationId).get();
-        persistedV3TriageState = prepareV3TriageState(history, normalizeTriageState(conversationDoc.data()?.v3TriageState));
+        persistedV3TriageState = prepareV3TriageState(history, normalizeTriageState(conversationDoc.data()?.v3TriageState), config.experienceMode);
         logAgentFlow(variant, 'triage_state', {
           source: 'loaded',
           currentState: persistedV3TriageState.currentState,
@@ -779,7 +794,7 @@ async function runAgentRuntime(
         });
       } catch (e) {
         console.warn('[Agent V3] Failed to load persisted triage state:', e);
-        persistedV3TriageState = prepareV3TriageState(history, createDefaultTriageState());
+        persistedV3TriageState = prepareV3TriageState(history, createDefaultTriageState(), config.experienceMode);
         logAgentFlow(variant, 'triage_state', {
           source: 'fallback_after_load_error',
           currentState: persistedV3TriageState.currentState,
@@ -994,9 +1009,10 @@ async function runAgentRuntime(
         })
       : null;
 
-    const runtimeConversationInstructions = buildRuntimeConversationInstructions(variant);
+    const runtimeConversationInstructions = buildRuntimeConversationInstructions(variant, config.experienceMode);
+    const v3QuestionLimit = config.experienceMode === 'quick' ? 3 : 5;
     const v3StateInstruction = variant === 'v3'
-      ? `Backend triage state (authoritative, persisted): current=${persistedV3TriageState.currentState}; answered=${persistedV3TriageState.answeredStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; asked=${persistedV3TriageState.askedStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; symptom_summary=${persistedV3TriageState.symptomSummary ?? 'unknown'}. You MUST respect this backend state. Do not re-ask any answered state. Ask only for the current backend state unless urgent escalation is needed. Always prefer solution-first behavior: if backend state allows safe first-line advice, give it before asking for more detail. If the current state is severity and the user sounds confused, guide them with simple mild/moderate/severe examples instead of repeating the question. If the current state is associated symptoms for flu-like illness, check clustered symptoms one step at a time: danger signs first, then fever/body aches/sore throat, then hydration or weakness if still needed. If the current state is advice, stop asking intake questions and give advice. When backend state is advice after only chief complaint + duration + severity, that is intentional for low-risk/common symptoms: give concise home-care advice plus the exact red flags, brief reasoning, and when to seek in-person care instead of asking more checklist questions. For flu-like or viral upper-respiratory symptoms in advice state, explicitly cover hydration, rest, symptom relief, and breathing/dehydration red flags, and include when the user should seek review if not improving.`
+      ? `Backend triage state (authoritative, persisted): current=${persistedV3TriageState.currentState}; answered=${persistedV3TriageState.answeredStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; asked=${persistedV3TriageState.askedStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; symptom_summary=${persistedV3TriageState.symptomSummary ?? 'unknown'}. Tenant experience mode=${config.experienceMode}; maximum follow-up questions before guidance=${v3QuestionLimit}. You MUST respect this backend state. Do not re-ask any answered state. Ask only for the current backend state unless urgent escalation is needed. Always prefer solution-first behavior: if backend state allows safe first-line advice, give it before asking for more detail. If the current state is severity and the user sounds confused, guide them with simple mild/moderate/severe examples instead of repeating the question. If the current state is associated symptoms for flu-like illness, check clustered symptoms one step at a time: danger signs first, then fever/body aches/sore throat, then hydration or weakness if still needed. If the current state is advice, stop asking intake questions and give advice. When backend state is advice after only chief complaint + duration + severity, that is intentional for low-risk/common symptoms: give concise home-care advice plus the exact red flags, brief reasoning, and when to seek in-person care instead of asking more checklist questions. For flu-like or viral upper-respiratory symptoms in advice state, explicitly cover hydration, rest, symptom relief, and breathing/dehydration red flags, and include when the user should seek review if not improving.`
       : '';
 
     let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${contextSection}\n${reminderSnapshotContext}\n`;

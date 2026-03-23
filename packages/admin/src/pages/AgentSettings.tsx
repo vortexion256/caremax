@@ -164,6 +164,7 @@ export default function AgentSettings() {
           agentCountryCode: typeof config.agentCountryCode === 'string' && config.agentCountryCode.trim().length === 2
             ? config.agentCountryCode.trim().toUpperCase()
             : 'US',
+          experienceMode: config.experienceMode === 'quick' ? 'quick' : 'guided',
           xPersonProfileCustomFields: Array.isArray(config.xPersonProfileCustomFields)
             ? config.xPersonProfileCustomFields
                 .filter((field) => field && typeof field.field === 'string' && field.field.trim().length > 0)
@@ -236,6 +237,21 @@ export default function AgentSettings() {
       )}
 
       <form onSubmit={handleSave} style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 32 }}>
+
+        <div style={{ padding: 24, background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0" }}>
+          <h3 style={{ margin: "0 0 20px 0", fontSize: 18, color: "#0f172a", borderBottom: "1px solid #f1f5f9", paddingBottom: 12 }}>Triage Flow Mode</h3>
+          <label style={labelStyle}>Tenant conversation mode</label>
+          <select
+            value={config?.experienceMode === 'quick' ? 'quick' : 'guided'}
+            onChange={(e) => setConfig((current) => (current ? { ...current, experienceMode: e.target.value === 'quick' ? 'quick' : 'guided' } : current))}
+            style={inputStyle}
+          >
+            <option value="quick">Quick mode — max 3 follow-up questions</option>
+            <option value="guided">Guided mode — max 5 follow-up questions</option>
+          </select>
+          <span style={helperStyle}>Quick mode mirrors the short chat style: the agent asks only a few focused questions, then gives guidance fast. Guided mode allows a bit more clinical narrowing, but still caps follow-up questions at five before advice.</span>
+        </div>
+
         <div style={{ padding: 24, background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0' }}>
           <h3 style={{ margin: '0 0 20px 0', fontSize: 18, color: '#0f172a', borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>General Identity</h3>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 24 }}>

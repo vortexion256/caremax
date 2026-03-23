@@ -120,6 +120,8 @@ export type AgentConfig = {
   agentTimezone?: string;
   /** Optional ISO-3166 country code used for locale-sensitive date/time hints. */
   agentCountryCode?: string;
+  /** Controls how aggressively the triage flow asks follow-up questions. */
+  experienceMode?: 'quick' | 'guided';
   availableModels?: string[];
 };
 

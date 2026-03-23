@@ -56,6 +56,7 @@ const updateBody = z.object({
   xPersonProfileCustomFields: z.array(xPersonProfileCustomFieldEntry).optional(),
   agentTimezone: z.string().min(1).optional(),
   agentCountryCode: z.string().trim().length(2).optional(),
+  experienceMode: z.enum(['quick', 'guided']).optional(),
 });
 
 const fallbackModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
@@ -114,6 +115,7 @@ agentConfigRouter.get('/', async (req, res) => {
       xPersonProfileCustomFields: [],
       agentTimezone: 'UTC',
       agentCountryCode: 'US',
+      experienceMode: 'guided',
       availableModels,
     });
     return;

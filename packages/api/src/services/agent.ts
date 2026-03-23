@@ -194,6 +194,8 @@ async function recordActivity(tenantId: string, type: string): Promise<void> {
 export type GoogleSheetEntry = { spreadsheetId: string; range?: string; useWhen: string };
 
 
+export type AgentExperienceMode = 'quick' | 'guided';
+
 type AgentConfig = {
   agentName: string;
   systemPrompt: string;
@@ -210,6 +212,7 @@ type AgentConfig = {
   xPersonProfileCustomFields: { field: string; description?: string }[];
   agentTimezone?: string;
   agentCountryCode?: string;
+  experienceMode: AgentExperienceMode;
 };
 
 type AgentConfigCacheEntry = {
@@ -319,6 +322,7 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
       xPersonProfileCustomFields: normalizeXPersonProfileCustomFields(data),
       agentTimezone: typeof data?.agentTimezone === 'string' && data.agentTimezone.trim().length > 0 ? data.agentTimezone.trim() : 'UTC',
       agentCountryCode: typeof data?.agentCountryCode === 'string' && data.agentCountryCode.trim().length === 2 ? data.agentCountryCode.trim().toUpperCase() : 'US',
+      experienceMode: data?.experienceMode === 'quick' ? 'quick' : 'guided',
     };
     if (AGENT_CONFIG_CACHE_TTL_MS > 0) {
       agentConfigCache.set(tenantId, { value: resolvedConfig, expiresAt: Date.now() + AGENT_CONFIG_CACHE_TTL_MS });
@@ -344,6 +348,7 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
       xPersonProfileCustomFields: [],
       agentTimezone: 'UTC',
       agentCountryCode: 'US',
+      experienceMode: 'guided',
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true }).catch(() => {});
   }
@@ -364,6 +369,7 @@ export async function getAgentConfig(tenantId: string): Promise<AgentConfig> {
     xPersonProfileCustomFields: normalizeXPersonProfileCustomFields(data),
     agentTimezone: typeof data?.agentTimezone === 'string' && data.agentTimezone.trim().length > 0 ? data.agentTimezone.trim() : 'UTC',
     agentCountryCode: typeof data?.agentCountryCode === 'string' && data.agentCountryCode.trim().length === 2 ? data.agentCountryCode.trim().toUpperCase() : 'US',
+    experienceMode: data?.experienceMode === 'quick' ? 'quick' : 'guided',
   };
   if (AGENT_CONFIG_CACHE_TTL_MS > 0) {
     agentConfigCache.set(tenantId, { value: resolvedConfig, expiresAt: Date.now() + AGENT_CONFIG_CACHE_TTL_MS });
