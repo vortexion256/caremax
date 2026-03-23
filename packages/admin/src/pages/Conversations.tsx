@@ -16,37 +16,28 @@ type ConversationItem = {
   tenantId: string;
   userId: string;
   status: 'open' | 'handoff_requested' | 'human_joined';
-  channel?: 'widget' | 'whatsapp';
+  channel?: 'widget' | 'whatsapp' | 'whatsapp_meta';
+  externalUserId?: string;
   createdAt: number | null;
   updatedAt: number | null;
   lastMessage?: string;
   hasHumanParticipant?: boolean;
 };
 
-const filterOptions = [
-  { value: 'all', label: 'All' },
-  { value: 'ai_human', label: 'AI + Human' },
-  { value: 'ai_only', label: 'AI Only' },
-] as const;
 
-const formatRelativeTime = (timestamp: number | null) => {
-  if (!timestamp) return 'No activity yet';
+function formatConversationIdentifier(conv: ConversationItem): string {
+  const externalUserId = conv.externalUserId?.trim();
 
-  const diff = Date.now() - timestamp;
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
+  if ((conv.channel === 'whatsapp' || conv.channel === 'whatsapp_meta') && externalUserId) {
+    return externalUserId.replace(/^whatsapp:/i, '');
+  }
 
-  if (diff < minute) return 'Just now';
-  if (diff < hour) return `${Math.floor(diff / minute)}m ago`;
-  if (diff < day) return `${Math.floor(diff / hour)}h ago`;
-  return `${Math.floor(diff / day)}d ago`;
-};
+  if (conv.channel === 'widget' && externalUserId) {
+    return externalUserId;
+  }
 
-const truncateText = (value: string | undefined, max: number) => {
-  if (!value) return 'No messages yet';
-  return value.length > max ? `${value.slice(0, max)}…` : value;
-};
+  return `#${conv.conversationId.slice(0, 8)}`;
+}
 
 export default function Conversations() {
   const { tenantId } = useTenant();
@@ -117,6 +108,7 @@ export default function Conversations() {
             userId: data.userId ?? '',
             status: (data.status ?? 'open') as ConversationItem['status'],
             channel: (data.channel ?? 'widget') as ConversationItem['channel'],
+            externalUserId: typeof data.externalUserId === 'string' ? data.externalUserId : undefined,
             createdAt: data.createdAt?.toMillis?.() ?? null,
             updatedAt: data.updatedAt?.toMillis?.() ?? null,
             lastMessage,
@@ -193,6 +185,7 @@ export default function Conversations() {
             userId: data.userId ?? '',
             status: (data.status ?? 'open') as ConversationItem['status'],
             channel: (data.channel ?? 'widget') as ConversationItem['channel'],
+            externalUserId: typeof data.externalUserId === 'string' ? data.externalUserId : undefined,
             createdAt: data.createdAt?.toMillis?.() ?? null,
             updatedAt: data.updatedAt?.toMillis?.() ?? null,
             lastMessage,
@@ -209,6 +202,49 @@ export default function Conversations() {
       .finally(() => {
         setLoadingMore(false);
       });
+  };
+
+  const getStatusBadge = (conv: ConversationItem) => {
+    const label = conv.hasHumanParticipant ? 'AI + HUMAN' : 'AI ONLY';
+    const isHuman = conv.hasHumanParticipant;
+    
+    return (
+      <span
+        style={{
+          padding: '4px 10px',
+          borderRadius: 6,
+          fontSize: 12,
+          fontWeight: 600,
+          background: isHuman ? '#f0fdf4' : '#eff6ff',
+          color: isHuman ? '#166534' : '#2563eb',
+          textTransform: 'uppercase',
+          letterSpacing: '0.02em'
+        }}
+      >
+        {label}
+      </span>
+    );
+  };
+
+  const getChannelBadge = (conv: ConversationItem) => {
+    if (conv.channel !== 'whatsapp' && conv.channel !== 'whatsapp_meta') return null;
+
+    return (
+      <span
+        style={{
+          padding: '4px 10px',
+          borderRadius: 6,
+          fontSize: 12,
+          fontWeight: 600,
+          background: '#dcfce7',
+          color: '#166534',
+          textTransform: 'uppercase',
+          letterSpacing: '0.02em'
+        }}
+      >
+        WhatsApp
+      </span>
+    );
   };
 
   const deleteConversation = async (id: string) => {
@@ -261,15 +297,43 @@ export default function Conversations() {
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(120px, 1fr))', gap: 12, minWidth: isMobile ? '100%' : 340 }}>
-            {[
-              { label: 'Open now', value: activeCount, tone: '#86efac' },
-              { label: 'WhatsApp', value: whatsappCount, tone: '#bbf7d0' },
-              { label: 'Human assist', value: humanAssistedCount, tone: '#bfdbfe' },
-            ].map((item) => (
-              <div key={item.label} style={{ padding: 16, borderRadius: 18, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.14)', backdropFilter: 'blur(12px)' }}>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.72)', marginBottom: 8 }}>{item.label}</div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: item.tone }}>{item.value}</div>
+      {filteredList.length === 0 ? (
+        <div style={{ padding: 48, textAlign: 'center', background: '#f8fafc', borderRadius: 12, border: '1px dashed #e2e8f0', color: '#94a3b8' }}>
+          No conversations found.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {filteredList.map((conv) => {
+            const isActive = isConversationActive(conv);
+
+            return (
+              <div
+              key={conv.conversationId}
+              style={{
+                border: isActive ? '2px solid #16a34a' : '1px solid #e2e8f0',
+                borderRadius: 12,
+                padding: 20,
+                background: 'white',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 20,
+                flexWrap: isMobile ? 'wrap' : 'nowrap'
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                  {getStatusBadge(conv)}
+                  {getChannelBadge(conv)}
+                  {isActive && <span className="conversation-active-badge">ACTIVE</span>}
+                  <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>{formatConversationIdentifier(conv)}</span>
+                </div>
+                <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 500, marginBottom: 4 }}>
+                  {conv.lastMessage && conv.lastMessage.length > 100 ? `${conv.lastMessage.slice(0, 100)}...` : conv.lastMessage}
+                </div>
+                <div style={{ fontSize: 12, color: '#64748b' }}>
+                  User: {conv.userId.slice(0, 8)}... • {conv.updatedAt ? new Date(conv.updatedAt).toLocaleString() : '-'}
+                </div>
               </div>
             ))}
           </div>
