@@ -16,12 +16,28 @@ type ConversationItem = {
   tenantId: string;
   userId: string;
   status: 'open' | 'handoff_requested' | 'human_joined';
-  channel?: 'widget' | 'whatsapp';
+  channel?: 'widget' | 'whatsapp' | 'whatsapp_meta';
+  externalUserId?: string;
   createdAt: number | null;
   updatedAt: number | null;
   lastMessage?: string;
   hasHumanParticipant?: boolean;
 };
+
+
+function formatConversationIdentifier(conv: ConversationItem): string {
+  const externalUserId = conv.externalUserId?.trim();
+
+  if ((conv.channel === 'whatsapp' || conv.channel === 'whatsapp_meta') && externalUserId) {
+    return externalUserId.replace(/^whatsapp:/i, '');
+  }
+
+  if (conv.channel === 'widget' && externalUserId) {
+    return externalUserId;
+  }
+
+  return `#${conv.conversationId.slice(0, 8)}`;
+}
 
 export default function Conversations() {
   const { tenantId } = useTenant();
@@ -93,6 +109,7 @@ export default function Conversations() {
             userId: data.userId ?? '',
             status: (data.status ?? 'open') as ConversationItem['status'],
             channel: (data.channel ?? 'widget') as ConversationItem['channel'],
+            externalUserId: typeof data.externalUserId === 'string' ? data.externalUserId : undefined,
             createdAt: data.createdAt?.toMillis?.() ?? null,
             updatedAt: data.updatedAt?.toMillis?.() ?? null,
             lastMessage,
@@ -166,6 +183,7 @@ export default function Conversations() {
             userId: data.userId ?? '',
             status: (data.status ?? 'open') as ConversationItem['status'],
             channel: (data.channel ?? 'widget') as ConversationItem['channel'],
+            externalUserId: typeof data.externalUserId === 'string' ? data.externalUserId : undefined,
             createdAt: data.createdAt?.toMillis?.() ?? null,
             updatedAt: data.updatedAt?.toMillis?.() ?? null,
             lastMessage,
@@ -207,7 +225,7 @@ export default function Conversations() {
   };
 
   const getChannelBadge = (conv: ConversationItem) => {
-    if (conv.channel !== 'whatsapp') return null;
+    if (conv.channel !== 'whatsapp' && conv.channel !== 'whatsapp_meta') return null;
 
     return (
       <span
@@ -318,7 +336,7 @@ export default function Conversations() {
                   {getStatusBadge(conv)}
                   {getChannelBadge(conv)}
                   {isActive && <span className="conversation-active-badge">ACTIVE</span>}
-                  <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>#{conv.conversationId.slice(0, 8)}</span>
+                  <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>{formatConversationIdentifier(conv)}</span>
                 </div>
                 <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 500, marginBottom: 4 }}>
                   {conv.lastMessage && conv.lastMessage.length > 100 ? `${conv.lastMessage.slice(0, 100)}...` : conv.lastMessage}
