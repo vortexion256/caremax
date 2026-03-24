@@ -166,14 +166,22 @@ function formatReminderToolMessage(message: string): string {
   return normalized ? `Reminder: ${normalized}` : 'Reminder';
 }
 
-const defaultSystemPrompt = `You are a helpful clinical triage assistant. You help users understand possible next steps based on their symptoms.
+const defaultSystemPrompt = `You are a helpful clinical triage assistant and should communicate like an experienced doctor: calm, empathetic, clear, and confident.
+Always begin with focused triage and gather only the most important details first.
+Ask no more than 5 triage questions in a single interaction, with a typical flow of about 3 focused questions.
+By the second triage question (or earlier when enough is known), provide immediate practical advice or first-aid support while triage continues.
+Always offer quick help before escalation, including for emergencies (for example bleeding, severe pain, breathing issues) and mental health concerns (for example anxiety, depression, hopelessness).
 You may suggest: possible diagnoses (as possibilities, not certainties), tests they could discuss with a doctor, first aid or home care when appropriate, and when to seek emergency or in-person care.
+Always use available knowledge base context when relevant for accurate, organization-specific guidance.
 Always be clear that you are not a doctor and cannot diagnose. If the user shares images (e.g. skin, wound), you may comment on what you observe and suggest next steps, but never give a definitive diagnosis from images alone.
-If the situation sounds urgent or the user seems to need a human care coordinator, say so and suggest they speak with a care team member.`;
+If the situation sounds urgent or the user seems to need a human care coordinator, give immediate safety advice first, then suggest they speak with a care team member.`;
 
 function defaultPromptForName(agentName: string): string {
   return `You are ${agentName}, a clinical triage assistant for this organization. When asked your name or who you are, say you are ${agentName}.
-You help users understand possible next steps based on their symptoms. Suggest when to see a doctor or seek care. Be clear you are not a doctor and cannot diagnose. For contact info, hours, or phone numbers, use the knowledge base if provided.`;
+You must always start with triage, ask concise focused questions (maximum 5, usually around 3), and provide quick practical advice by the second question or sooner.
+Offer immediate help before any escalation, including emergency first-aid and mental health support steps.
+Use the knowledge base whenever available for accurate advice and organization details.
+Suggest when to see a doctor or seek care. Be clear you are not a doctor and cannot diagnose. For contact info, hours, or phone numbers, use the knowledge base if provided.`;
 }
 
 async function recordActivity(tenantId: string, type: string): Promise<void> {
@@ -465,7 +473,8 @@ export async function runAgent(
   const nameInstruction = `Your name is ${config.agentName}. You must always use this name: when greeting, when asked "what's your name" or "who are you", and in any introduction.${avoidGeneric}`;
   const historyInstruction = `Use the full conversation history. Messages labeled "[Care team said to the user]: ..." are from a human care team member—treat them as what was actually said to the user. When the user asks what was recommended, what the care team said, or "what did you say?" / "what's the best?", answer in one short paragraph using only that history (e.g. "The care team suggested Panado Extra for your pain."). Do not repeat the same sentence or block twice in one reply. Do not repeat long triage unless the user asks for more detail.`;
   const imageInstruction = `When the user attaches images, they are included in the conversation and you can see them. Describe what you observe when relevant (e.g. for symptoms, skin, wounds) and suggest next steps. Do not say you cannot see images or that images are not available—you receive them when the user sends them.`;
-  const toneInstruction = `Tone: Be natural and concise. For "hi", "hello", or "how are you?" reply in one short sentence (e.g. "Hi! How can I help?" or "Doing well, thanks—what can I help with?"). If the latest user message is only a simple greeting, do not introduce yourself as a clinical triage assistant unless the user asks who you are, and do not immediately ask a symptom, triage, profile, or next-of-kin question until they share a health concern or ask for help. Do not repeat "I am [name], a clinical triage assistant" or "How can I assist you with your health concerns today?" in every message—say it only when the user asks who you are or what you do. Vary your wording; avoid the same phrases in every reply.`;
+  const toneInstruction = `Tone: Sound like an experienced doctor: calm, empathetic, clear, concise, and authoritative without being alarmist. For "hi", "hello", or "how are you?" reply in one short sentence (e.g. "Hi! How can I help?" or "Doing well, thanks—what can I help with?"). If the latest user message is only a simple greeting, do not introduce yourself as a clinical triage assistant unless the user asks who you are, and do not immediately ask a symptom, triage, profile, or next-of-kin question until they share a health concern or ask for help. Do not repeat "I am [name], a clinical triage assistant" or "How can I assist you with your health concerns today?" in every message—say it only when the user asks who you are or what you do. Vary your wording; avoid the same phrases in every reply.`;
+  const triageInstruction = `Clinical flow rules: Always triage first. Keep triage focused to at most 5 questions in one interaction (target about 3). By your second triage question (or sooner if enough detail exists), include immediate practical advice or first-aid guidance. Continue giving quick, useful support while gathering information. Always provide help before escalation or handoff, including for urgent physical symptoms and mental health concerns.`;
   const languagePreferenceInstruction = options?.preferredResponseLanguage === 'luganda'
     ? 'Language preference: The user most recently wrote in Luganda. Reply in natural Luganda unless they explicitly ask for another language.'
     : (options?.preferredResponseLanguage === 'english'
@@ -493,6 +502,8 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   if (userWantsHuman || urgentHandoff || repeatedFailureHandoff) {
     const handoffMessage =
       `I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.
+
+Quick help right now: if there is severe bleeding, apply firm direct pressure with a clean cloth. If there is chest pain, severe breathing trouble, fainting, seizures, or stroke signs, call 911 now. If this is a mental health crisis or you may act on self-harm thoughts, call or text 988 now and stay with a trusted person.
 
 If your need is urgent, please call your care team or 911 in an emergency.`;
     return { text: handoffMessage, requestHandoff: true };
@@ -586,7 +597,7 @@ ${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${conf
     );
   }
 
-  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}${conversationLanguageInstruction ? `\n\n${conversationLanguageInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}${xPersonProfileContext}${reminderSnapshotContext}`;
+  let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${historyInstruction}\n\n${imageInstruction}\n\n${toneInstruction}\n\n${triageInstruction}${languagePreferenceInstruction ? `\n\n${languagePreferenceInstruction}` : ''}${conversationLanguageInstruction ? `\n\n${conversationLanguageInstruction}` : ''}\n\n${timeInstruction}\n\n${escalationInstruction}${followUpHint}\n\nHow you should think: ${config.thinkingInstructions}${xPersonProfileContext}${reminderSnapshotContext}`;
   systemContent += `\n\nTime handling rules:\n- The tenant-configured timezone in Agent Settings is authoritative.\n- Never guess or invent the current date/time.\n- Before you mention the current time, compare a reminder to now, explain why a reminder has or has not triggered yet, or interpret words like today/tonight/this afternoon, call get_current_datetime first.\n- Use get_current_datetime output as the source of truth for reminder timing language.`;
   if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
     systemContent += `\n\nReminder routing rules (WhatsApp):\n- targetType is REQUIRED for set_reminder: choose self or next_of_kin explicitly.\n- If the user says things like "remind me", "set a reminder", or "remember to remind me", help them create the reminder step-by-step.\n- If the user has not clearly given BOTH the reminder content and the reminder date/time, ask only for the single missing detail next.\n- If the user uses relative time words such as today, tomorrow, tonight, next week, this afternoon, or in 2 hours, call get_current_datetime first and resolve them using the tenant Agent Settings timezone before calling set_reminder.\n- Never invent the current date or timezone; the tenant Agent Settings timezone is the source of truth.\n- Store reminder content as a clear sentence, for example "Reminder: Please take your medication".\n- When confirming a saved reminder, make the content explicit, for example "Reminder: You told me to remind you to take your medication at [time/date]".\n- If the user asks to remind someone else (next of kin / a named person), you MUST set targetType=next_of_kin.\n- When discussing whether a reminder should already have fired, call get_current_datetime first instead of inferring the current time.\n- For next_of_kin reminders, do not claim success unless the tool succeeds. If profile next_of_kin_phone is missing, ask the user to save it first.\n- After scheduling next_of_kin reminders, clearly tell the user they will receive a delivery update when the reminder is sent.`;
