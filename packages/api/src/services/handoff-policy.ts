@@ -10,6 +10,11 @@ const URGENT_HANDOFF_PATTERNS = [
   /\b(?:need\s+help\s+now|need\s+someone\s+now|someone\s+right\s+now)\b/i,
 ];
 
+const MENTAL_HEALTH_DISTRESS_PATTERNS = [
+  /\b(?:depress(?:ed|ion)?|hopeless|overwhelmed|panic(?:king)?|anxious|anxiety|sad(?:ness)?|can't\s+cope|cannot\s+cope)\b/i,
+  /\b(?:self[-\s]?harm|hurt\s+myself|end\s+my\s+life|suicid(?:al|e))\b/i,
+];
+
 const UNHELPFUL_ASSISTANT_PATTERNS = [
   "i'm not sure",
   'i am not sure',
@@ -41,6 +46,28 @@ export function isExplicitHumanRequest(text: string | undefined): boolean {
 export function isUrgentHandoffSituation(text: string | undefined): boolean {
   if (typeof text !== 'string' || !text.trim()) return false;
   return URGENT_HANDOFF_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+export function isMentalHealthDistress(text: string | undefined): boolean {
+  if (typeof text !== 'string' || !text.trim()) return false;
+  return MENTAL_HEALTH_DISTRESS_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+export function buildHandoffMessage(userText: string | undefined): string {
+  const mentalHealthDistress = isMentalHealthDistress(userText);
+  if (mentalHealthDistress) {
+    return `I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.
+
+Quick help right now: I’m really glad you reached out. If you might act on thoughts of self-harm or feel unsafe, call or text 988 now. If you can, stay with a trusted person and remove anything you could use to hurt yourself.
+
+If your need is urgent, please call your care team or 911 in an emergency.`;
+  }
+
+  return `I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.
+
+Quick help right now: if there is severe bleeding, apply firm direct pressure with a clean cloth. If there is chest pain, severe breathing trouble, fainting, seizures, or stroke signs, call 911 now. If this is a mental health crisis or you may act on self-harm thoughts, call or text 988 now and stay with a trusted person.
+
+If your need is urgent, please call your care team or 911 in an emergency.`;
 }
 
 export function isUnhelpfulAssistantReply(text: string | undefined): boolean {
