@@ -50,6 +50,7 @@ import {
   type EmptyResponseAnalysis,
 } from './agent-planner.js';
 import {
+  buildHandoffMessage,
   isExplicitHumanRequest,
   isUrgentHandoffSituation,
   shouldTriggerRepeatedFailureHandoff,
@@ -727,7 +728,7 @@ async function runAgentRuntime(
         reason: wantsHumanHandoff ? 'intent_requested_human' : urgentHandoff ? 'urgent_case' : 'repeated_failed_turns',
       });
       return {
-        text: "I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.\n\nQuick help right now: if there is severe bleeding, apply firm direct pressure with a clean cloth. If there is chest pain, severe breathing trouble, fainting, seizures, or stroke signs, call 911 now. If this is a mental health crisis or you may act on self-harm thoughts, call or text 988 now and stay with a trusted person.\n\nIf your need is urgent, please call your care team or 911 in an emergency.",
+        text: buildHandoffMessage(latestUserMessage),
         requestHandoff: true,
       };
     }

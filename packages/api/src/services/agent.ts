@@ -16,6 +16,7 @@ import { buildNokRelayOutboundMessage, createRelayTicket, markRelayTicketSendFai
 import { normalizeWhatsAppExternalUserId } from './user-identity.js';
 import { getHealthProfile, logVitals } from './health-tools.js';
 import {
+  buildHandoffMessage,
   isExplicitHumanRequest,
   isUnhelpfulAssistantReply,
   isUrgentHandoffSituation,
@@ -500,13 +501,7 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
   const repeatedFailureHandoff = shouldTriggerRepeatedFailureHandoff(history);
 
   if (userWantsHuman || urgentHandoff || repeatedFailureHandoff) {
-    const handoffMessage =
-      `I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.
-
-Quick help right now: if there is severe bleeding, apply firm direct pressure with a clean cloth. If there is chest pain, severe breathing trouble, fainting, seizures, or stroke signs, call 911 now. If this is a mental health crisis or you may act on self-harm thoughts, call or text 988 now and stay with a trusted person.
-
-If your need is urgent, please call your care team or 911 in an emergency.`;
-    return { text: handoffMessage, requestHandoff: true };
+    return { text: buildHandoffMessage(lastUserContent), requestHandoff: true };
   }
 
 
