@@ -117,7 +117,7 @@ If your need is urgent, please call your care team or 911 in an emergency.`;
 
   return `I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.
 
-Quick help right now: ${matchedRule?.advice ?? 'If there is severe bleeding, apply firm direct pressure with a clean cloth. If there is chest pain, severe breathing trouble, fainting, seizures, or stroke signs, call 911 now. If this is a mental health crisis or you may act on self-harm thoughts, call or text 988 now and stay with a trusted person.'}
+Quick help right now: ${matchedRule?.advice ?? 'If this may be an emergency, call 911 now.'}
 
 While you wait, I can keep helping you in this chat with next steps based on your symptoms.
 
