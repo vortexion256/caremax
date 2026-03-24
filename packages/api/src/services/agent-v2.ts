@@ -520,11 +520,17 @@ function getReminderFailureClarification(
 function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): string {
   const sharedRules = [
     'Shared conversation rules:',
+    '- Sound like an experienced doctor: calm, empathetic, confident, and clear.',
     '- If the latest user message is only a simple greeting such as "hi", "hello", "hey", or "how are you", reply with one short, warm greeting only.',
     '- After a simple greeting, do NOT introduce yourself as a clinical triage assistant unless the user asks who you are.',
     '- After a simple greeting, do NOT ask a symptom, triage, profile, or next-of-kin question until the user gives a health concern or asks for help.',
     '- After a simple greeting, never use a scripted intro like "Hello! I am [name], a clinical triage assistant".',
-    '- Keep greetings natural, for example: "Hi! How can I help?" or "Hello! What can I help with today?".'
+    '- Keep greetings natural, for example: "Hi! How can I help?" or "Hello! What can I help with today?".',
+    '- Always triage first when the user reports a health concern.',
+    '- Keep triage concise: maximum 5 questions in an interaction, with a typical target of around 3 focused questions.',
+    '- By question 2 (or sooner if enough is known), provide immediate practical advice or first-aid help while triage continues.',
+    '- Always offer useful quick help before escalation or handoff, including for emergencies and mental health concerns.',
+    '- Use available knowledge-base context whenever relevant for accurate guidance.'
   ];
 
   if (variant === 'v3') {
@@ -548,7 +554,7 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
       '- For flu, cough, cold, fever, or sore throat, prefer one key safety check such as breathing difficulty, chest pain, dehydration, or inability to drink fluids before giving advice.',
       '- Example branch for diarrhea: ask frequency, dehydration, food exposure, sick contacts, and blood in stool one at a time.',
       '- For diarrhea or vomiting, actively check dehydration with one question such as "Are you able to drink fluids?".',
-      '- Do NOT give advice, explanations, or lists until you have enough information.',
+      '- Do not delay all advice until the end: give a brief practical step by question 2, then refine advice as triage continues.',
       '- When you do give advice, make it personalized: say the likely category (for example stomach infection, food poisoning, or flu-like viral illness), the home-care step, and the exact red flags that change urgency.',
       '- Always explain the clinical reasoning briefly in simple language, for example "because it started recently and there are no danger signs".',
       '- For flu-like illness, if the user sounds low-risk, advice should mention rest, fluids, fever/pain relief if appropriate, and exact red flags such as trouble breathing, chest pain, confusion, dehydration, or worsening fever.',
@@ -721,7 +727,7 @@ async function runAgentRuntime(
         reason: wantsHumanHandoff ? 'intent_requested_human' : urgentHandoff ? 'urgent_case' : 'repeated_failed_turns',
       });
       return {
-        text: "I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.\n\nIf your need is urgent, please call your care team or 911 in an emergency.",
+        text: "I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.\n\nQuick help right now: if there is severe bleeding, apply firm direct pressure with a clean cloth. If there is chest pain, severe breathing trouble, fainting, seizures, or stroke signs, call 911 now. If this is a mental health crisis or you may act on self-harm thoughts, call or text 988 now and stay with a trusted person.\n\nIf your need is urgent, please call your care team or 911 in an emergency.",
         requestHandoff: true,
       };
     }
@@ -1687,7 +1693,7 @@ Follow this plan step by step. Execute each step in order.`;
             // Simplified system prompt
             const simplifiedSystem = new SystemMessage(
               variant === 'v3'
-                ? 'You are a clinical triage assistant. Ask exactly one short, natural question. Use brief empathy, and if the user is confused about severity, guide with mild/moderate/severe examples instead of repeating the question. Never combine multiple checks in one question unless urgent safety advice is required.'
+                ? 'You are a clinical triage assistant. Ask exactly one short, natural question. Use brief empathy, and if the user is confused about severity, guide with mild/moderate/severe examples instead of repeating the question. Never combine multiple checks in one question unless urgent safety advice is required. Provide immediate practical advice by the second question while triage continues.'
                 : (`You are a helpful assistant. Provide clear, concise responses. ` +
                   `If you executed tools, summarize what was done and the results.`)
             );
@@ -1704,10 +1710,10 @@ Follow this plan step by step. Execute each step in order.`;
           const retryPrompt = new HumanMessage({
             content: analysis.cause === 'tool_only'
               ? (variant === 'v3'
-                ? `You executed tools but gave no text. Reply briefly. If more info is needed, ask exactly one short next question and make it the single most important missing clinical detail.`
+                ? `You executed tools but gave no text. Reply briefly. If more info is needed, ask exactly one short next question and make it the single most important missing clinical detail. Ensure quick practical advice is included by question 2.`
                 : `You executed tools but didn't provide a text response. Please summarize what was done based on the tool results above and provide a helpful response to the user.`)
               : (variant === 'v3'
-                ? `Reply briefly. Ask exactly one short, natural next question unless urgent safety advice is needed. Do not combine multiple symptom checks.`
+                ? `Reply briefly. Ask exactly one short, natural next question unless urgent safety advice is needed. Do not combine multiple symptom checks. Ensure quick practical advice is included by question 2.`
                 : `Please provide a clear response to the user. If tools were executed, summarize the results.`),
           });
           
