@@ -429,6 +429,87 @@ async function sendMetaWhatsAppTextMessage(params: {
   }
 }
 
+type MetaTemplateLanguage = {
+  code: string;
+};
+
+type MetaTemplateParameter = {
+  type: string;
+  text?: string;
+  payload?: string;
+  currency?: {
+    fallback_value: string;
+    code: string;
+    amount_1000: number;
+  };
+  date_time?: {
+    fallback_value: string;
+  };
+  image?: {
+    link: string;
+  };
+  video?: {
+    link: string;
+  };
+  document?: {
+    link: string;
+    filename?: string;
+  };
+};
+
+type MetaTemplateComponent = {
+  type: 'header' | 'body' | 'button';
+  sub_type?: 'quick_reply' | 'url';
+  index?: string;
+  parameters?: MetaTemplateParameter[];
+};
+
+async function sendMetaWhatsAppTemplateMessage(params: {
+  phoneNumberId: string;
+  accessToken: string;
+  to: string;
+  template: {
+    name: string;
+    language: MetaTemplateLanguage;
+    components?: MetaTemplateComponent[];
+  };
+}): Promise<string | undefined> {
+  const res = await fetch(`https://graph.facebook.com/v22.0/${encodeURIComponent(params.phoneNumberId)}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to: params.to,
+      type: 'template',
+      template: {
+        name: params.template.name,
+        language: {
+          code: params.template.language.code,
+        },
+        ...(params.template.components?.length
+          ? { components: params.template.components }
+          : {}),
+      },
+    }),
+    signal: AbortSignal.timeout(12_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Meta WhatsApp outbound template send failed (${res.status}): ${await res.text()}`);
+  }
+
+  try {
+    const payload = await res.json() as { messages?: Array<{ id?: unknown }> };
+    const providerMessageId = payload.messages?.[0]?.id;
+    return typeof providerMessageId === 'string' ? providerMessageId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function sendMetaWhatsAppAudioMessage(params: {
   phoneNumberId: string;
   accessToken: string;
@@ -2799,6 +2880,55 @@ const updateWhatsAppMetaBody = z.object({
   webhookVerifyToken: z.string().optional(),
 });
 
+const metaTemplateSendBody = z.object({
+  to: z.string().min(1).optional(),
+  recipients: z.array(z.string().min(1)).min(1).optional(),
+  template: z.object({
+    name: z.string().min(1),
+    language: z.object({
+      code: z.string().min(1),
+    }),
+    components: z.array(z.object({
+      type: z.enum(['header', 'body', 'button']),
+      sub_type: z.enum(['quick_reply', 'url']).optional(),
+      index: z.string().optional(),
+      parameters: z.array(z.object({
+        type: z.string().min(1),
+        text: z.string().optional(),
+        payload: z.string().optional(),
+        currency: z.object({
+          fallback_value: z.string().min(1),
+          code: z.string().min(1),
+          amount_1000: z.number(),
+        }).optional(),
+        date_time: z.object({
+          fallback_value: z.string().min(1),
+        }).optional(),
+        image: z.object({
+          link: z.string().url(),
+        }).optional(),
+        video: z.object({
+          link: z.string().url(),
+        }).optional(),
+        document: z.object({
+          link: z.string().url(),
+          filename: z.string().optional(),
+        }).optional(),
+      })).optional(),
+    })).optional(),
+  }),
+}).superRefine((value, ctx) => {
+  const hasTo = typeof value.to === 'string' && value.to.trim().length > 0;
+  const hasRecipients = Array.isArray(value.recipients) && value.recipients.some((recipient) => recipient.trim().length > 0);
+  if (!hasTo && !hasRecipients) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Either "to" or "recipients" is required.',
+      path: ['to'],
+    });
+  }
+});
+
 function maskSecret(secret: string): string {
   if (secret.length <= 4) return '*'.repeat(secret.length);
   return `${'*'.repeat(Math.max(secret.length - 4, 0))}${secret.slice(-4)}`;
@@ -2951,6 +3081,73 @@ tenantIntegrationsRouter.put('/whatsapp/meta', requireAuth, requireAdmin, async 
   } catch (error) {
     console.error('WhatsApp Meta integration update error:', error);
     res.status(500).json({ error: 'Failed to save WhatsApp Meta integration' });
+  }
+});
+
+tenantIntegrationsRouter.post('/whatsapp/meta/send-template', requireAuth, requireAdmin, async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const parsed = metaTemplateSendBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    const integrationDoc = await db.collection('tenant_integrations').doc(tenantId).get();
+    const meta = integrationDoc.data()?.whatsappMeta;
+    const phoneNumberId = typeof meta?.phoneNumberId === 'string' ? meta.phoneNumberId.trim() : '';
+    const accessToken = typeof meta?.accessToken === 'string' ? meta.accessToken.trim() : '';
+    if (!phoneNumberId || !accessToken) {
+      res.status(400).json({ error: 'Meta WhatsApp integration is not connected for this tenant.' });
+      return;
+    }
+
+    const recipients = Array.from(
+      new Set([
+        ...(parsed.data.to ? [parsed.data.to] : []),
+        ...(parsed.data.recipients ?? []),
+      ].map((recipient) => recipient.trim()).filter(Boolean)),
+    );
+    if (!recipients.length) {
+      res.status(400).json({ error: 'At least one valid recipient is required.' });
+      return;
+    }
+
+    const results: Array<{ recipient: string; status: 'sent' | 'failed'; providerMessageId?: string; error?: string }> = [];
+    for (const recipient of recipients) {
+      try {
+        const providerMessageId = await sendMetaWhatsAppTemplateMessage({
+          phoneNumberId,
+          accessToken,
+          to: recipient,
+          template: parsed.data.template,
+        });
+        results.push({
+          recipient,
+          status: 'sent',
+          ...(providerMessageId ? { providerMessageId } : {}),
+        });
+      } catch (sendError) {
+        results.push({
+          recipient,
+          status: 'failed',
+          error: sendError instanceof Error ? sendError.message : 'Failed to send template',
+        });
+      }
+    }
+
+    const sentCount = results.filter((result) => result.status === 'sent').length;
+    const failedCount = results.length - sentCount;
+    res.status(failedCount > 0 ? 207 : 201).json({
+      ok: failedCount === 0,
+      sentCount,
+      failedCount,
+      results,
+    });
+  } catch (error) {
+    console.error('Meta WhatsApp template send error:', error);
+    const details = error instanceof Error ? error.message : 'Unknown send error';
+    res.status(502).json({ error: 'Failed to send Meta WhatsApp template', details });
   }
 });
 

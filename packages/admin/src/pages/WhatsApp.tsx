@@ -35,6 +35,12 @@ type MetaFormState = {
   webhookVerifyToken: string;
 };
 
+type MetaTemplateSendState = {
+  templateName: string;
+  languageCode: string;
+  recipientsText: string;
+};
+
 const initialTwilioFormState: TwilioFormState = {
   accountSid: '',
   authToken: '',
@@ -49,6 +55,12 @@ const initialMetaFormState: MetaFormState = {
   webhookVerifyToken: '',
 };
 
+const initialMetaTemplateSendState: MetaTemplateSendState = {
+  templateName: 'caremax',
+  languageCode: 'en_US',
+  recipientsText: '',
+};
+
 export default function WhatsAppIntegration() {
   const { tenantId } = useTenant();
   const [provider, setProvider] = useState<'twilio' | 'meta'>('twilio');
@@ -58,6 +70,7 @@ export default function WhatsAppIntegration() {
 
   const [metaStatus, setMetaStatus] = useState<MetaConfigResponse>({ connected: false });
   const [metaForm, setMetaForm] = useState<MetaFormState>(initialMetaFormState);
+  const [metaTemplateSend, setMetaTemplateSend] = useState<MetaTemplateSendState>(initialMetaTemplateSendState);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -174,6 +187,63 @@ export default function WhatsAppIntegration() {
     }
   };
 
+  const sendMetaTemplate = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!tenantId) return;
+    const recipients = Array.from(
+      new Set(
+        metaTemplateSend.recipientsText
+          .split(/[\n,\s]+/)
+          .map((value) => value.trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (!recipients.length) {
+      setError('Add at least one phone number before sending a template.');
+      setMessage('');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await api<{
+        ok: boolean;
+        sentCount: number;
+        failedCount: number;
+        results: Array<{ recipient: string; status: 'sent' | 'failed'; providerMessageId?: string; error?: string }>;
+      }>(`/tenants/${tenantId}/integrations/whatsapp/meta/send-template`, {
+        method: 'POST',
+        body: JSON.stringify({
+          recipients,
+          template: {
+            name: metaTemplateSend.templateName.trim(),
+            language: { code: metaTemplateSend.languageCode.trim() },
+          },
+        }),
+      });
+
+      if (response.failedCount > 0) {
+        const failedRecipients = response.results
+          .filter((result) => result.status === 'failed')
+          .map((result) => result.recipient)
+          .join(', ');
+        setError(`Template sent to ${response.sentCount}/${recipients.length}. Failed: ${failedRecipients}`);
+        setMessage('');
+      } else {
+        setMessage(`Template "${metaTemplateSend.templateName.trim()}" sent to ${response.sentCount} recipient(s).`);
+        setMetaTemplateSend((prev) => ({ ...prev, recipientsText: '' }));
+      }
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : 'Failed to send Meta template');
+      setMessage('');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return <div style={{ color: '#64748b' }}>Loading WhatsApp integration...</div>;
   }
@@ -268,7 +338,7 @@ export default function WhatsAppIntegration() {
             )}
           </div>
 
-          <form onSubmit={onSubmitMeta} style={{ display: 'grid', gap: 12 }}>
+	          <form onSubmit={onSubmitMeta} style={{ display: 'grid', gap: 12 }}>
             {[
               { key: 'phoneNumberId', label: 'Meta WhatsApp Phone Number ID', required: true },
               { key: 'accessToken', label: 'Meta Permanent Access Token', required: true },
@@ -291,7 +361,7 @@ export default function WhatsAppIntegration() {
               <div style={{ marginTop: 4, fontFamily: 'monospace', wordBreak: 'break-all', color: '#0f172a' }}>{metaWebhookUrl}</div>
             </div>
 
-            <div style={{ display: 'flex', gap: 10 }}>
+	            <div style={{ display: 'flex', gap: 10 }}>
               <button type="submit" disabled={saving} style={{ border: 'none', background: '#2563eb', color: '#fff', borderRadius: 8, padding: '10px 14px', fontWeight: 600, cursor: 'pointer' }}>
                 {saving ? 'Saving...' : metaStatus.connected ? 'Update Connection' : 'Connect Number'}
               </button>
@@ -301,10 +371,59 @@ export default function WhatsAppIntegration() {
                   Disconnect
                 </button>
               )}
-            </div>
-          </form>
-        </>
-      )}
+	            </div>
+	          </form>
+
+            {metaStatus.connected && (
+              <form onSubmit={sendMetaTemplate} style={{ display: 'grid', gap: 12, border: '1px solid #dbeafe', borderRadius: 12, padding: 16, background: '#eff6ff' }}>
+                <div>
+                  <div style={{ fontWeight: 700, color: '#1e3a8a' }}>Send Meta WhatsApp template</div>
+                  <div style={{ marginTop: 4, color: '#1e40af', fontSize: 13 }}>
+                    Select phone numbers and send an approved template by name (for example: <strong>caremax</strong>).
+                  </div>
+                </div>
+
+                <label style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155' }}>
+                  Template Name
+                  <input
+                    type="text"
+                    required
+                    value={metaTemplateSend.templateName}
+                    onChange={(e) => setMetaTemplateSend((prev) => ({ ...prev, templateName: e.target.value }))}
+                    style={{ border: '1px solid #93c5fd', borderRadius: 8, padding: '10px 12px', fontSize: 14 }}
+                  />
+                </label>
+
+                <label style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155' }}>
+                  Language Code
+                  <input
+                    type="text"
+                    required
+                    value={metaTemplateSend.languageCode}
+                    onChange={(e) => setMetaTemplateSend((prev) => ({ ...prev, languageCode: e.target.value }))}
+                    style={{ border: '1px solid #93c5fd', borderRadius: 8, padding: '10px 12px', fontSize: 14 }}
+                  />
+                </label>
+
+                <label style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155' }}>
+                  Recipient Numbers
+                  <textarea
+                    required
+                    rows={5}
+                    placeholder={'Enter phone numbers separated by commas or new lines\nExample:\n+256753190830\n+256700000001'}
+                    value={metaTemplateSend.recipientsText}
+                    onChange={(e) => setMetaTemplateSend((prev) => ({ ...prev, recipientsText: e.target.value }))}
+                    style={{ border: '1px solid #93c5fd', borderRadius: 8, padding: '10px 12px', fontSize: 14, resize: 'vertical' }}
+                  />
+                </label>
+
+                <button type="submit" disabled={saving} style={{ border: 'none', background: '#1d4ed8', color: '#fff', borderRadius: 8, padding: '10px 14px', fontWeight: 600, cursor: 'pointer', width: 'fit-content' }}>
+                  {saving ? 'Sending...' : 'Send Template'}
+                </button>
+              </form>
+            )}
+	        </>
+	      )}
 
       {message && <div style={{ color: '#047857', fontWeight: 500 }}>{message}</div>}
       {error && <div style={{ color: '#b91c1c', fontWeight: 500 }}>{error}</div>}
