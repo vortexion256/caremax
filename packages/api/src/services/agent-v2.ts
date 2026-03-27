@@ -160,6 +160,18 @@ function messageLooksLikeClarification(text: string): boolean {
   return /^(what|which|how|why|when|where|who|do you mean|meaning|explain)\b/.test(normalized);
 }
 
+function messageLooksLikeKnowledgeQuestion(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+
+  const hasQuestionForm = normalized.includes('?')
+    || /^(can|could|is it|is|are|what|why|how|when|where|does|do|should)\b/.test(normalized);
+  if (!hasQuestionForm) return false;
+
+  const personalSymptomContext = /\b(i|i'm|im|me|my|mine|we|our)\b/.test(normalized);
+  return !personalSymptomContext;
+}
+
 function messageAnswersState(text: string, state: TriageState): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized || messageLooksLikeClarification(normalized)) return false;
@@ -214,11 +226,16 @@ function shouldFastTrackV3Advice(
 function prepareV3TriageState(history: { role: string; content: string; imageUrls?: string[] }[], persisted: PersistedTriageState): PersistedTriageState {
   const nextState = normalizeTriageState(persisted);
   const lastUserMessage = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
+  const firstUserMessage = history.find((m) => m.role === 'user' && m.content.trim());
 
-  if (!nextState.askedStates.includes('chief_complaint') && history.some((m) => m.role === 'user' && m.content.trim())) {
+  if (
+    !nextState.askedStates.includes('chief_complaint')
+    && firstUserMessage
+    && !messageLooksLikeKnowledgeQuestion(firstUserMessage.content)
+  ) {
     nextState.askedStates.push('chief_complaint');
     nextState.answeredStates.push('chief_complaint');
-    nextState.symptomSummary = history.find((m) => m.role === 'user' && m.content.trim())?.content ?? nextState.symptomSummary ?? null;
+    nextState.symptomSummary = firstUserMessage.content ?? nextState.symptomSummary ?? null;
   }
 
   const pendingAskedState = [...nextState.askedStates].reverse().find((state) => state !== 'chief_complaint' && !nextState.answeredStates.includes(state));
@@ -526,6 +543,8 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
     '- After a simple greeting, never use a scripted intro like "Hello! I am [name], a clinical triage assistant".',
     '- Keep greetings natural, for example: "Hi! How can I help?" or "Hello! What can I help with today?".',
     '- When a user reports a health issue, do NOT reply with empathy alone. Give immediate practical next-step guidance first, then ask one focused question if needed.',
+    '- If the user asks a medical knowledge question (for example "can this happen?"), answer that question first in plain language before starting triage.',
+    '- Only move to triage questions after you answer the knowledge question and the user confirms it relates to their own symptoms.',
     '- Infer likely intent from imperfect wording (typos, short phrases, mixed language). If the user mentions a high-risk group (for example pregnancy, newborn, elderly), prioritize safety guidance and urgency checks instead of generic clarification.'
   ];
 
@@ -536,6 +555,7 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
       '- Ask exactly ONE short follow-up question at a time.',
       '- Keep visible responses under 20 words unless urgent safety advice or a tool result requires more detail.',
       '- Start with brief empathy when the user shares feeling unwell, for example "Sorry you are feeling unwell" or "Thanks—that helps".',
+      '- Do NOT use empathy-first phrasing for pure knowledge questions. For knowledge questions, answer first; add triage only when personal symptoms are confirmed.',
       '- Empathy must never be the whole response for symptom reports; include actionable guidance in the same message.',
       '- If you still need information, reply with only the next question unless a short empathy phrase is helpful.',
       '- Before asking, think silently: "What is the most important missing clinical detail right now?" Then ask only that.',
@@ -692,6 +712,7 @@ async function runAgentRuntime(
       modelName: config.model,
     });
     const latestUserMessage = [...history].reverse().find((message) => message.role === 'user')?.content ?? currentTask;
+    const isKnowledgeFirstQuestion = intent.intent === 'query_information' && messageLooksLikeKnowledgeQuestion(latestUserMessage);
     const wantsHumanHandoff = intent.intent === 'request_human' || isExplicitHumanRequest(latestUserMessage);
     const urgentHandoff = isUrgentHandoffSituation(latestUserMessage);
     const repeatedFailureHandoff = shouldTriggerRepeatedFailureHandoff(history);
@@ -699,6 +720,7 @@ async function runAgentRuntime(
       intent: intent.intent,
       entities: intent.entities,
       currentTask,
+      isKnowledgeFirstQuestion,
       wantsHumanHandoff,
       urgentHandoff,
       repeatedFailureHandoff,
@@ -998,7 +1020,7 @@ async function runAgentRuntime(
       : null;
 
     const runtimeConversationInstructions = buildRuntimeConversationInstructions(variant);
-    const v3StateInstruction = variant === 'v3'
+    const v3StateInstruction = variant === 'v3' && !isKnowledgeFirstQuestion
       ? `Backend triage state (authoritative, persisted): current=${persistedV3TriageState.currentState}; answered=${persistedV3TriageState.answeredStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; asked=${persistedV3TriageState.askedStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; symptom_summary=${persistedV3TriageState.symptomSummary ?? 'unknown'}. You MUST respect this backend state. Do not re-ask any answered state. Ask only for the current backend state unless urgent escalation is needed. If the current state is severity and the user sounds confused, guide them with simple mild/moderate/severe examples instead of repeating the question. If the current state is associated symptoms for flu-like illness, check clustered symptoms one step at a time: danger signs first, then fever/body aches/sore throat, then hydration or weakness if still needed. If the current state is advice, stop asking intake questions and give advice. When backend state is advice after only chief complaint + duration + severity, that is intentional for low-risk/common symptoms: give concise home-care advice plus the exact red flags, brief reasoning, and when to seek in-person care instead of asking more checklist questions. For flu-like or viral upper-respiratory symptoms in advice state, explicitly cover hydration, rest, symptom relief, and breathing/dehydration red flags, and include when the user should seek review if not improving.`
       : '';
 
