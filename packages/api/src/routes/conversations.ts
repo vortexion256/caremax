@@ -9,7 +9,7 @@ import type { ConversationStatus } from '../types/index.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { resolveConversationIdentity } from '../services/user-identity.js';
 import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, syncXPersonProfileConversationDuration, upsertXPersonProfile } from '../services/xperson-profile.js';
-import { isExplicitHumanRequest, isUrgentHandoffSituation } from '../services/handoff-policy.js';
+import { isExplicitHumanRequest, isImmediateEmergencyHandoffSituation } from '../services/handoff-policy.js';
 import { upsertClinicalSnapshot } from '../services/clinical-snapshot.js';
 
 export const conversationRouter: Router = Router({ mergeParams: true });
@@ -330,7 +330,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
     return;
   }
 
-  const wantsHumanAgain = (text: string) => isExplicitHumanRequest(text) || isUrgentHandoffSituation(text);
+  const wantsHumanAgain = (text: string) => isExplicitHumanRequest(text) || isImmediateEmergencyHandoffSituation(text);
 
   if (alreadyRequestedHandoff && wantsHumanAgain(content)) {
     const shortMessage =

@@ -51,6 +51,7 @@ import {
 } from './agent-planner.js';
 import {
   isExplicitHumanRequest,
+  isImmediateEmergencyHandoffSituation,
   isUrgentHandoffSituation,
   shouldTriggerRepeatedFailureHandoff,
 } from './handoff-policy.js';
@@ -718,6 +719,7 @@ async function runAgentRuntime(
     const highConfidenceIntentHandoff =
       intent.intent === 'request_human' && intent.confidence >= HUMAN_HANDOFF_INTENT_CONFIDENCE_THRESHOLD;
     const wantsHumanHandoff = explicitHumanRequest || highConfidenceIntentHandoff;
+    const immediateEmergencyHandoff = isImmediateEmergencyHandoffSituation(latestUserMessage);
     const urgentHandoff = isUrgentHandoffSituation(latestUserMessage);
     const repeatedFailureHandoff = shouldTriggerRepeatedFailureHandoff(history);
     logAgentFlow(variant, 'intent', {
@@ -730,6 +732,7 @@ async function runAgentRuntime(
       highConfidenceIntentHandoff,
       handoffIntentConfidenceThreshold: HUMAN_HANDOFF_INTENT_CONFIDENCE_THRESHOLD,
       intentConfidence: intent.confidence,
+      immediateEmergencyHandoff,
       urgentHandoff,
       repeatedFailureHandoff,
     });
@@ -750,12 +753,16 @@ async function runAgentRuntime(
     }
 
     // Early exit for human handoff
-    if (wantsHumanHandoff || urgentHandoff || repeatedFailureHandoff) {
+    if (wantsHumanHandoff || immediateEmergencyHandoff || repeatedFailureHandoff) {
       logAgentFlow(variant, 'handoff', {
-        reason: wantsHumanHandoff ? 'intent_requested_human' : urgentHandoff ? 'urgent_case' : 'repeated_failed_turns',
+        reason: wantsHumanHandoff
+          ? 'intent_requested_human'
+          : immediateEmergencyHandoff
+            ? 'immediate_emergency_case'
+            : 'repeated_failed_turns',
       });
       return {
-        text: "I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.\n\nIf your need is urgent, please call your care team or 911 in an emergency.",
+        text: "I've requested that a care team member join this chat now. Because this may be an emergency, call 911 immediately, stop activity, and ask someone nearby to stay with you.",
         requestHandoff: true,
       };
     }

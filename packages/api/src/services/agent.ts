@@ -17,8 +17,8 @@ import { normalizeWhatsAppExternalUserId } from './user-identity.js';
 import { getHealthProfile, logVitals } from './health-tools.js';
 import {
   isExplicitHumanRequest,
+  isImmediateEmergencyHandoffSituation,
   isUnhelpfulAssistantReply,
-  isUrgentHandoffSituation,
   shouldTriggerRepeatedFailureHandoff,
 } from './handoff-policy.js';
 
@@ -487,14 +487,12 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
 
   const lastUserContent = history.filter((m) => m.role === 'user').pop()?.content ?? '';
   const userWantsHuman = isExplicitHumanRequest(lastUserContent);
-  const urgentHandoff = isUrgentHandoffSituation(lastUserContent);
+  const immediateEmergencyHandoff = isImmediateEmergencyHandoffSituation(lastUserContent);
   const repeatedFailureHandoff = shouldTriggerRepeatedFailureHandoff(history);
 
-  if (userWantsHuman || urgentHandoff || repeatedFailureHandoff) {
+  if (userWantsHuman || immediateEmergencyHandoff || repeatedFailureHandoff) {
     const handoffMessage =
-      `I've requested that a care team member join this chat. They'll be with you shortly—please stay on this page.
-
-If your need is urgent, please call your care team or 911 in an emergency.`;
+      `I've requested that a care team member join this chat now. Because this may be an emergency, call 911 immediately, stop activity, and ask someone nearby to stay with you.`;
     return { text: handoffMessage, requestHandoff: true };
   }
 
