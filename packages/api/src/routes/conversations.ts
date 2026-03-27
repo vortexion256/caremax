@@ -10,6 +10,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { resolveConversationIdentity } from '../services/user-identity.js';
 import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, syncXPersonProfileConversationDuration, upsertXPersonProfile } from '../services/xperson-profile.js';
 import { isExplicitHumanRequest, isUrgentHandoffSituation } from '../services/handoff-policy.js';
+import { upsertClinicalSnapshot } from '../services/clinical-snapshot.js';
 
 export const conversationRouter: Router = Router({ mergeParams: true });
 
@@ -300,6 +301,20 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
     console.warn('[Conversations] Failed to upsert XPersonProfile from incoming message:', profileError);
   }
 
+
+  try {
+    await upsertClinicalSnapshot({
+      tenantId,
+      conversationId,
+      userId: typeof convData?.userId === 'string' ? convData.userId : undefined,
+      externalUserId: typeof convData?.externalUserId === 'string' ? convData.externalUserId : undefined,
+      text: content,
+      source: channel === 'whatsapp_meta' ? 'whatsapp_meta' : channel === 'whatsapp' ? 'whatsapp' : 'widget',
+    });
+  } catch (snapshotError) {
+    console.warn('[Conversations] Failed to upsert clinical snapshot:', snapshotError);
+  }
+
   const status = (conv.data()?.status as string) ?? 'open';
   const humanActive = status === 'human_joined';
   const alreadyRequestedHandoff = status === 'handoff_requested';
@@ -322,6 +337,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
       "A care team member has already been notified and will join shortly. Please stay on this page.";
     const assistantMsgRef = await db.collection(MESSAGES).add({
       conversationId,
+      tenantId,
       role: 'assistant',
       content: shortMessage,
       createdAt: FieldValue.serverTimestamp(),
@@ -380,6 +396,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
 
   const assistantMsgRef = await db.collection(MESSAGES).add({
     conversationId,
+    tenantId,
     role: 'assistant',
     content: agentResponse.text,
     createdAt: FieldValue.serverTimestamp(),
