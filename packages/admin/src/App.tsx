@@ -35,6 +35,7 @@ import TermsOfService from './pages/TermsOfService';
 import Contact from './pages/Contact';
 import PatientProfilePage from './pages/XPersonProfile';
 import SpecialMessagesPage from './pages/SpecialMessages';
+import AgentLearningHub from './pages/AgentLearningHub';
 
 type MeResponse = {
   uid: string;
@@ -216,6 +217,7 @@ export default function App() {
           <Route path="billing" element={<TenantBilling />} />
           <Route path="patient-profile" element={<PatientProfilePage />} />
           <Route path="special-messages" element={<SpecialMessagesPage />} />
+          <Route path="agent-learning" element={<AgentLearningHub />} />
         </Route>
         <Route path="/platform" element={<PlatformLayout />}>
           <Route index element={<PlatformDashboard />} />

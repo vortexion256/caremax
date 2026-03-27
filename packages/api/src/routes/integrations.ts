@@ -24,6 +24,7 @@ import { promises as fs } from 'fs';
 import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
 import { isExplicitHumanRequest, isUrgentHandoffSituation } from '../services/handoff-policy.js';
+import { upsertClinicalSnapshot } from '../services/clinical-snapshot.js';
 
 const execFile = promisify(execFileCb);
 
@@ -1863,6 +1864,19 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       createdAt: FieldValue.serverTimestamp(),
     });
 
+    try {
+      await upsertClinicalSnapshot({
+        tenantId,
+        conversationId: conversationRef.id,
+        userId: identity.scopedUserId,
+        externalUserId: identity.externalUserId,
+        text: body,
+        source: 'whatsapp',
+      });
+    } catch (snapshotError) {
+      console.warn('[Integrations] Failed to upsert clinical snapshot (WhatsApp):', snapshotError);
+    }
+
     if (languageSwitchAction.type === 'prompt') {
       await conversationRef.set({
         pendingLanguageCode: languageSwitchAction.nextLanguageCode,
@@ -2635,6 +2649,19 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             } : {}),
             createdAt: FieldValue.serverTimestamp(),
           });
+
+          try {
+            await upsertClinicalSnapshot({
+              tenantId,
+              conversationId: conversationRef.id,
+              userId: identity.scopedUserId,
+              externalUserId: identity.externalUserId,
+              text: body,
+              source: 'whatsapp_meta',
+            });
+          } catch (snapshotError) {
+            console.warn('[Integrations] Failed to upsert clinical snapshot (WhatsApp Meta):', snapshotError);
+          }
 
           if (languageSwitchAction.type === 'prompt') {
             await conversationRef.set({

@@ -61,6 +61,7 @@ export default function Dashboard() {
     { label: 'Auto Brain', description: 'Manage memory and autonomous responses.', path: '/agent-brain' },
     { label: 'Integrations', description: 'Connect Google sheets, Calendar and Gmail.', path: '/integrations' },
     { label: 'Knowledge Base', description: 'Manage RAG sources and document sync.', path: '/rag' },
+    { label: 'Learning Hub', description: 'Track patient memory, clinical signals, and feedback loops.', path: '/agent-learning' },
   ];
 
 
