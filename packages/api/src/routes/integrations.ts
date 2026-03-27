@@ -23,7 +23,7 @@ import { join } from 'path';
 import { promises as fs } from 'fs';
 import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
-import { isExplicitHumanRequest, isUrgentHandoffSituation } from '../services/handoff-policy.js';
+import { isExplicitHumanRequest, isImmediateEmergencyHandoffSituation } from '../services/handoff-policy.js';
 import { upsertClinicalSnapshot } from '../services/clinical-snapshot.js';
 
 const execFile = promisify(execFileCb);
@@ -1965,7 +1965,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       return;
     }
 
-    const wantsHumanAgain = isExplicitHumanRequest(body) || isUrgentHandoffSituation(body);
+    const wantsHumanAgain = isExplicitHumanRequest(body) || isImmediateEmergencyHandoffSituation(body);
 
     if (wantsHumanAgain) {
       const alreadyRequestedHandoff = status === 'handoff_requested';

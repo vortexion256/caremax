@@ -10,6 +10,22 @@ const URGENT_HANDOFF_PATTERNS = [
   /\b(?:need\s+help\s+now|need\s+someone\s+now|someone\s+right\s+now)\b/i,
 ];
 
+/**
+ * Immediate emergency signals should bypass triage and trigger an instant
+ * human handoff + emergency instruction message.
+ *
+ * Keep this narrower than URGENT_HANDOFF_PATTERNS so high-risk symptoms
+ * (for example "chest pain") can still get at least a brief triage check first.
+ */
+const IMMEDIATE_EMERGENCY_HANDOFF_PATTERNS = [
+  /\b(?:emergency|call\s+911|ambulance)\b/i,
+  /\b(?:can(?:not|'?t)\s+breathe|not\s+breathing|struggling\s+to\s+breathe)\b/i,
+  /\b(?:unconscious|not\s+responsive|passed?\s+out|faint(?:ing|ed)?)\b/i,
+  /\b(?:heavy\s+bleeding|bleeding\s+heavily|won'?t\s+stop\s+bleeding)\b/i,
+  /\b(?:seizure|convulsion)\b/i,
+  /\b(?:suicidal|want\s+to\s+die|kill\s+myself|overdose|anaphylaxis)\b/i,
+];
+
 const UNHELPFUL_ASSISTANT_PATTERNS = [
   "i'm not sure",
   'i am not sure',
@@ -41,6 +57,11 @@ export function isExplicitHumanRequest(text: string | undefined): boolean {
 export function isUrgentHandoffSituation(text: string | undefined): boolean {
   if (typeof text !== 'string' || !text.trim()) return false;
   return URGENT_HANDOFF_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+export function isImmediateEmergencyHandoffSituation(text: string | undefined): boolean {
+  if (typeof text !== 'string' || !text.trim()) return false;
+  return IMMEDIATE_EMERGENCY_HANDOFF_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 export function isUnhelpfulAssistantReply(text: string | undefined): boolean {
