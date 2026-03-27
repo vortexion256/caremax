@@ -717,10 +717,13 @@ async function runAgentRuntime(
     const isKnowledgeFirstQuestion = intent.intent === 'query_information' && messageLooksLikeKnowledgeQuestion(latestUserMessage);
     const explicitHumanRequest = isExplicitHumanRequest(latestUserMessage);
     const highConfidenceIntentHandoff =
-      intent.intent === 'request_human' && intent.confidence >= HUMAN_HANDOFF_INTENT_CONFIDENCE_THRESHOLD;
-    const wantsHumanHandoff = explicitHumanRequest || highConfidenceIntentHandoff;
+      intent.intent === 'request_human'
+      && intent.confidence >= HUMAN_HANDOFF_INTENT_CONFIDENCE_THRESHOLD;
     const immediateEmergencyHandoff = isImmediateEmergencyHandoffSituation(latestUserMessage);
     const urgentHandoff = isUrgentHandoffSituation(latestUserMessage);
+    const wantsHumanHandoff =
+      explicitHumanRequest
+      || (highConfidenceIntentHandoff && urgentHandoff);
     const repeatedFailureHandoff = shouldTriggerRepeatedFailureHandoff(history);
     logAgentFlow(variant, 'intent', {
       intent: intent.intent,
