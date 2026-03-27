@@ -64,6 +64,7 @@ export type AgentResult = {
 };
 
 const HANDOFF_MARKER = '[HANDOFF]';
+const HUMAN_HANDOFF_INTENT_CONFIDENCE_THRESHOLD = 0.9;
 const REMINDER_RELATED_TURN_REGEX = /\b(reminder|remind|upcoming|scheduled|schedule|delete|remove|cancel|edit|change|update)\b/i;
 
 
@@ -713,7 +714,10 @@ async function runAgentRuntime(
     });
     const latestUserMessage = [...history].reverse().find((message) => message.role === 'user')?.content ?? currentTask;
     const isKnowledgeFirstQuestion = intent.intent === 'query_information' && messageLooksLikeKnowledgeQuestion(latestUserMessage);
-    const wantsHumanHandoff = intent.intent === 'request_human' || isExplicitHumanRequest(latestUserMessage);
+    const explicitHumanRequest = isExplicitHumanRequest(latestUserMessage);
+    const highConfidenceIntentHandoff =
+      intent.intent === 'request_human' && intent.confidence >= HUMAN_HANDOFF_INTENT_CONFIDENCE_THRESHOLD;
+    const wantsHumanHandoff = explicitHumanRequest || highConfidenceIntentHandoff;
     const urgentHandoff = isUrgentHandoffSituation(latestUserMessage);
     const repeatedFailureHandoff = shouldTriggerRepeatedFailureHandoff(history);
     logAgentFlow(variant, 'intent', {
@@ -722,6 +726,10 @@ async function runAgentRuntime(
       currentTask,
       isKnowledgeFirstQuestion,
       wantsHumanHandoff,
+      explicitHumanRequest,
+      highConfidenceIntentHandoff,
+      handoffIntentConfidenceThreshold: HUMAN_HANDOFF_INTENT_CONFIDENCE_THRESHOLD,
+      intentConfidence: intent.confidence,
       urgentHandoff,
       repeatedFailureHandoff,
     });
