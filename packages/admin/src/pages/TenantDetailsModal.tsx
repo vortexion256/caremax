@@ -69,6 +69,33 @@ type DiagnosticLog = {
   createdAt: number | null;
 };
 
+type TenantUserActivity = {
+  userKey: string;
+  reminderCount: number;
+  dueSoonCount: number;
+  reminders: Array<{
+    reminderId: string;
+    message: string;
+    dueAt: number | null;
+    dueAtIso: string | null;
+    channel: string | null;
+    targetType: string | null;
+    source: string | null;
+    conversationId: string | null;
+  }>;
+  logCount: number;
+  logs: Array<{
+    logId: string;
+    source: string;
+    step: string;
+    status: string;
+    durationMs: number | null;
+    conversationId: string | null;
+    error: string | null;
+    createdAt: number | null;
+  }>;
+};
+
 type Props = {
   tenantId: string;
   onClose: () => void;
@@ -82,6 +109,8 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
   const [savingSettings, setSavingSettings] = useState(false);
   const [logs, setLogs] = useState<DiagnosticLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [userActivity, setUserActivity] = useState<TenantUserActivity[]>([]);
+  const [userActivityLoading, setUserActivityLoading] = useState(false);
   const [logSourceFilter, setLogSourceFilter] = useState('');
   const [logStatusFilter, setLogStatusFilter] = useState('');
   const [limitPrompt, setLimitPrompt] = useState<'tokens' | 'spend' | null>(null);
@@ -108,6 +137,14 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load diagnostics logs'))
       .finally(() => setLogsLoading(false));
   }, [tenantId, logSourceFilter, logStatusFilter]);
+
+  useEffect(() => {
+    setUserActivityLoading(true);
+    api<{ users: TenantUserActivity[] }>(`/platform/tenants/${tenantId}/user-activity?reminderLimit=250&logLimit=300`)
+      .then((response) => setUserActivity(response.users))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load per-user activity'))
+      .finally(() => setUserActivityLoading(false));
+  }, [tenantId]);
 
   const handleEndTrialNow = async () => {
     if (!details || endingTrial) return;
@@ -431,6 +468,69 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
 
 
               <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
+                <div style={{ display: 'grid', gap: 10, marginBottom: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>
+                    Active Reminders + Logs by User
+                  </div>
+                  {userActivityLoading ? (
+                    <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Loading per-user activity…</p>
+                  ) : userActivity.length === 0 ? (
+                    <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
+                      No active reminder users or user-attributed diagnostic logs found.
+                    </p>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 8, maxHeight: 320, overflowY: 'auto', paddingRight: 2 }}>
+                      {userActivity.slice(0, 25).map((user) => (
+                        <details key={user.userKey} style={{ border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }}>
+                          <summary style={{ cursor: 'pointer', padding: '8px 10px', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                            <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#0f172a', overflowWrap: 'anywhere' }}>{user.userKey}</span>
+                            <span style={{ display: 'flex', gap: 6, fontSize: 11 }}>
+                              <span style={{ background: '#e0f2fe', color: '#075985', padding: '2px 8px', borderRadius: 999 }}>
+                                reminders: {user.reminderCount}
+                              </span>
+                              <span style={{ background: '#ecfccb', color: '#3f6212', padding: '2px 8px', borderRadius: 999 }}>
+                                logs: {user.logCount}
+                              </span>
+                            </span>
+                          </summary>
+                          <div style={{ padding: '0 10px 10px 10px', fontSize: 12, color: '#334155', display: 'grid', gap: 8 }}>
+                            <div>
+                              <strong>Active reminders</strong> ({user.reminderCount}, due in 24h: {user.dueSoonCount})
+                              {user.reminders.length > 0 ? (
+                                <ul style={{ margin: '6px 0 0 18px', padding: 0, display: 'grid', gap: 4 }}>
+                                  {user.reminders.slice(0, 6).map((reminder) => (
+                                    <li key={reminder.reminderId}>
+                                      <span style={{ fontFamily: 'monospace' }}>{reminder.reminderId}</span> — {reminder.message || '—'}{' '}
+                                      ({reminder.dueAt ? new Date(reminder.dueAt).toLocaleString() : 'no due time'})
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p style={{ margin: '4px 0 0 0', color: '#64748b' }}>No active reminders.</p>
+                              )}
+                            </div>
+                            <div>
+                              <strong>Diagnostic logs</strong> ({user.logCount})
+                              {user.logs.length > 0 ? (
+                                <ul style={{ margin: '6px 0 0 18px', padding: 0, display: 'grid', gap: 4 }}>
+                                  {user.logs.slice(0, 5).map((log) => (
+                                    <li key={log.logId}>
+                                      {log.createdAt ? new Date(log.createdAt).toLocaleString() : 'Unknown time'} — {log.source}:{' '}
+                                      <span style={{ fontFamily: 'monospace' }}>{log.step}</span> ({log.status})
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p style={{ margin: '4px 0 0 0', color: '#64748b' }}>No logs captured for this user.</p>
+                              )}
+                            </div>
+                          </div>
+                        </details>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>Diagnostics Logs (per-tenant)</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
