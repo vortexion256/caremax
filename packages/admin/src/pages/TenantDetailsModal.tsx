@@ -470,13 +470,13 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
               <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
                 <div style={{ display: 'grid', gap: 10, marginBottom: 14 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>
-                    Active Reminders + Logs by User
+                    Active Reminders + Logs by Patient (WhatsApp)
                   </div>
                   {userActivityLoading ? (
                     <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Loading per-user activity…</p>
                   ) : userActivity.length === 0 ? (
                     <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
-                      No active reminder users or user-attributed diagnostic logs found.
+                      No active patient reminders or patient-attributed diagnostic logs found.
                     </p>
                   ) : (
                     <div style={{ display: 'grid', gap: 8, maxHeight: 320, overflowY: 'auto', paddingRight: 2 }}>

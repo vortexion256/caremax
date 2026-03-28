@@ -242,6 +242,13 @@ platformRouter.get('/tenants/:tenantId/user-activity', async (req, res) => {
       }
     }
 
+    const normalizePatientKey = (value: unknown): string => {
+      if (typeof value !== 'string') return '';
+      const trimmed = value.trim();
+      if (!trimmed) return '';
+      return trimmed.toLowerCase().startsWith('whatsapp:') ? trimmed : `whatsapp:${trimmed}`;
+    };
+
     const conversationUserById = new Map<string, string>();
     if (conversationIds.size > 0) {
       const refs = Array.from(conversationIds).map((id) => db.collection('conversations').doc(id));
@@ -249,10 +256,7 @@ platformRouter.get('/tenants/:tenantId/user-activity', async (req, res) => {
       for (const doc of convDocs) {
         if (!doc.exists) continue;
         const data = doc.data() ?? {};
-        const resolvedUser =
-          (typeof data.externalUserId === 'string' && data.externalUserId.trim())
-          || (typeof data.userId === 'string' && data.userId.trim())
-          || '';
+        const resolvedUser = normalizePatientKey(data.externalUserId);
         if (resolvedUser) {
           conversationUserById.set(doc.id, resolvedUser);
         }
@@ -305,9 +309,9 @@ platformRouter.get('/tenants/:tenantId/user-activity', async (req, res) => {
     for (const d of remindersSnap.docs) {
       const data = d.data();
       const userKey =
-        (typeof data.ownerExternalUserId === 'string' && data.ownerExternalUserId.trim())
-        || (typeof data.externalUserId === 'string' && data.externalUserId.trim())
-        || (typeof data.userId === 'string' && data.userId.trim())
+        normalizePatientKey(data.ownerExternalUserId)
+        || normalizePatientKey(data.externalUserId)
+        || normalizePatientKey(data.targetExternalUserId)
         || '';
       const bucket = ensureUserBucket(userKey);
       if (!bucket) continue;
@@ -335,10 +339,10 @@ platformRouter.get('/tenants/:tenantId/user-activity', async (req, res) => {
         ? (data.metadata as Record<string, unknown>)
         : null;
       const metadataUser =
-        (typeof metadata?.externalUserId === 'string' && metadata.externalUserId.trim())
-        || (typeof metadata?.ownerExternalUserId === 'string' && metadata.ownerExternalUserId.trim())
-        || (typeof metadata?.targetExternalUserId === 'string' && metadata.targetExternalUserId.trim())
-        || (typeof metadata?.userId === 'string' && metadata.userId.trim())
+        normalizePatientKey(metadata?.externalUserId)
+        || normalizePatientKey(metadata?.ownerExternalUserId)
+        || normalizePatientKey(metadata?.patientExternalUserId)
+        || normalizePatientKey(metadata?.targetExternalUserId)
         || '';
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : '';
       const conversationUser = conversationId ? (conversationUserById.get(conversationId) ?? '') : '';
