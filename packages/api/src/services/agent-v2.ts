@@ -100,6 +100,148 @@ const TRIAGE_STATE_LABELS: Record<TriageState, string> = {
 
 const QUICK_ADVICE_SYMPTOM_REGEX = /\b(cough|cold|flu|headache|fever|diarrhea|diarrhoea|vomiting|nausea|stomach(?:\s+ache)?|abdominal pain|runny nose|sore throat|constipation|rash|allergy|back pain|body aches?)\b/i;
 const HIGH_RISK_TRIAGE_REGEX = /\b(chest pain|difficulty breathing|shortness of breath|can't breathe|seizure|faint(?:ed|ing)?|passed out|stroke|weakness on one side|confused|confusion|pregnant|pregnancy|newborn|infant|baby|blood in (?:stool|vomit|urine)|black stool|severe dehydration|cannot keep fluids down|can't keep fluids down|not passing urine|suicidal|overdose|poison|anaphylaxis)\b/i;
+const RESPIRATORY_TRIAGE_REGEX = /\b(cough|cold|flu|fever|runny nose|blocked nose|sore throat|throat pain|breathing|shortness of breath|wheeze|chest congestion)\b/i;
+const GI_TRIAGE_REGEX = /\b(diarrhea|diarrhoea|vomit|vomiting|nausea|stomach|abdominal|tummy|constipation|bloated|food poisoning)\b/i;
+const URINARY_TRIAGE_REGEX = /\b(urine|urinary|pee|burning urination|painful urination|frequent urination|uti|kidney)\b/i;
+const HEADACHE_TRIAGE_REGEX = /\b(headache|migraine|head pain|dizzy|dizziness|light headed|blurred vision)\b/i;
+const SKIN_TRIAGE_REGEX = /\b(rash|itch|itchy|hives|skin|swelling|wound|burn|allergy)\b/i;
+
+type AdaptiveTriageGuide = {
+  likelyCategory: string;
+  askFirst: string[];
+  avoidForNow: string[];
+};
+
+function buildAdaptiveTriageGuide(symptomText: string): AdaptiveTriageGuide {
+  const normalized = symptomText.toLowerCase();
+
+  if (RESPIRATORY_TRIAGE_REGEX.test(normalized)) {
+    return {
+      likelyCategory: 'respiratory / flu-like',
+      askFirst: [
+        'breathing difficulty or chest pain danger signs',
+        'fever pattern and severity impact on normal activity',
+        'hydration ability if the user feels weak'
+      ],
+      avoidForNow: [
+        'food exposure or stool frequency checks unless GI symptoms are present',
+        'urinary symptom checklist unless urinary symptoms are mentioned'
+      ],
+    };
+  }
+
+  if (GI_TRIAGE_REGEX.test(normalized)) {
+    return {
+      likelyCategory: 'gastrointestinal',
+      askFirst: [
+        'dehydration risk (ability to drink/keep fluids down)',
+        'stool or vomiting red flags (blood, black stool, persistent vomiting)',
+        'frequency and recent trigger exposure (food/sick contacts) only if still needed'
+      ],
+      avoidForNow: [
+        'respiratory symptom checklist unless cough/breathing symptoms are present',
+        'broad unrelated risk-factor intake before urgent GI danger signs are checked'
+      ],
+    };
+  }
+
+  if (URINARY_TRIAGE_REGEX.test(normalized)) {
+    return {
+      likelyCategory: 'urinary',
+      askFirst: [
+        'burning, frequency, and lower abdominal/back pain pattern',
+        'danger signs such as fever, flank pain, vomiting, or pregnancy context',
+        'hydration and urine output when severity is unclear'
+      ],
+      avoidForNow: [
+        'cold/flu checklist unless respiratory symptoms are also present',
+        'generic stool or GI flow questions when no GI complaint exists'
+      ],
+    };
+  }
+
+  if (HEADACHE_TRIAGE_REGEX.test(normalized)) {
+    return {
+      likelyCategory: 'headache / neurological symptom',
+      askFirst: [
+        'sudden severe onset, neurological deficits, confusion, or vision danger signs',
+        'duration/pattern and severity impact',
+        'trigger context (dehydration, stress, known migraine history) if no red flags'
+      ],
+      avoidForNow: [
+        'cough/cold checklist unless respiratory symptoms are reported',
+        'unrelated gastrointestinal intake unless nausea/vomiting is present'
+      ],
+    };
+  }
+
+  if (SKIN_TRIAGE_REGEX.test(normalized)) {
+    return {
+      likelyCategory: 'skin / allergy',
+      askFirst: [
+        'airway danger signs (lip/tongue swelling, breathing trouble)',
+        'rash spread, pain/itch severity, and fever',
+        'new exposure triggers (medicine, food, contact) if stable'
+      ],
+      avoidForNow: [
+        'GI or urinary checklist unless directly reported',
+        'long generic chronic-disease screening before immediate allergy danger signs'
+      ],
+    };
+  }
+
+  return {
+    likelyCategory: 'general symptom',
+    askFirst: [
+      'the single most safety-critical symptom detail missing right now',
+      'severity impact and duration if not already known',
+      'only one focused associated symptom check tied to the likely condition'
+    ],
+    avoidForNow: [
+      'multi-system checklist questions that are not tied to current complaint',
+      'repeating already answered questions'
+    ],
+  };
+}
+
+function buildAdaptiveTriageInstruction(
+  variant: AgentRuntimeVariant,
+  currentTask: string,
+  history: { role: string; content: string }[],
+  triageState?: PersistedTriageState
+): string {
+  const lastUserMessages = history
+    .filter((message) => message.role === 'user' && message.content.trim())
+    .slice(-3)
+    .map((message) => message.content.trim());
+  const symptomText = [currentTask, triageState?.symptomSummary ?? '', ...lastUserMessages].filter(Boolean).join(' \n ');
+  const guide = buildAdaptiveTriageGuide(symptomText);
+  const answeredStates = triageState?.answeredStates ?? [];
+  const answeredStateText = answeredStates.length > 0 ? answeredStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') : 'none';
+
+  return [
+    `Adaptive triage focus (${variant.toUpperCase()}): likely category = ${guide.likelyCategory}.`,
+    `Already answered triage states from backend/history: ${answeredStateText}. Never re-ask them unless the user asks to revise details.`,
+    `Prioritize these checks in order (one question at a time): ${guide.askFirst.join(' -> ')}.`,
+    `Avoid these non-applicable question tracks for now: ${guide.avoidForNow.join(' -> ')}.`,
+    'If the conversation shifts to a different symptom cluster, immediately retune your next question to that new cluster instead of staying on a stale checklist.',
+    'Every follow-up question must clearly connect to the likely diagnosis path and immediate safety risk. If it does not change triage decisions, skip it.',
+  ].join(' ');
+}
+
+function buildAdaptiveTriageRetryHint(
+  currentTask: string,
+  history: { role: string; content: string }[],
+  triageState?: PersistedTriageState
+): string {
+  const lastUserMessages = history
+    .filter((message) => message.role === 'user' && message.content.trim())
+    .slice(-2)
+    .map((message) => message.content.trim());
+  const symptomText = [currentTask, triageState?.symptomSummary ?? '', ...lastUserMessages].filter(Boolean).join(' \n ');
+  const guide = buildAdaptiveTriageGuide(symptomText);
+  return `Likely symptom cluster: ${guide.likelyCategory}. Ask one focused question from this track: ${guide.askFirst[0]}. Avoid this non-applicable track: ${guide.avoidForNow[0]}.`;
+}
 
 function getLocalDateForTimezone(timeZone: string): string {
   try {
@@ -1073,6 +1215,12 @@ async function runAgentRuntime(
     const profileHasName = typeof currentProfile?.name === 'string' && currentProfile.name.trim().length > 0;
 
     const runtimeConversationInstructions = buildRuntimeConversationInstructions(variant);
+    const adaptiveTriageInstruction = !isKnowledgeFirstQuestion
+      ? buildAdaptiveTriageInstruction(variant, currentTask, history, variant === 'v3' ? persistedV3TriageState : undefined)
+      : '';
+    const adaptiveTriageRetryHint = !isKnowledgeFirstQuestion
+      ? buildAdaptiveTriageRetryHint(currentTask, history, variant === 'v3' ? persistedV3TriageState : undefined)
+      : '';
     const v3StateInstruction = variant === 'v3' && !isKnowledgeFirstQuestion
       ? `Backend triage state (authoritative, persisted): current=${persistedV3TriageState.currentState}; answered=${persistedV3TriageState.answeredStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; asked=${persistedV3TriageState.askedStates.map((state) => TRIAGE_STATE_LABELS[state]).join(', ') || 'none'}; symptom_summary=${persistedV3TriageState.symptomSummary ?? 'unknown'}. You MUST respect this backend state. Do not re-ask any answered state. Ask only for the current backend state unless urgent escalation is needed. If the current state is severity and the user sounds confused, guide them with simple mild/moderate/severe examples instead of repeating the question. If the current state is associated symptoms for flu-like illness, check clustered symptoms one step at a time: danger signs first, then fever/body aches/sore throat, then hydration or weakness if still needed. If the current state is advice, stop asking intake questions and give advice. When backend state is advice after only chief complaint + duration + severity, that is intentional for low-risk/common symptoms: give concise home-care advice plus the exact red flags, brief reasoning, and when to seek in-person care instead of asking more checklist questions. For flu-like or viral upper-respiratory symptoms in advice state, explicitly cover hydration, rest, symptom relief, and breathing/dehydration red flags, and include when the user should seek review if not improving. Final assessment wording must be specific (likely category, reason, urgency, red flags, and timeframe) and only include tests when truly important for decision-making.`
       : '';
@@ -1080,6 +1228,9 @@ async function runAgentRuntime(
     let systemContent = `${nameInstruction}\n\n${config.systemPrompt}\n\n${contextSection}\n${reminderSnapshotContext}\n`;
     if (runtimeConversationInstructions) {
       systemContent += `${runtimeConversationInstructions}\n\n`;
+    }
+    if (adaptiveTriageInstruction) {
+      systemContent += `${adaptiveTriageInstruction}\n\n`;
     }
     if (v3StateInstruction) {
       systemContent += `${v3StateInstruction}\n\n`;
@@ -1777,7 +1928,7 @@ Follow this plan step by step. Execute each step in order.`;
             // Simplified system prompt
             const simplifiedSystem = new SystemMessage(
               variant === 'v3'
-                ? 'You are a clinical triage assistant. Ask exactly one short, natural question. Use brief empathy, and if the user is confused about severity, guide with mild/moderate/severe examples instead of repeating the question. Never combine multiple checks in one question unless urgent safety advice is required.'
+                ? `You are a clinical triage assistant. Ask exactly one short, natural question. Use brief empathy, and if the user is confused about severity, guide with mild/moderate/severe examples instead of repeating the question. Never combine multiple checks in one question unless urgent safety advice is required. ${adaptiveTriageRetryHint}`
                 : (`You are a helpful assistant. Provide clear, concise responses. ` +
                   `If you executed tools, summarize what was done and the results.`)
             );
@@ -1794,10 +1945,10 @@ Follow this plan step by step. Execute each step in order.`;
           const retryPrompt = new HumanMessage({
             content: analysis.cause === 'tool_only'
               ? (variant === 'v3'
-                ? `You executed tools but gave no text. Reply briefly. If more info is needed, ask exactly one short next question and make it the single most important missing clinical detail.`
+                ? `You executed tools but gave no text. Reply briefly. If more info is needed, ask exactly one short next question and make it the single most important missing clinical detail. ${adaptiveTriageRetryHint}`
                 : `You executed tools but didn't provide a text response. Please summarize what was done based on the tool results above and provide a helpful response to the user.`)
               : (variant === 'v3'
-                ? `Reply briefly. Ask exactly one short, natural next question unless urgent safety advice is needed. Do not combine multiple symptom checks.`
+                ? `Reply briefly. Ask exactly one short, natural next question unless urgent safety advice is needed. Do not combine multiple symptom checks. ${adaptiveTriageRetryHint}`
                 : `Please provide a clear response to the user. If tools were executed, summarize the results.`),
           });
           
