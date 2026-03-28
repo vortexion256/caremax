@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { db } from '../config/firebase.js';
 import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/auth.js';
+import { buildNightlyClinicalAnalyticsSummary } from '../services/clinical-analytics.js';
 
 export const analyticsRouter: Router = Router({ mergeParams: true });
+export const analyticsDispatchRouter: Router = Router();
 
 analyticsRouter.use(requireTenantParam);
 analyticsRouter.use(requireAuth);
@@ -130,6 +132,109 @@ analyticsRouter.get('/conversations', async (req, res) => {
   } catch (e) {
     console.error('Conversation analytics error:', e);
     res.status(500).json({ error: 'Failed to fetch conversation analytics' });
+  }
+});
+
+analyticsRouter.get('/important-conversations', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const days = Math.max(1, Math.min(90, Number(req.query.days) || 30));
+  const now = Date.now();
+  const startTime = now - days * 24 * 60 * 60 * 1000;
+
+  try {
+    const [analyticsSnap, dailySnap] = await Promise.all([
+      db.collection('conversation_clinical_analytics').where('tenantId', '==', tenantId).get(),
+      db.collection('clinical_analytics_daily').where('tenantId', '==', tenantId).get(),
+    ]);
+
+    const importantConversations = analyticsSnap.docs
+      .map((doc) => ({ conversationId: doc.id, ...doc.data() }))
+      .filter((row: any) => {
+        const updatedAtMs = row.updatedAt?.toMillis?.() ?? 0;
+        return updatedAtMs >= startTime;
+      })
+      .map((row: any) => ({
+        conversationId: row.conversationId,
+        dayKey: typeof row.dayKey === 'string' ? row.dayKey : '',
+        primarySymptom: typeof row.primarySymptom === 'string' ? row.primarySymptom : 'unknown',
+        symptomDuration: typeof row.symptomDuration === 'string' ? row.symptomDuration : null,
+        severity: typeof row.severity === 'string' ? row.severity : 'unknown',
+        redFlags: Array.isArray(row.redFlags) ? row.redFlags.filter((v: unknown): v is string => typeof v === 'string') : [],
+        triageOutcome: typeof row.triageOutcome === 'string' ? row.triageOutcome : 'unknown',
+        source: typeof row.source === 'string' ? row.source : 'other',
+      }))
+      .sort((a, b) => String(b.dayKey).localeCompare(String(a.dayKey)));
+
+    const dailySummaries = dailySnap.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((row: any) => {
+        const generatedAtMs = row.generatedAt?.toMillis?.() ?? 0;
+        return generatedAtMs >= startTime;
+      })
+      .map((row: any) => ({
+        dayKey: typeof row.dayKey === 'string' ? row.dayKey : '',
+        conversationCount: typeof row.conversationCount === 'number' ? row.conversationCount : 0,
+        topSymptoms: Array.isArray(row.topSymptoms) ? row.topSymptoms : [],
+        triageOutcomes: Array.isArray(row.triageOutcomes) ? row.triageOutcomes : [],
+      }))
+      .sort((a, b) => String(b.dayKey).localeCompare(String(a.dayKey)));
+
+    res.json({
+      windowDays: days,
+      generatedAt: now,
+      totals: {
+        importantConversations: importantConversations.length,
+        homeCareCount: importantConversations.filter((row) => row.triageOutcome === 'home_care').length,
+        redFlaggedCount: importantConversations.filter((row) => row.redFlags.some((flag: string) => flag !== 'none')).length,
+      },
+      importantConversations,
+      dailySummaries,
+    });
+  } catch (e) {
+    console.error('Important conversation analytics error:', e);
+    res.status(500).json({ error: 'Failed to fetch important conversation analytics' });
+  }
+});
+
+analyticsRouter.post('/important-conversations/nightly-rollup', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const body = (req.body ?? {}) as { dayKey?: unknown };
+  const dayKey = typeof body.dayKey === 'string' && body.dayKey.trim() ? body.dayKey.trim() : undefined;
+  try {
+    const result = await buildNightlyClinicalAnalyticsSummary({ tenantId, dayKey });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error('Nightly important conversation rollup error:', e);
+    res.status(500).json({ error: 'Failed to build nightly important conversation rollup' });
+  }
+});
+
+analyticsDispatchRouter.post('/nightly-rollup', async (req, res) => {
+  const configuredSecret = String(process.env.ANALYTICS_DISPATCH_SECRET ?? process.env.REMINDER_DISPATCH_SECRET ?? '').trim();
+  if (!configuredSecret) {
+    res.status(503).json({ error: 'ANALYTICS_DISPATCH_SECRET not configured' });
+    return;
+  }
+  const suppliedSecret = String(req.headers['x-analytics-secret'] ?? '').trim();
+  if (!suppliedSecret || suppliedSecret !== configuredSecret) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  try {
+    const tenantConfigSnap = await db.collection('agent_config')
+      .where('autoClinicalAnalyticsNightlyEnabled', '==', true)
+      .get();
+    const results: Array<{ tenantId: string; dayKey: string; conversationCount: number }> = [];
+    for (const doc of tenantConfigSnap.docs) {
+      const tenantId = doc.id;
+      const summary = await buildNightlyClinicalAnalyticsSummary({ tenantId });
+      results.push({ tenantId, ...summary });
+    }
+    res.json({ ok: true, processedTenants: results.length, results });
+  } catch (e) {
+    console.error('Nightly analytics dispatch error:', e);
+    res.status(500).json({ error: 'Failed to process nightly analytics rollup' });
   }
 });
 

@@ -38,6 +38,32 @@ type LearningLoopResponse = {
   suggestedCollections: string[];
 };
 
+type ImportantConversationsResponse = {
+  windowDays: number;
+  generatedAt: number;
+  totals: {
+    importantConversations: number;
+    homeCareCount: number;
+    redFlaggedCount: number;
+  };
+  importantConversations: Array<{
+    conversationId: string;
+    dayKey: string;
+    primarySymptom: string;
+    symptomDuration: string | null;
+    severity: string;
+    redFlags: string[];
+    triageOutcome: string;
+    source: string;
+  }>;
+  dailySummaries: Array<{
+    dayKey: string;
+    conversationCount: number;
+    topSymptoms: Array<{ symptom: string; count: number }>;
+    triageOutcomes: Array<{ outcome: string; count: number }>;
+  }>;
+};
+
 const cardStyle = {
   background: '#fff',
   border: '1px solid #e2e8f0',
@@ -60,6 +86,7 @@ export default function AgentLearningHub() {
   const [data, setData] = useState<LearningLoopResponse | null>(null);
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [importantData, setImportantData] = useState<ImportantConversationsResponse | null>(null);
   const [feedbackForm, setFeedbackForm] = useState({
     sessionId: '',
     helpful: 'yes',
@@ -75,7 +102,9 @@ export default function AgentLearningHub() {
       setLoading(true);
       try {
         const response = await api<LearningLoopResponse>(`/tenants/${tenantId}/analytics/learning-loop?days=${days}`);
+        const importantResponse = await api<ImportantConversationsResponse>(`/tenants/${tenantId}/analytics/important-conversations?days=${days}`);
         setData(response);
+        setImportantData(importantResponse);
         setError(null);
       } catch (e) {
         console.error('Failed to load learning loop analytics', e);
@@ -238,6 +267,33 @@ export default function AgentLearningHub() {
           </div>
 
           <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+            <section style={cardStyle}>
+              <h3 style={{ marginTop: 0 }}>Important conversations (daily)</h3>
+              <div style={{ display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                  <span style={{ color: '#64748b', fontSize: 13 }}>Captured conversations</span>
+                  <strong>{importantData?.totals.importantConversations ?? 0}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                  <span style={{ color: '#64748b', fontSize: 13 }}>Home care outcomes</span>
+                  <strong>{importantData?.totals.homeCareCount ?? 0}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                  <span style={{ color: '#64748b', fontSize: 13 }}>Red-flagged conversations</span>
+                  <strong>{importantData?.totals.redFlaggedCount ?? 0}</strong>
+                </div>
+              </div>
+              <p style={{ marginTop: 10, marginBottom: 6, fontSize: 12, color: '#64748b' }}>Latest structured entries:</p>
+              <ul style={{ margin: 0, paddingLeft: 18, color: '#334155' }}>
+                {(importantData?.importantConversations ?? []).slice(0, 5).map((row) => (
+                  <li key={row.conversationId} style={{ marginBottom: 6 }}>
+                    <strong>{row.dayKey}</strong>: {row.primarySymptom} · {row.severity} · {row.triageOutcome}
+                    {row.symptomDuration ? ` · ${row.symptomDuration}` : ''}
+                  </li>
+                ))}
+                {(importantData?.importantConversations ?? []).length === 0 ? <li>No structured important conversations yet.</li> : null}
+              </ul>
+            </section>
             <section style={cardStyle}>
               <h3 style={{ marginTop: 0 }}>Recommended next steps</h3>
               <ol style={{ margin: 0, paddingLeft: 18, color: '#334155' }}>

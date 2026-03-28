@@ -40,6 +40,7 @@ export type ReminderRecord = {
   ownerNotifiedAt?: FirebaseFirestore.FieldValue;
   ownerNotifyError?: string;
   error?: string;
+  source?: 'manual' | 'auto_followup';
 };
 
 function normalizeReminderMessage(message: string): string {
@@ -136,6 +137,45 @@ function parseReminderDateTime(input: string, timeZone: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function getHourInTimezone(date: Date, timeZone: string): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+    const hourPart = parts.find((part) => part.type === 'hour')?.value ?? '0';
+    const hour = Number(hourPart);
+    return Number.isFinite(hour) ? hour : 0;
+  } catch {
+    return date.getUTCHours();
+  }
+}
+
+function isHourInSleepWindow(hour: number, sleepStartHour: number, sleepEndHour: number): boolean {
+  if (sleepStartHour === sleepEndHour) return false;
+  if (sleepStartHour < sleepEndHour) return hour >= sleepStartHour && hour < sleepEndHour;
+  return hour >= sleepStartHour || hour < sleepEndHour;
+}
+
+export function moveDateOutsideSleepWindow(params: {
+  date: Date;
+  timezone: string;
+  sleepStartHour: number;
+  sleepEndHour: number;
+}): Date {
+  const { date, timezone, sleepStartHour, sleepEndHour } = params;
+  const adjusted = new Date(date.getTime());
+  let guard = 0;
+  while (guard < 48) {
+    const hour = getHourInTimezone(adjusted, timezone);
+    if (!isHourInSleepWindow(hour, sleepStartHour, sleepEndHour)) break;
+    adjusted.setTime(adjusted.getTime() + (60 * 60 * 1000));
+    guard += 1;
+  }
+  return adjusted;
+}
+
 export async function createWhatsAppReminder(params: {
   tenantId: string;
   message: string;
@@ -148,6 +188,7 @@ export async function createWhatsAppReminder(params: {
   conversationId?: string;
   channel?: WhatsAppChannel;
   ownerLabel?: string;
+  source?: 'manual' | 'auto_followup';
 }): Promise<{ reminderId: string; dueAtIso: string; message: string; timezone: string; targetType: 'self' | 'next_of_kin' }> {
   if (!params.externalUserId) {
     throw new Error('Missing externalUserId for WhatsApp reminder.');
@@ -182,6 +223,7 @@ export async function createWhatsAppReminder(params: {
     dueAt: Timestamp.fromDate(dueAtDate),
     timezone: reminderTimezone,
     status: 'pending',
+    source: params.source ?? 'manual',
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   };
@@ -194,6 +236,57 @@ export async function createWhatsAppReminder(params: {
     timezone: reminderTimezone,
     targetType: reminderPayload.targetType ?? 'self',
   };
+}
+
+export async function createAutoFollowupReminderIfNeeded(params: {
+  tenantId: string;
+  conversationId: string;
+  externalUserId?: string;
+  userId?: string;
+  ownerLabel?: string;
+  timezone: string;
+  delayHours: number;
+  sleepStartHour: number;
+  sleepEndHour: number;
+  primarySymptom: string;
+  symptomDuration?: string;
+  severity?: 'mild' | 'moderate' | 'severe' | 'critical';
+}): Promise<{ created: boolean; reminderId?: string; dueAtIso?: string }> {
+  if (!params.externalUserId) return { created: false };
+  const primarySymptom = params.primarySymptom.trim();
+  if (!primarySymptom) return { created: false };
+  if (params.severity === 'severe' || params.severity === 'critical') return { created: false };
+
+  const existing = await db.collection('reminders')
+    .where('tenantId', '==', params.tenantId)
+    .where('conversationId', '==', params.conversationId)
+    .where('status', '==', 'pending')
+    .where('source', '==', 'auto_followup')
+    .limit(1)
+    .get();
+  if (!existing.empty) return { created: false };
+
+  const baseDueDate = new Date(Date.now() + (Math.max(1, params.delayHours) * 60 * 60 * 1000));
+  const dueAt = moveDateOutsideSleepWindow({
+    date: baseDueDate,
+    timezone: params.timezone,
+    sleepStartHour: params.sleepStartHour,
+    sleepEndHour: params.sleepEndHour,
+  });
+  const durationText = params.symptomDuration?.trim() ? ` (${params.symptomDuration.trim()})` : '';
+  const reminder = await createWhatsAppReminder({
+    tenantId: params.tenantId,
+    conversationId: params.conversationId,
+    externalUserId: params.externalUserId,
+    userId: params.userId,
+    ownerLabel: params.ownerLabel,
+    timezone: params.timezone,
+    remindAtIso: dueAt.toISOString(),
+    message: `Please check in on your ${primarySymptom}${durationText} and reply with any updates.`,
+    targetType: 'self',
+    source: 'auto_followup',
+  });
+  return { created: true, reminderId: reminder.reminderId, dueAtIso: reminder.dueAtIso };
 }
 
 export async function dispatchDueReminders(options?: {
