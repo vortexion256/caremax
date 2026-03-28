@@ -95,6 +95,7 @@ export default function Layout() {
         { path: '/agent-brain', label: 'Auto Brain' },
         { path: '/integrations', label: 'Integrations' },
         { path: '/whatsapp', label: 'WhatsApp Agent' },
+        { path: '/whatsapp-patient-activity', label: 'WhatsApp Patient Activity' },
         { path: '/patient-profile', label: 'Patient Profile' },
         { path: '/special-messages', label: 'Special Messages' },
         { path: '/agent-learning', label: 'Agent Learning Hub' },
