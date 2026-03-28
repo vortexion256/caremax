@@ -39,6 +39,7 @@ type MetaTemplateSendState = {
   templateName: string;
   languageCode: string;
   recipientsText: string;
+  componentsJson: string;
 };
 
 const initialTwilioFormState: TwilioFormState = {
@@ -59,6 +60,38 @@ const initialMetaTemplateSendState: MetaTemplateSendState = {
   templateName: 'caremax',
   languageCode: 'en_US',
   recipientsText: '',
+  componentsJson: '',
+};
+
+type MetaTemplateParameterInput = {
+  type: string;
+  text?: string;
+  payload?: string;
+  currency?: {
+    fallback_value: string;
+    code: string;
+    amount_1000: number;
+  };
+  date_time?: {
+    fallback_value: string;
+  };
+  image?: {
+    link: string;
+  };
+  video?: {
+    link: string;
+  };
+  document?: {
+    link: string;
+    filename?: string;
+  };
+};
+
+type MetaTemplateComponentInput = {
+  type: 'header' | 'body' | 'button';
+  sub_type?: 'quick_reply' | 'url';
+  index?: string;
+  parameters?: MetaTemplateParameterInput[];
 };
 
 export default function WhatsAppIntegration() {
@@ -205,6 +238,24 @@ export default function WhatsAppIntegration() {
       return;
     }
 
+    const componentsJson = metaTemplateSend.componentsJson.trim();
+    let parsedComponents: MetaTemplateComponentInput[] | undefined;
+    if (componentsJson) {
+      try {
+        const parsed = JSON.parse(componentsJson) as unknown;
+        if (!Array.isArray(parsed)) {
+          setError('Template Components JSON must be an array when provided.');
+          setMessage('');
+          return;
+        }
+        parsedComponents = parsed as MetaTemplateComponentInput[];
+      } catch {
+        setError('Template Components JSON is not valid JSON.');
+        setMessage('');
+        return;
+      }
+    }
+
     setSaving(true);
     setError('');
     setMessage('');
@@ -221,6 +272,7 @@ export default function WhatsAppIntegration() {
           template: {
             name: metaTemplateSend.templateName.trim(),
             language: { code: metaTemplateSend.languageCode.trim() },
+            ...(parsedComponents?.length ? { components: parsedComponents } : {}),
           },
         }),
       });
@@ -378,8 +430,8 @@ export default function WhatsAppIntegration() {
               <form onSubmit={sendMetaTemplate} style={{ display: 'grid', gap: 12, border: '1px solid #dbeafe', borderRadius: 12, padding: 16, background: '#eff6ff' }}>
                 <div>
                   <div style={{ fontWeight: 700, color: '#1e3a8a' }}>Send Meta WhatsApp template</div>
-                  <div style={{ marginTop: 4, color: '#1e40af', fontSize: 13 }}>
-                    Select phone numbers and send an approved template by name (for example: <strong>caremax</strong>).
+              <div style={{ marginTop: 4, color: '#1e40af', fontSize: 13 }}>
+                    Send an approved template by name and language code. Optionally include template components for placeholders/buttons.
                   </div>
                 </div>
 
@@ -416,6 +468,28 @@ export default function WhatsAppIntegration() {
                     style={{ border: '1px solid #93c5fd', borderRadius: 8, padding: '10px 12px', fontSize: 14, resize: 'vertical' }}
                   />
                 </label>
+
+                <label style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155' }}>
+                  Template Components JSON (optional)
+                  <textarea
+                    rows={10}
+                    placeholder={`[
+  {
+    "type": "body",
+    "parameters": [
+      { "type": "text", "text": "John" }
+    ]
+  }
+]`}
+                    value={metaTemplateSend.componentsJson}
+                    onChange={(e) => setMetaTemplateSend((prev) => ({ ...prev, componentsJson: e.target.value }))}
+                    style={{ border: '1px solid #93c5fd', borderRadius: 8, padding: '10px 12px', fontSize: 14, resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </label>
+
+                <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.4 }}>
+                  Leave empty for templates without variables. When provided, use a JSON array matching the Meta template components payload.
+                </div>
 
                 <button type="submit" disabled={saving} style={{ border: 'none', background: '#1d4ed8', color: '#fff', borderRadius: 8, padding: '10px 14px', fontWeight: 600, cursor: 'pointer', width: 'fit-content' }}>
                   {saving ? 'Sending...' : 'Send Template'}

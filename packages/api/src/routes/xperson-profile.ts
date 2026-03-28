@@ -1,7 +1,20 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireAdmin, requireTenantParam } from '../middleware/auth.js';
-import { deleteTenantSpecialNotification, deleteXPersonProfileById, getXPersonProfile, listRecentlyActiveWhatsAppProfiles, listTenantSpecialNotifications, listXPersonProfiles, sendWhatsAppNotificationToProfiles, updateXPersonProfileById, upsertXPersonProfile } from '../services/xperson-profile.js';
+import {
+  createTenantWhatsAppTemplatePreset,
+  deleteTenantSpecialNotification,
+  deleteTenantWhatsAppTemplatePreset,
+  deleteXPersonProfileById,
+  getXPersonProfile,
+  listRecentlyActiveWhatsAppProfiles,
+  listTenantSpecialNotifications,
+  listTenantWhatsAppTemplatePresets,
+  listXPersonProfiles,
+  sendWhatsAppNotificationToProfiles,
+  updateXPersonProfileById,
+  upsertXPersonProfile,
+} from '../services/xperson-profile.js';
 
 export const xPersonProfileRouter: Router = Router({ mergeParams: true });
 
@@ -66,6 +79,12 @@ const whatsappNotificationSchema = z.object({
   profileIds: z.array(z.string().min(1)).max(1000).optional(),
 });
 
+const whatsappTemplatePresetSchema = z.object({
+  templateName: z.string().trim().min(1).max(128),
+  languageCode: z.string().trim().min(2).max(32),
+  comments: z.string().trim().max(300).optional(),
+});
+
 xPersonProfileRouter.get('/whatsapp-notifications', async (req, res) => {
   const tenantId = res.locals.tenantId as string;
   const limit = Number(req.query.limit);
@@ -116,6 +135,51 @@ xPersonProfileRouter.delete('/whatsapp-notifications/:notificationId', async (re
     return;
   }
 
+  res.status(204).send();
+});
+
+xPersonProfileRouter.get('/whatsapp-template-presets', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const limit = Number(req.query.limit);
+  const presets = await listTenantWhatsAppTemplatePresets({
+    tenantId,
+    limit: Number.isFinite(limit) ? limit : 200,
+  });
+  res.json({ presets });
+});
+
+xPersonProfileRouter.post('/whatsapp-template-presets', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const uid = res.locals.uid as string | undefined;
+  const parsed = whatsappTemplatePresetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    const preset = await createTenantWhatsAppTemplatePreset({
+      tenantId,
+      templateName: parsed.data.templateName,
+      languageCode: parsed.data.languageCode,
+      comments: parsed.data.comments,
+      requestedBy: uid,
+    });
+    res.status(201).json({ ok: true, preset });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to save template preset.';
+    res.status(400).json({ error: message });
+  }
+});
+
+xPersonProfileRouter.delete('/whatsapp-template-presets/:presetId', async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const presetId = typeof req.params.presetId === 'string' ? req.params.presetId : '';
+  const result = await deleteTenantWhatsAppTemplatePreset({ tenantId, presetId });
+  if (!result.deleted) {
+    res.status(404).json({ error: 'Template preset not found' });
+    return;
+  }
   res.status(204).send();
 });
 

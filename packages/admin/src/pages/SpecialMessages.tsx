@@ -31,7 +31,23 @@ type OutboxEntry = {
   results: SendResult[];
 };
 
-type SpecialMessagesTab = 'compose' | 'outbox';
+type WhatsAppTemplatePreset = {
+  id: string;
+  templateName: string;
+  languageCode: string;
+  comments?: string | null;
+  createdAt?: number | null;
+  updatedAt?: number | null;
+};
+
+type TemplateSendResult = {
+  recipient: string;
+  status: 'sent' | 'failed';
+  providerMessageId?: string;
+  error?: string;
+};
+
+type SpecialMessagesTab = 'compose' | 'templates' | 'outbox';
 
 const cardStyle: CSSProperties = {
   background: '#fff',
@@ -155,6 +171,19 @@ export default function SpecialMessagesPage() {
   const [selectAllActive, setSelectAllActive] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [lastResults, setLastResults] = useState<SendResult[]>([]);
+  const [templatePresets, setTemplatePresets] = useState<WhatsAppTemplatePreset[]>([]);
+  const [templateLoading, setTemplateLoading] = useState(true);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [templateSuccess, setTemplateSuccess] = useState<string | null>(null);
+  const [selectedPresetId, setSelectedPresetId] = useState('');
+  const [templateNameInput, setTemplateNameInput] = useState('');
+  const [templateLanguageInput, setTemplateLanguageInput] = useState('en_US');
+  const [templateCommentsInput, setTemplateCommentsInput] = useState('');
+  const [templateSelectAllActive, setTemplateSelectAllActive] = useState(true);
+  const [templateSelectedIds, setTemplateSelectedIds] = useState<string[]>([]);
+  const [templateSending, setTemplateSending] = useState(false);
+  const [lastTemplateResults, setLastTemplateResults] = useState<TemplateSendResult[]>([]);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [outboxEntries, setOutboxEntries] = useState<OutboxEntry[]>([]);
   const [outboxLoading, setOutboxLoading] = useState(true);
   const [outboxError, setOutboxError] = useState<string | null>(null);
@@ -191,9 +220,31 @@ export default function SpecialMessagesPage() {
     }
   };
 
+  const loadTemplatePresets = async () => {
+    if (!tenantId) return;
+    setTemplateLoading(true);
+    setTemplateError(null);
+    try {
+      const response = await api<{ presets: WhatsAppTemplatePreset[] }>(
+        `/tenants/${tenantId}/xperson-profile/whatsapp-template-presets?limit=200`,
+      );
+      const presets = response.presets ?? [];
+      setTemplatePresets(presets);
+      setSelectedPresetId((current) => {
+        if (current && presets.some((preset) => preset.id === current)) return current;
+        return presets[0]?.id ?? '';
+      });
+    } catch (loadError) {
+      setTemplateError(loadError instanceof Error ? loadError.message : 'Failed to load saved templates.');
+    } finally {
+      setTemplateLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadContacts();
     void loadOutbox();
+    void loadTemplatePresets();
   }, [tenantId]);
 
   const filteredContacts = useMemo(() => {
@@ -222,6 +273,8 @@ export default function SpecialMessagesPage() {
   };
 
   const visibleSelectedCount = filteredContacts.filter((contact) => selectedIds.includes(contact.profileId)).length;
+  const templateVisibleSelectedCount = filteredContacts.filter((contact) => templateSelectedIds.includes(contact.profileId)).length;
+  const templateSelectedCount = templateSelectAllActive ? contacts.length : templateSelectedIds.length;
 
   const submit = async () => {
     if (!tenantId) return;
@@ -258,6 +311,107 @@ export default function SpecialMessagesPage() {
     }
   };
 
+  const saveTemplatePreset = async () => {
+    if (!tenantId) return;
+    setTemplateError(null);
+    setTemplateSuccess(null);
+    try {
+      const response = await api<{ preset: WhatsAppTemplatePreset }>(
+        `/tenants/${tenantId}/xperson-profile/whatsapp-template-presets`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            templateName: templateNameInput,
+            languageCode: templateLanguageInput,
+            comments: templateCommentsInput,
+          }),
+        },
+      );
+      setTemplateSuccess(`Saved template "${response.preset.templateName}".`);
+      setTemplateNameInput('');
+      setTemplateCommentsInput('');
+      await loadTemplatePresets();
+      setSelectedPresetId(response.preset.id);
+    } catch (saveError) {
+      setTemplateError(saveError instanceof Error ? saveError.message : 'Failed to save template preset.');
+    }
+  };
+
+  const deleteTemplatePreset = async (presetId: string) => {
+    if (!tenantId) return;
+    setDeletingTemplateId(presetId);
+    setTemplateError(null);
+    setTemplateSuccess(null);
+    try {
+      await api(`/tenants/${tenantId}/xperson-profile/whatsapp-template-presets/${presetId}`, { method: 'DELETE' });
+      setTemplateSuccess('Template preset deleted.');
+      await loadTemplatePresets();
+    } catch (deleteError) {
+      setTemplateError(deleteError instanceof Error ? deleteError.message : 'Failed to delete template preset.');
+    } finally {
+      setDeletingTemplateId(null);
+    }
+  };
+
+  const sendSavedTemplate = async () => {
+    if (!tenantId) return;
+    const preset = templatePresets.find((item) => item.id === selectedPresetId);
+    if (!preset) {
+      setTemplateError('Select a saved template first.');
+      setTemplateSuccess(null);
+      return;
+    }
+
+    const targetContacts = templateSelectAllActive
+      ? contacts
+      : contacts.filter((contact) => templateSelectedIds.includes(contact.profileId));
+
+    const recipients = Array.from(
+      new Set(
+        targetContacts
+          .map((contact) => contact.whatsappContact.replace(/^whatsapp:/i, '').trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (recipients.length === 0) {
+      setTemplateError('Choose at least one active contact, or use send-to-all.');
+      setTemplateSuccess(null);
+      return;
+    }
+
+    setTemplateSending(true);
+    setTemplateError(null);
+    setTemplateSuccess(null);
+    setLastTemplateResults([]);
+    try {
+      const response = await api<{
+        sentCount: number;
+        failedCount: number;
+        results: TemplateSendResult[];
+      }>(`/tenants/${tenantId}/integrations/whatsapp/meta/send-template`, {
+        method: 'POST',
+        body: JSON.stringify({
+          recipients,
+          template: {
+            name: preset.templateName,
+            language: { code: preset.languageCode },
+          },
+        }),
+      });
+
+      setTemplateSuccess(
+        `Template "${preset.templateName}" sent to ${response.sentCount} contact${response.sentCount === 1 ? '' : 's'}${response.failedCount ? `, with ${response.failedCount} failure${response.failedCount === 1 ? '' : 's'}` : ''}.`,
+      );
+      setLastTemplateResults(response.results ?? []);
+      if (!templateSelectAllActive) setTemplateSelectedIds([]);
+    } catch (sendError) {
+      setTemplateError(sendError instanceof Error ? sendError.message : 'Failed to send saved template.');
+    } finally {
+      setTemplateSending(false);
+    }
+  };
+
   const deleteOutboxEntry = async (notificationId: string) => {
     if (!tenantId) return;
     setDeletingOutboxId(notificationId);
@@ -289,6 +443,7 @@ export default function SpecialMessagesPage() {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           {([
             { key: 'compose', label: 'Compose' },
+            { key: 'templates', label: `Template Sends (${templatePresets.length})` },
             { key: 'outbox', label: `Outbox (${outboxEntries.length})` },
           ] as Array<{ key: SpecialMessagesTab; label: string }>).map((tab) => {
             const active = activeTab === tab.key;
@@ -363,6 +518,132 @@ export default function SpecialMessagesPage() {
               </button>
             </div>
           </>
+        ) : activeTab === 'templates' ? (
+          <div style={{ display: 'grid', gap: 16 }}>
+            <section style={{ border: '1px solid #dbeafe', borderRadius: 14, padding: 16, background: '#eff6ff', display: 'grid', gap: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 18, color: '#1e3a8a' }}>Save Meta template for reuse</h2>
+              <label style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155' }}>
+                Template name
+                <input value={templateNameInput} onChange={(event) => setTemplateNameInput(event.target.value)} placeholder="e.g. caremax_appointment_reminder" style={inputStyle} />
+              </label>
+              <label style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155' }}>
+                Language code
+                <input value={templateLanguageInput} onChange={(event) => setTemplateLanguageInput(event.target.value)} placeholder="en_US" style={inputStyle} />
+              </label>
+              <label style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155' }}>
+                Comments (for identification)
+                <textarea
+                  value={templateCommentsInput}
+                  onChange={(event) => setTemplateCommentsInput(event.target.value)}
+                  rows={3}
+                  placeholder="What this template is for (internal note only)."
+                  style={{ ...inputStyle, resize: 'vertical' }}
+                />
+              </label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  onClick={() => void saveTemplatePreset()}
+                  disabled={!templateNameInput.trim() || !templateLanguageInput.trim()}
+                >
+                  Save template
+                </button>
+                <button type="button" style={secondaryButtonStyle} onClick={() => void loadTemplatePresets()} disabled={templateLoading}>
+                  Refresh templates
+                </button>
+              </div>
+            </section>
+
+            <section style={{ display: 'grid', gap: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 18, color: '#0f172a' }}>Send using saved templates</h2>
+              {templateLoading ? <div style={{ color: '#64748b' }}>Loading saved templates…</div> : null}
+              {!templateLoading && templatePresets.length === 0 ? <div style={{ color: '#64748b' }}>No saved templates yet. Save one above to start sending quickly.</div> : null}
+
+              {!templateLoading && templatePresets.length > 0 ? (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {templatePresets.map((preset) => {
+                    const isSelected = selectedPresetId === preset.id;
+                    return (
+                      <label
+                        key={preset.id}
+                        style={{
+                          borderRadius: 12,
+                          border: `1px solid ${isSelected ? '#93c5fd' : '#e2e8f0'}`,
+                          background: isSelected ? '#f8fbff' : '#fff',
+                          padding: 12,
+                          display: 'grid',
+                          gap: 6,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                            <input type="radio" checked={isSelected} onChange={() => setSelectedPresetId(preset.id)} />
+                            <strong>{preset.templateName}</strong>
+                            <span style={{ color: '#1d4ed8', fontSize: 12, border: '1px solid #bfdbfe', borderRadius: 999, padding: '2px 8px', background: '#eff6ff' }}>{preset.languageCode}</span>
+                          </div>
+                          <button
+                            type="button"
+                            style={{ ...secondaryButtonStyle, padding: '6px 10px', borderColor: '#fecaca', color: '#b91c1c', background: '#fff1f2' }}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              void deleteTemplatePreset(preset.id);
+                            }}
+                            disabled={deletingTemplateId !== null}
+                          >
+                            {deletingTemplateId === preset.id ? 'Deleting…' : 'Delete'}
+                          </button>
+                        </div>
+                        {preset.comments ? <div style={{ color: '#475569', fontSize: 13 }}>{preset.comments}</div> : null}
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </section>
+
+            <section style={{ display: 'grid', gap: 12 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#0f172a', fontWeight: 600 }}>
+                  <input type="radio" checked={templateSelectAllActive} onChange={() => setTemplateSelectAllActive(true)} />
+                  Send template to all {contacts.length} active contacts
+                </label>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#0f172a', fontWeight: 600 }}>
+                  <input type="radio" checked={!templateSelectAllActive} onChange={() => setTemplateSelectAllActive(false)} />
+                  Choose specific contacts
+                </label>
+              </div>
+
+              {!templateSelectAllActive ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={() => setTemplateSelectedIds(filteredContacts.map((contact) => contact.profileId))}
+                    disabled={filteredContacts.length === 0}
+                  >
+                    Select visible ({filteredContacts.length})
+                  </button>
+                  <button type="button" style={secondaryButtonStyle} onClick={() => setTemplateSelectedIds([])} disabled={templateSelectedIds.length === 0}>
+                    Clear selection
+                  </button>
+                  <span style={{ color: '#64748b', alignSelf: 'center' }}>{templateVisibleSelectedCount} visible selected</span>
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                style={{ ...primaryButtonStyle, opacity: templateSending ? 0.6 : 1, width: 'fit-content' }}
+                onClick={() => void sendSavedTemplate()}
+                disabled={templateSending || templateSelectedCount === 0 || !selectedPresetId}
+              >
+                {templateSending ? 'Sending template…' : `Send template to ${templateSelectedCount} contact${templateSelectedCount === 1 ? '' : 's'}`}
+              </button>
+              {templateError ? <div style={{ color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12, padding: 12 }}>{templateError}</div> : null}
+              {templateSuccess ? <div style={{ color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: 12 }}>{templateSuccess}</div> : null}
+            </section>
+          </div>
         ) : (
           <div style={{ display: 'grid', gap: 16 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
@@ -424,12 +705,14 @@ export default function SpecialMessagesPage() {
         )}
       </section>
 
-      <section style={{ ...cardStyle, display: activeTab === 'compose' ? 'grid' : 'none', gap: 16 }}>
+      <section style={{ ...cardStyle, display: activeTab !== 'outbox' ? 'grid' : 'none', gap: 16 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 20, color: '#0f172a' }}>Active WhatsApp contacts</h2>
             <p style={{ margin: '6px 0 0', color: '#64748b' }}>
-              Showing contacts active since the last {activeWithinHours} hours. {selectAllActive ? 'All active contacts will receive the message.' : `${selectedIds.length} selected.`}
+              Showing contacts active since the last {activeWithinHours} hours. {activeTab === 'compose'
+                ? (selectAllActive ? 'All active contacts will receive the message.' : `${selectedIds.length} selected.`)
+                : (templateSelectAllActive ? 'All active contacts will receive the saved template.' : `${templateSelectedIds.length} selected for template send.`)}
             </p>
           </div>
           <input
@@ -440,7 +723,7 @@ export default function SpecialMessagesPage() {
           />
         </div>
 
-        {!selectAllActive ? (
+        {activeTab === 'compose' && !selectAllActive ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             <button
               type="button"
@@ -468,26 +751,41 @@ export default function SpecialMessagesPage() {
         {!loading && filteredContacts.length > 0 ? (
           <div style={{ display: 'grid', gap: 10 }}>
             {filteredContacts.map((contact) => {
-              const checked = selectAllActive || selectedIds.includes(contact.profileId);
+              const checked = activeTab === 'compose'
+                ? (selectAllActive || selectedIds.includes(contact.profileId))
+                : (templateSelectAllActive || templateSelectedIds.includes(contact.profileId));
+              const isReadOnlyAllMode = activeTab === 'compose' ? selectAllActive : templateSelectAllActive;
               return (
                 <label
                   key={contact.profileId}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: selectAllActive ? '1fr' : 'auto 1fr',
+                    gridTemplateColumns: isReadOnlyAllMode ? '1fr' : 'auto 1fr',
                     gap: 12,
                     padding: 14,
                     borderRadius: 14,
                     border: checked ? '1px solid #93c5fd' : '1px solid #e2e8f0',
                     background: checked ? '#f8fbff' : '#fff',
-                    cursor: selectAllActive ? 'default' : 'pointer',
+                    cursor: isReadOnlyAllMode ? 'default' : 'pointer',
                   }}
                 >
-                  {!selectAllActive ? (
+                  {activeTab === 'compose' && !selectAllActive ? (
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => toggleSelection(contact.profileId)}
+                      style={{ marginTop: 4 }}
+                    />
+                  ) : null}
+                  {activeTab === 'templates' && !templateSelectAllActive ? (
+                    <input
+                      type="checkbox"
+                      checked={templateSelectedIds.includes(contact.profileId)}
+                      onChange={() => setTemplateSelectedIds((current) => (
+                        current.includes(contact.profileId)
+                          ? current.filter((id) => id !== contact.profileId)
+                          : [...current, contact.profileId]
+                      ))}
                       style={{ marginTop: 4 }}
                     />
                   ) : null}
@@ -525,6 +823,30 @@ export default function SpecialMessagesPage() {
                 }}
               >
                 <strong>{result.status === 'sent' ? 'Sent' : 'Failed'}</strong> — {result.recipient}
+                {result.error ? <div style={{ marginTop: 4, color: '#991b1b' }}>{result.error}</div> : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {lastTemplateResults.length > 0 ? (
+        <section style={{ ...cardStyle, display: 'grid', gap: 12 }}>
+          <h2 style={{ margin: 0, fontSize: 20, color: '#0f172a' }}>Latest template send results</h2>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {lastTemplateResults.map((result) => (
+              <div
+                key={`${result.recipient}-${result.providerMessageId ?? 'result'}`}
+                style={{
+                  borderRadius: 12,
+                  border: `1px solid ${result.status === 'sent' ? '#bbf7d0' : '#fecaca'}`,
+                  background: result.status === 'sent' ? '#f0fdf4' : '#fef2f2',
+                  padding: 12,
+                  color: '#0f172a',
+                }}
+              >
+                <strong>{result.status === 'sent' ? 'Sent' : 'Failed'}</strong> — {result.recipient}
+                {result.providerMessageId ? <div style={{ marginTop: 4, color: '#166534' }}>Provider message ID: {result.providerMessageId}</div> : null}
                 {result.error ? <div style={{ marginTop: 4, color: '#991b1b' }}>{result.error}</div> : null}
               </div>
             ))}

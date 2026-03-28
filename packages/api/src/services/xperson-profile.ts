@@ -566,6 +566,16 @@ export type TenantSpecialNotification = {
   results: Array<{ profileId: string; status: 'sent' | 'failed'; recipient: string; error?: string }>;
 };
 
+export type TenantWhatsAppTemplatePreset = {
+  id: string;
+  tenantId: string;
+  templateName: string;
+  languageCode: string;
+  comments?: string | null;
+  createdAt?: number | null;
+  updatedAt?: number | null;
+};
+
 function mapTenantSpecialNotification(id: string, value: FirebaseFirestore.DocumentData | undefined): TenantSpecialNotification {
   const rawResults = Array.isArray(value?.results) ? value.results : [];
   return {
@@ -584,6 +594,21 @@ function mapTenantSpecialNotification(id: string, value: FirebaseFirestore.Docum
       recipient: clean(result?.recipient) ?? '',
       ...(clean(result?.error) ? { error: clean(result?.error) } : {}),
     })),
+  };
+}
+
+function mapTenantWhatsAppTemplatePreset(
+  id: string,
+  value: FirebaseFirestore.DocumentData | undefined,
+): TenantWhatsAppTemplatePreset {
+  return {
+    id,
+    tenantId: clean(value?.tenantId) ?? '',
+    templateName: clean(value?.templateName) ?? '',
+    languageCode: clean(value?.languageCode) ?? 'en_US',
+    comments: clean(value?.comments) ?? null,
+    createdAt: value?.createdAt?.toMillis?.() ?? null,
+    updatedAt: value?.updatedAt?.toMillis?.() ?? null,
   };
 }
 
@@ -608,6 +633,62 @@ export async function deleteTenantSpecialNotification(params: { tenantId: string
   if (!snap.exists) return { deleted: false };
   if (clean(snap.data()?.tenantId) !== params.tenantId) return { deleted: false };
 
+  await ref.delete();
+  return { deleted: true };
+}
+
+export async function listTenantWhatsAppTemplatePresets(params: {
+  tenantId: string;
+  limit?: number;
+}): Promise<TenantWhatsAppTemplatePreset[]> {
+  const limit = Math.min(Math.max(Math.trunc(params.limit ?? 200), 1), 500);
+  const snap = await db
+    .collection('tenant_whatsapp_template_presets')
+    .where('tenantId', '==', params.tenantId)
+    .orderBy('updatedAt', 'desc')
+    .limit(limit)
+    .get();
+
+  return snap.docs.map((doc) => mapTenantWhatsAppTemplatePreset(doc.id, doc.data()));
+}
+
+export async function createTenantWhatsAppTemplatePreset(params: {
+  tenantId: string;
+  templateName: string;
+  languageCode: string;
+  comments?: string;
+  requestedBy?: string;
+}): Promise<TenantWhatsAppTemplatePreset> {
+  const templateName = clean(params.templateName);
+  const languageCode = clean(params.languageCode);
+  if (!templateName) throw new Error('Template name is required.');
+  if (!languageCode) throw new Error('Language code is required.');
+
+  const comments = clean(params.comments) ?? null;
+  const ref = await db.collection('tenant_whatsapp_template_presets').add({
+    tenantId: params.tenantId,
+    templateName,
+    languageCode,
+    comments,
+    requestedBy: clean(params.requestedBy) ?? null,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  const snap = await ref.get();
+  return mapTenantWhatsAppTemplatePreset(snap.id, snap.data());
+}
+
+export async function deleteTenantWhatsAppTemplatePreset(params: {
+  tenantId: string;
+  presetId: string;
+}): Promise<{ deleted: boolean }> {
+  const presetId = clean(params.presetId);
+  if (!presetId) return { deleted: false };
+  const ref = db.collection('tenant_whatsapp_template_presets').doc(presetId);
+  const snap = await ref.get();
+  if (!snap.exists) return { deleted: false };
+  if (clean(snap.data()?.tenantId) !== params.tenantId) return { deleted: false };
   await ref.delete();
   return { deleted: true };
 }
