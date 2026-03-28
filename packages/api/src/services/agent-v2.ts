@@ -392,6 +392,7 @@ type ReminderClarification = {
 const REMINDER_TIME_REGEX = /\b(\d{1,2}:\d{2}\s*(am|pm)?|\d{1,2}\s*(am|pm)|today|tomorrow|tonight|this (morning|afternoon|evening|night)|next \w+|in \d+\s*(minute|minutes|min|mins|hour|hours|day|days|week|weeks)|after \d+\s*(minute|minutes|min|mins|hour|hours|day|days)|on \w+|at \d{1,2})\b/i;
 const REMINDER_SELF_REFERENCE_REGEX = /\b(remind me(?: to)?|set (?:a )?reminder(?: for me)?(?: to| for)?|create (?:a )?reminder(?: for me)?(?: to| for)?)\b/i;
 const REMINDER_OTHER_REFERENCE_REGEX = /\b(remind (?:him|her|them|my|our|next of kin|mother|mom|father|dad|wife|husband|child|son|daughter|brother|sister)|set (?:a )?reminder for (?:him|her|them|my|our|next of kin|mother|mom|father|dad|wife|husband|child|son|daughter|brother|sister))\b/i;
+const REMINDER_DECLINE_REGEX = /\b(no|nope|nah|not now|no thanks|don't|do not|stop|cancel|never mind|nevermind)\b/i;
 
 function isWhatsAppReminderChannel(channel: AgentRuntimeOptions['channel']): boolean {
   return channel === 'whatsapp' || channel === 'whatsapp_meta';
@@ -459,6 +460,7 @@ function getReminderClarification(
 
   const normalizedTask = currentTask.trim();
   if (!normalizedTask) return null;
+  if (REMINDER_DECLINE_REGEX.test(normalizedTask)) return null;
 
   const { recentAssistantReminderOffer, recentUserReminderMessage } = getRecentReminderContext(history);
   const reminderMessageCandidate = extractReminderMessageCandidate(normalizedTask)
