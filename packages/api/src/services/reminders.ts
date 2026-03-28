@@ -35,6 +35,8 @@ export type ReminderRecord = {
   updatedAt?: FirebaseFirestore.FieldValue;
   sentAt?: FirebaseFirestore.FieldValue;
   failedAt?: FirebaseFirestore.FieldValue;
+  dispatchLockId?: string;
+  dispatchLockedAt?: FirebaseFirestore.FieldValue;
   ownerNotifiedAt?: FirebaseFirestore.FieldValue;
   ownerNotifyError?: string;
   error?: string;
@@ -216,6 +218,27 @@ export async function dispatchDueReminders(options?: {
   for (const doc of dueSnap.docs) {
     const data = doc.data() as Partial<ReminderRecord>;
     const channel = data.channel === 'whatsapp_meta' ? 'whatsapp_meta' : 'whatsapp';
+    const dispatchLockId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    const claimed = await db.runTransaction(async (tx) => {
+      const freshSnap = await tx.get(doc.ref);
+      if (!freshSnap.exists) return false;
+      const freshData = freshSnap.data() as Partial<ReminderRecord>;
+      if (freshData.status !== 'pending') return false;
+      if (typeof freshData.dispatchLockId === 'string' && freshData.dispatchLockId.trim().length > 0) return false;
+
+      tx.update(doc.ref, {
+        dispatchLockId,
+        dispatchLockedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        error: FieldValue.delete(),
+      });
+      return true;
+    });
+
+    if (!claimed) {
+      continue;
+    }
 
     try {
       const recipientExternalUserId = typeof data.targetExternalUserId === 'string' && data.targetExternalUserId.trim()
@@ -342,6 +365,8 @@ export async function dispatchDueReminders(options?: {
         status: 'sent',
         sentAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
+        dispatchLockId: FieldValue.delete(),
+        dispatchLockedAt: FieldValue.delete(),
         error: FieldValue.delete(),
       });
       sent += 1;
@@ -350,6 +375,8 @@ export async function dispatchDueReminders(options?: {
         status: 'failed',
         failedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
+        dispatchLockId: FieldValue.delete(),
+        dispatchLockedAt: FieldValue.delete(),
         error: error instanceof Error ? error.message : 'Unknown reminder dispatch error',
       });
       failed += 1;
