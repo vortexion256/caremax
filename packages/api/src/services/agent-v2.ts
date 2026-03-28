@@ -101,6 +101,24 @@ const TRIAGE_STATE_LABELS: Record<TriageState, string> = {
 const QUICK_ADVICE_SYMPTOM_REGEX = /\b(cough|cold|flu|headache|fever|diarrhea|diarrhoea|vomiting|nausea|stomach(?:\s+ache)?|abdominal pain|runny nose|sore throat|constipation|rash|allergy|back pain|body aches?)\b/i;
 const HIGH_RISK_TRIAGE_REGEX = /\b(chest pain|difficulty breathing|shortness of breath|can't breathe|seizure|faint(?:ed|ing)?|passed out|stroke|weakness on one side|confused|confusion|pregnant|pregnancy|newborn|infant|baby|blood in (?:stool|vomit|urine)|black stool|severe dehydration|cannot keep fluids down|can't keep fluids down|not passing urine|suicidal|overdose|poison|anaphylaxis)\b/i;
 
+function getLocalDateForTimezone(timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  }
+}
+
 type AgentFlowStage =
   | 'start'
   | 'decomposition'
@@ -1036,6 +1054,17 @@ async function runAgentRuntime(
           conversationId: options?.conversationId,
         })
       : null;
+    const firstUserTurnInConversation = history.filter((message) => message.role === 'user').length <= 1;
+    const todayLocalDate = getLocalDateForTimezone(config.agentTimezone ?? 'UTC');
+    const profileAttributes =
+      currentProfile?.attributes && typeof currentProfile.attributes === 'object'
+        ? currentProfile.attributes
+        : {};
+    const profileLastIntroDate = typeof profileAttributes.last_intro_date === 'string'
+      ? profileAttributes.last_intro_date
+      : '';
+    const introAlreadyDoneToday = profileLastIntroDate === todayLocalDate;
+    const profileHasName = typeof currentProfile?.name === 'string' && currentProfile.name.trim().length > 0;
 
     const runtimeConversationInstructions = buildRuntimeConversationInstructions(variant);
     const v3StateInstruction = variant === 'v3' && !isKnowledgeFirstQuestion
@@ -1093,6 +1122,17 @@ async function runAgentRuntime(
       }
       systemContent += `Current profile snapshot: ${currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.'}\n\n`;
     }
+    systemContent += `First-turn identity rules:
+- Current local date (tenant timezone): ${todayLocalDate}.
+- First user turn in this conversation: ${firstUserTurnInConversation ? 'yes' : 'no'}.
+- Daily introduction already completed for this user today: ${introAlreadyDoneToday ? 'yes' : 'no'}.
+- User name already stored in profile: ${profileHasName ? 'yes' : 'no'}.
+- If this is the first user turn in the conversation AND daily introduction is not completed yet, begin with one short introduction that includes your configured assistant name and one sentence on what you do.
+- In that same first-turn/daily-intro moment, if no user name is stored yet, ask one short question for the user's preferred name.
+- If a name is already stored, use it naturally and do not ask for it again unless the user asks to update it.
+- Do not repeat your introduction in later turns during the same day.
+- When Patient Profile is enabled and you complete the daily introduction, call patient_profile with operation="upsert" and attributes={"last_intro_date":"${todayLocalDate}"}.
+- When the user shares their name, call patient_profile with operation="upsert" and details.name set to that name in the same turn.\n\n`;
 
     // Add Google Sheets instructions
     let sheetsEnabled = false;
