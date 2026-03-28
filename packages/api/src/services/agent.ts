@@ -500,6 +500,12 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
 
   let xPersonProfileContext = '';
   let currentProfile: Awaited<ReturnType<typeof getXPersonProfile>> = null;
+  const firstUserTurnInConversation = history.filter((message) => message.role === 'user').length <= 1;
+  const introDateSnapshot = buildCurrentDateTimePayload(
+    config.agentTimezone ?? 'UTC',
+    config.agentCountryCode ?? 'US',
+  );
+  const todayLocalDate = introDateSnapshot.localDate;
   if (config.xPersonProfileEnabled) {
     try {
       currentProfile = await getXPersonProfile({
@@ -508,6 +514,15 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
         externalUserId: options?.externalUserId,
         conversationId: options?.conversationId,
       });
+      const profileAttributes =
+        currentProfile?.attributes && typeof currentProfile.attributes === 'object'
+          ? currentProfile.attributes
+          : {};
+      const profileLastIntroDate = typeof profileAttributes.last_intro_date === 'string'
+        ? profileAttributes.last_intro_date
+        : '';
+      const introAlreadyDoneToday = profileLastIntroDate === todayLocalDate;
+      const profileHasName = typeof currentProfile?.name === 'string' && currentProfile.name.trim().length > 0;
       xPersonProfileContext = `
 
 Patient Profile is ENABLED for this tenant.
@@ -523,7 +538,19 @@ Patient Profile is ENABLED for this tenant.
 - If you need to check known user details, call patient_profile with operation="get" before asking repeated questions.
 - For emergencies or when the user explicitly asks to notify next of kin, use the send_next_of_kin_message tool.
 - If the user explicitly asks to message a non-next-of-kin contact, use send_whatsapp_message_to_contact and require explicit confirmation text before sending.
-${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${config.xPersonProfileCustomFields.map((f) => f.description ? `${f.field} (${f.description})` : f.field).join(', ')}\n` : ''}- Always keep conversation_duration_last_conversation_seconds updated based on the user's latest total conversation time across widget or WhatsApp.\nCurrent profile snapshot: ${currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.'}`;
+${config.xPersonProfileCustomFields.length > 0 ? `- Tenant custom fields: ${config.xPersonProfileCustomFields.map((f) => f.description ? `${f.field} (${f.description})` : f.field).join(', ')}\n` : ''}- Always keep conversation_duration_last_conversation_seconds updated based on the user's latest total conversation time across widget or WhatsApp.
+Current profile snapshot: ${currentProfile ? JSON.stringify(currentProfile) : 'No profile found yet for this identity.'}
+First-turn identity rules:
+- Current local date (tenant timezone): ${todayLocalDate}.
+- First user turn in this conversation: ${firstUserTurnInConversation ? 'yes' : 'no'}.
+- Daily introduction already completed for this user today: ${introAlreadyDoneToday ? 'yes' : 'no'}.
+- User name already stored in profile: ${profileHasName ? 'yes' : 'no'}.
+- If this is the first user turn in the conversation AND daily introduction is not completed yet, begin with one short introduction that includes your configured assistant name and one sentence on what you do.
+- In that same first-turn/daily-intro moment, if no user name is stored yet, ask one short question for the user's preferred name.
+- If a name is already stored, use it naturally and do not ask for it again unless the user asks to update it.
+- Do not repeat your introduction in later turns during the same day.
+- When you complete the daily introduction, call patient_profile with operation="upsert" and attributes={"last_intro_date":"${todayLocalDate}"}.
+- When the user shares their name, call patient_profile with operation="upsert" and details.name set to that name in the same turn.`;
     } catch (e) {
       console.warn('[Agent] Failed to load XPersonProfile context:', e);
     }
