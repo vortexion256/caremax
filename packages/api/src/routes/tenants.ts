@@ -46,6 +46,33 @@ type TenantNotification = {
   metadata?: Record<string, unknown> | null;
 };
 
+type TenantUserActivity = {
+  userKey: string;
+  reminderCount: number;
+  dueSoonCount: number;
+  reminders: Array<{
+    reminderId: string;
+    message: string;
+    dueAt: number | null;
+    dueAtIso: string | null;
+    channel: string | null;
+    targetType: string | null;
+    source: string | null;
+    conversationId: string | null;
+  }>;
+  logCount: number;
+  logs: Array<{
+    logId: string;
+    source: string;
+    step: string;
+    status: string;
+    durationMs: number | null;
+    conversationId: string | null;
+    error: string | null;
+    createdAt: number | null;
+  }>;
+};
+
 const tenantNameUpdateSchema = z.object({
   name: z.string().trim().min(1).max(120),
 });
@@ -84,6 +111,158 @@ tenantRouter.get('/:tenantId/account', requireTenantParam, async (_req, res) => 
     createdBy: data.createdBy ?? null,
     billingPlanId: data.billingPlanId ?? 'free',
   });
+});
+
+tenantRouter.get('/:tenantId/user-activity', requireTenantParam, async (req, res) => {
+  try {
+    const tenantId = res.locals.tenantId as string;
+    const { reminderLimit = '200', logLimit = '250' } = req.query as {
+      reminderLimit?: string;
+      logLimit?: string;
+    };
+
+    const parsedReminderLimit = Number.parseInt(reminderLimit, 10);
+    const parsedLogLimit = Number.parseInt(logLimit, 10);
+    const reminderCap = Number.isFinite(parsedReminderLimit) ? Math.min(Math.max(parsedReminderLimit, 1), 500) : 200;
+    const logCap = Number.isFinite(parsedLogLimit) ? Math.min(Math.max(parsedLogLimit, 1), 500) : 250;
+    const now = new Date();
+
+    const remindersSnap = await db
+      .collection('reminders')
+      .where('tenantId', '==', tenantId)
+      .where('status', '==', 'pending')
+      .orderBy('dueAt', 'asc')
+      .limit(reminderCap)
+      .get();
+
+    const logsSnap = await db
+      .collection('tenant_diagnostic_logs')
+      .where('tenantId', '==', tenantId)
+      .orderBy('createdAt', 'desc')
+      .limit(logCap)
+      .get();
+
+    const conversationIds = new Set<string>();
+    for (const d of logsSnap.docs) {
+      const conversationId = d.data().conversationId;
+      if (typeof conversationId === 'string' && conversationId.trim()) {
+        conversationIds.add(conversationId.trim());
+      }
+    }
+
+    const normalizePatientKey = (value: unknown): string => {
+      if (typeof value !== 'string') return '';
+      const trimmed = value.trim();
+      if (!trimmed) return '';
+      return trimmed.toLowerCase().startsWith('whatsapp:') ? trimmed : `whatsapp:${trimmed}`;
+    };
+
+    const conversationUserById = new Map<string, string>();
+    if (conversationIds.size > 0) {
+      const refs = Array.from(conversationIds).map((id) => db.collection('conversations').doc(id));
+      const convDocs = await db.getAll(...refs);
+      for (const doc of convDocs) {
+        if (!doc.exists) continue;
+        const data = doc.data() ?? {};
+        const resolvedUser = normalizePatientKey(data.externalUserId);
+        if (resolvedUser) conversationUserById.set(doc.id, resolvedUser);
+      }
+    }
+
+    const userMap = new Map<string, TenantUserActivity>();
+    const ensureUserBucket = (userKey: string): TenantUserActivity | null => {
+      const normalizedKey = userKey.trim();
+      if (!normalizedKey) return null;
+      if (!userMap.has(normalizedKey)) {
+        userMap.set(normalizedKey, {
+          userKey: normalizedKey,
+          reminderCount: 0,
+          dueSoonCount: 0,
+          reminders: [],
+          logCount: 0,
+          logs: [],
+        });
+      }
+      return userMap.get(normalizedKey) ?? null;
+    };
+
+    for (const d of remindersSnap.docs) {
+      const data = d.data();
+      const userKey =
+        normalizePatientKey(data.ownerExternalUserId)
+        || normalizePatientKey(data.externalUserId)
+        || normalizePatientKey(data.targetExternalUserId)
+        || '';
+      const bucket = ensureUserBucket(userKey);
+      if (!bucket) continue;
+
+      const dueAtMs = data.dueAt?.toMillis?.() ?? null;
+      bucket.reminderCount += 1;
+      if (typeof dueAtMs === 'number' && dueAtMs <= now.getTime() + (24 * 60 * 60 * 1000)) {
+        bucket.dueSoonCount += 1;
+      }
+      bucket.reminders.push({
+        reminderId: d.id,
+        message: typeof data.message === 'string' ? data.message : '',
+        dueAt: dueAtMs,
+        dueAtIso: typeof dueAtMs === 'number' ? new Date(dueAtMs).toISOString() : null,
+        channel: typeof data.channel === 'string' ? data.channel : null,
+        targetType: typeof data.targetType === 'string' ? data.targetType : null,
+        source: typeof data.source === 'string' ? data.source : null,
+        conversationId: typeof data.conversationId === 'string' ? data.conversationId : null,
+      });
+    }
+
+    for (const d of logsSnap.docs) {
+      const data = d.data();
+      const metadata = data.metadata && typeof data.metadata === 'object'
+        ? (data.metadata as Record<string, unknown>)
+        : null;
+      const metadataUser =
+        normalizePatientKey(metadata?.externalUserId)
+        || normalizePatientKey(metadata?.ownerExternalUserId)
+        || normalizePatientKey(metadata?.patientExternalUserId)
+        || normalizePatientKey(metadata?.targetExternalUserId)
+        || '';
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : '';
+      const conversationUser = conversationId ? (conversationUserById.get(conversationId) ?? '') : '';
+      const userKey = metadataUser || conversationUser;
+      const bucket = ensureUserBucket(userKey);
+      if (!bucket) continue;
+
+      bucket.logCount += 1;
+      if (bucket.logs.length < 40) {
+        bucket.logs.push({
+          logId: d.id,
+          source: typeof data.source === 'string' ? data.source : 'unknown',
+          step: typeof data.step === 'string' ? data.step : 'unknown',
+          status: typeof data.status === 'string' ? data.status : 'ok',
+          durationMs: typeof data.durationMs === 'number' ? data.durationMs : null,
+          conversationId: conversationId || null,
+          error: typeof data.error === 'string' ? data.error : null,
+          createdAt: data.createdAt?.toMillis?.() ?? null,
+        });
+      }
+    }
+
+    const users = Array.from(userMap.values()).sort((a, b) => {
+      if (b.reminderCount !== a.reminderCount) return b.reminderCount - a.reminderCount;
+      return b.logCount - a.logCount;
+    });
+
+    res.json({
+      users,
+      totals: {
+        usersWithReminders: users.filter((u) => u.reminderCount > 0).length,
+        usersWithLogs: users.filter((u) => u.logCount > 0).length,
+        reminders: users.reduce((sum, u) => sum + u.reminderCount, 0),
+        logs: users.reduce((sum, u) => sum + u.logCount, 0),
+      },
+    });
+  } catch (e) {
+    console.error('Failed to load user activity for tenant:', e);
+    res.status(500).json({ error: 'Failed to load user activity for tenant' });
+  }
 });
 
 tenantRouter.put('/:tenantId/account', requireTenantParam, async (req, res) => {
