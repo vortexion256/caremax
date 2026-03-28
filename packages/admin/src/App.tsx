@@ -23,6 +23,7 @@ import RAG from './pages/RAG';
 import AutoAgentBrain from './pages/AutoAgentBrain';
 import Integrations from './pages/Integrations';
 import WhatsAppIntegration from './pages/WhatsApp';
+import WhatsAppPatientActivityPage from './pages/WhatsAppPatientActivity';
 import Embed from './pages/Embed';
 import PlatformBilling from './pages/PlatformBilling';
 import PlatformPayments from './pages/PlatformPayments';
@@ -212,6 +213,7 @@ export default function App() {
           <Route path="agent-brain" element={<AutoAgentBrain />} />
           <Route path="integrations" element={<Integrations />} />
           <Route path="whatsapp" element={<WhatsAppIntegration />} />
+          <Route path="whatsapp-patient-activity" element={<WhatsAppPatientActivityPage />} />
           <Route path="embed" element={<Embed />} />
           <Route path="account" element={<TenantAccount />} />
           <Route path="billing" element={<TenantBilling />} />
