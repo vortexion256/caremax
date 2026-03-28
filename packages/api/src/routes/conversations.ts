@@ -11,6 +11,8 @@ import { resolveConversationIdentity } from '../services/user-identity.js';
 import { extractCustomProfileAttributes, extractDefaultProfileFields, getConversationDurationSeconds, normalizeXPersonCustomFields, syncXPersonProfileConversationDuration, upsertXPersonProfile } from '../services/xperson-profile.js';
 import { isExplicitHumanRequest, isImmediateEmergencyHandoffSituation } from '../services/handoff-policy.js';
 import { upsertClinicalSnapshot } from '../services/clinical-snapshot.js';
+import { upsertConversationClinicalAnalytics } from '../services/clinical-analytics.js';
+import { createAutoFollowupReminderIfNeeded } from '../services/reminders.js';
 
 export const conversationRouter: Router = Router({ mergeParams: true });
 
@@ -302,6 +304,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
   }
 
 
+  let recentClinicalSummary: { primarySymptom: string; symptomDuration: string | null; severity: 'mild' | 'moderate' | 'severe' | 'critical' | 'unknown'; triageOutcome: 'home_care' | 'monitor' | 'clinic_visit' | 'escalate' | 'unknown'; redFlags: string[] } | null = null;
   try {
     await upsertClinicalSnapshot({
       tenantId,
@@ -313,6 +316,19 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
     });
   } catch (snapshotError) {
     console.warn('[Conversations] Failed to upsert clinical snapshot:', snapshotError);
+  }
+
+  try {
+    recentClinicalSummary = await upsertConversationClinicalAnalytics({
+      tenantId,
+      conversationId,
+      userId: typeof convData?.userId === 'string' ? convData.userId : undefined,
+      externalUserId: typeof convData?.externalUserId === 'string' ? convData.externalUserId : undefined,
+      text: content,
+      source: channel === 'whatsapp_meta' ? 'whatsapp_meta' : channel === 'whatsapp' ? 'whatsapp' : 'widget',
+    });
+  } catch (analyticsCaptureError) {
+    console.warn('[Conversations] Failed to upsert conversation clinical analytics:', analyticsCaptureError);
   }
 
   const status = (conv.data()?.status as string) ?? 'open';
@@ -402,6 +418,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
     createdAt: FieldValue.serverTimestamp(),
   });
 
+  const handoffRequested = agentResponse.requestHandoff ?? false;
   try {
     const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
     const configData = agentConfigDoc.data();
@@ -414,11 +431,42 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
         channel: channel === 'whatsapp' ? 'whatsapp' : 'widget',
       });
     }
+    const autoFollowupEnabled = configData?.autoFollowupEnabled === true;
+    if (
+      autoFollowupEnabled
+      && (channel === 'whatsapp' || channel === 'whatsapp_meta')
+      && !handoffRequested
+      && recentClinicalSummary?.primarySymptom
+      && (recentClinicalSummary?.triageOutcome === 'home_care' || recentClinicalSummary?.triageOutcome === 'monitor' || recentClinicalSummary?.triageOutcome === 'unknown')
+    ) {
+      const timezone = typeof configData?.agentTimezone === 'string' && configData.agentTimezone.trim()
+        ? configData.agentTimezone.trim()
+        : 'UTC';
+      const delayHoursRaw = Number(configData?.autoFollowupDelayHours);
+      const delayHours = Number.isFinite(delayHoursRaw) ? Math.min(72, Math.max(1, Math.trunc(delayHoursRaw))) : 24;
+      const sleepStartRaw = Number(configData?.autoFollowupSleepStartHour);
+      const sleepEndRaw = Number(configData?.autoFollowupSleepEndHour);
+      const sleepStartHour = Number.isFinite(sleepStartRaw) ? Math.min(23, Math.max(0, Math.trunc(sleepStartRaw))) : 22;
+      const sleepEndHour = Number.isFinite(sleepEndRaw) ? Math.min(23, Math.max(0, Math.trunc(sleepEndRaw))) : 6;
+      await createAutoFollowupReminderIfNeeded({
+        tenantId,
+        conversationId,
+        externalUserId: typeof convData?.externalUserId === 'string' ? convData.externalUserId : undefined,
+        userId: typeof convData?.userId === 'string' ? convData.userId : undefined,
+        ownerLabel: typeof convData?.name === 'string' ? convData.name : undefined,
+        timezone,
+        delayHours: recentClinicalSummary.severity === 'mild' ? Math.max(delayHours, 24) : delayHours,
+        sleepStartHour,
+        sleepEndHour,
+        primarySymptom: recentClinicalSummary.primarySymptom,
+        symptomDuration: recentClinicalSummary.symptomDuration ?? undefined,
+        severity: recentClinicalSummary.severity === 'unknown' ? undefined : recentClinicalSummary.severity,
+      });
+    }
   } catch (profileError) {
-    console.warn('[Conversations] Failed to sync XPersonProfile duration after assistant reply:', profileError);
+    console.warn('[Conversations] Failed to sync post-reply profile/follow-up routines:', profileError);
   }
 
-  const handoffRequested = agentResponse.requestHandoff ?? false;
   if (handoffRequested) {
     await convRef.update({
       status: 'handoff_requested',

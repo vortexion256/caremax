@@ -120,6 +120,16 @@ export type AgentConfig = {
   agentTimezone?: string;
   /** Optional ISO-3166 country code used for locale-sensitive date/time hints. */
   agentCountryCode?: string;
+  /** Enables AI-created follow-up reminders for low-risk conversations. */
+  autoFollowupEnabled?: boolean;
+  /** Delay in hours before automatic follow-up reminders are sent. */
+  autoFollowupDelayHours?: number;
+  /** Sleep window start hour (0-23) used to avoid overnight reminders. */
+  autoFollowupSleepStartHour?: number;
+  /** Sleep window end hour (0-23) used to avoid overnight reminders. */
+  autoFollowupSleepEndHour?: number;
+  /** Enable nightly rollup generation for important clinical analytics. */
+  autoClinicalAnalyticsNightlyEnabled?: boolean;
   availableModels?: string[];
 };
 

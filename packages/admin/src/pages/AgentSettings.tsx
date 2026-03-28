@@ -164,6 +164,20 @@ export default function AgentSettings() {
           agentCountryCode: typeof config.agentCountryCode === 'string' && config.agentCountryCode.trim().length === 2
             ? config.agentCountryCode.trim().toUpperCase()
             : 'US',
+          autoFollowupEnabled: Boolean(config.autoFollowupEnabled),
+          autoFollowupDelayHours: (() => {
+            const value = Number(config.autoFollowupDelayHours);
+            return Number.isFinite(value) ? Math.min(72, Math.max(1, Math.trunc(value))) : 24;
+          })(),
+          autoFollowupSleepStartHour: (() => {
+            const value = Number(config.autoFollowupSleepStartHour);
+            return Number.isFinite(value) ? Math.min(23, Math.max(0, Math.trunc(value))) : 22;
+          })(),
+          autoFollowupSleepEndHour: (() => {
+            const value = Number(config.autoFollowupSleepEndHour);
+            return Number.isFinite(value) ? Math.min(23, Math.max(0, Math.trunc(value))) : 6;
+          })(),
+          autoClinicalAnalyticsNightlyEnabled: Boolean(config.autoClinicalAnalyticsNightlyEnabled ?? true),
           xPersonProfileCustomFields: Array.isArray(config.xPersonProfileCustomFields)
             ? config.xPersonProfileCustomFields
                 .filter((field) => field && typeof field.field === 'string' && field.field.trim().length > 0)
@@ -305,6 +319,71 @@ export default function AgentSettings() {
               }
             })()}
           </div>
+        </div>
+
+        <div style={{ marginTop: 24 }}>
+          <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={config?.autoFollowupEnabled ?? false}
+              onChange={(e) => setConfig((c) => (c ? { ...c, autoFollowupEnabled: e.target.checked } : c))}
+              style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#2563eb' }}
+            />
+            Enable automatic AI follow-up reminders
+          </label>
+          <span style={helperStyle}>
+            When enabled, low-risk conversations can automatically schedule a check-in reminder (for example after a few hours or the next day), while avoiding sleep hours.
+          </span>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: 12, marginTop: 10 }}>
+            <div>
+              <label style={{ ...labelStyle, marginBottom: 6 }}>Default delay (hours)</label>
+              <input
+                type="number"
+                min={1}
+                max={72}
+                value={config?.autoFollowupDelayHours ?? 24}
+                onChange={(e) => setConfig((c) => (c ? { ...c, autoFollowupDelayHours: Number(e.target.value) } : c))}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={{ ...labelStyle, marginBottom: 6 }}>Sleep starts at (hour)</label>
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={config?.autoFollowupSleepStartHour ?? 22}
+                onChange={(e) => setConfig((c) => (c ? { ...c, autoFollowupSleepStartHour: Number(e.target.value) } : c))}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={{ ...labelStyle, marginBottom: 6 }}>Sleep ends at (hour)</label>
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={config?.autoFollowupSleepEndHour ?? 6}
+                onChange={(e) => setConfig((c) => (c ? { ...c, autoFollowupSleepEndHour: Number(e.target.value) } : c))}
+                style={inputStyle}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={config?.autoClinicalAnalyticsNightlyEnabled ?? true}
+              onChange={(e) => setConfig((c) => (c ? { ...c, autoClinicalAnalyticsNightlyEnabled: e.target.checked } : c))}
+              style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#2563eb' }}
+            />
+            Enable nightly important-conversation analytics rollup
+          </label>
+          <span style={helperStyle}>
+            Keeps daily summaries up to date for population trends, AI training signals, and personalized history views.
+          </span>
         </div>
         </div>
 

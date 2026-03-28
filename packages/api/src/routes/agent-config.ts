@@ -56,6 +56,11 @@ const updateBody = z.object({
   xPersonProfileCustomFields: z.array(xPersonProfileCustomFieldEntry).optional(),
   agentTimezone: z.string().min(1).optional(),
   agentCountryCode: z.string().trim().length(2).optional(),
+  autoFollowupEnabled: z.boolean().optional(),
+  autoFollowupDelayHours: z.number().int().min(1).max(72).optional(),
+  autoFollowupSleepStartHour: z.number().int().min(0).max(23).optional(),
+  autoFollowupSleepEndHour: z.number().int().min(0).max(23).optional(),
+  autoClinicalAnalyticsNightlyEnabled: z.boolean().optional(),
 });
 
 const fallbackModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
@@ -114,6 +119,11 @@ agentConfigRouter.get('/', async (req, res) => {
       xPersonProfileCustomFields: [],
       agentTimezone: 'UTC',
       agentCountryCode: 'US',
+      autoFollowupEnabled: false,
+      autoFollowupDelayHours: 24,
+      autoFollowupSleepStartHour: 22,
+      autoFollowupSleepEndHour: 6,
+      autoClinicalAnalyticsNightlyEnabled: true,
       availableModels,
     });
     return;
