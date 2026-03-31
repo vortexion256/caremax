@@ -1,6 +1,6 @@
 import { db } from '../config/firebase.js';
 import { runAgent, type AgentResult } from './agent.js';
-import { runAgentV2, runAgentV3 } from './agent-v2.js';
+import { runAgentNous, runAgentV2, runAgentV3 } from './agent-v2.js';
 
 type AgentHistoryMessage = { role: string; content: string; imageUrls?: string[] };
 type AgentOptions = {
@@ -12,12 +12,12 @@ type AgentOptions = {
   conversationLanguageName?: string | null;
   channel?: 'widget' | 'whatsapp' | 'whatsapp_meta';
 };
-type AgentVersion = 'v1' | 'v2' | 'v3';
+type AgentVersion = 'v1' | 'v2' | 'v3' | 'agentnous';
 
 function normalizeAgentVersion(value: unknown): AgentVersion | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'v1' || normalized === 'v2' || normalized === 'v3') return normalized;
+  if (normalized === 'v1' || normalized === 'v2' || normalized === 'v3' || normalized === 'agentnous') return normalized;
   return null;
 }
 
@@ -58,6 +58,10 @@ export async function runConfiguredAgent(
 
   if (selectedVersion === 'v3') {
     return runAgentV3(tenantId, history, options);
+  }
+
+  if (selectedVersion === 'agentnous') {
+    return runAgentNous(tenantId, history, options);
   }
 
   return runAgent(tenantId, history, options);
