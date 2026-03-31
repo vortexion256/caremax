@@ -27,7 +27,7 @@ import { createRecord, createModificationRequest, getRecord, listRecords } from 
 import { isGoogleConnected } from './google-sheets.js';
 import { getAgentConfig, type GoogleSheetEntry } from './agent.js';
 import { AgentOrchestrator, ToolCall } from './agent-orchestrator.js';
-import { buildAgentContext, formatContextForPrompt, trimConversationHistory } from './agent-memory.js';
+import { buildAgentContext, formatContextForPrompt, trimConversationHistory, type AgentContext } from './agent-memory.js';
 import { processEncounterEvidence } from './encounter-state.js';
 import { extractIntent, ExtractedIntent } from './agent-intent.js';
 import { decomposeQuestion, DecomposedQuestion } from './agent-decomposer.js';
@@ -265,6 +265,7 @@ type AgentFlowStage =
   | 'start'
   | 'decomposition'
   | 'intent'
+  | 'pipeline'
   | 'handoff'
   | 'memory'
   | 'planning'
@@ -523,7 +524,7 @@ type AgentRuntimeOptions = {
   conversationLanguageName?: string | null;
   channel?: 'widget' | 'whatsapp' | 'whatsapp_meta';
 }
-type AgentRuntimeVariant = 'v2' | 'v3';
+type AgentRuntimeVariant = 'v2' | 'v3' | 'agentnous';
 
 type ReminderClarification = {
   question: string;
@@ -712,10 +713,10 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
     '- Infer likely intent from imperfect wording (typos, short phrases, mixed language). If the user mentions a high-risk group (for example pregnancy, newborn, elderly), prioritize safety guidance and urgency checks instead of generic clarification.'
   ];
 
-  if (variant === 'v3') {
-    return [
+  if (variant === 'v3' || variant === 'agentnous') {
+    const v3LikeRules = [
       ...sharedRules,
-      'V3 conversation rules:',
+      variant === 'agentnous' ? 'AgentNous conversation rules:' : 'V3 conversation rules:',
       '- Ask exactly ONE short follow-up question at a time.',
       '- Keep visible responses under 20 words unless urgent safety advice or a tool result requires more detail.',
       '- Start with brief empathy when the user shares feeling unwell, for example "Sorry you are feeling unwell" or "Thanks—that helps".',
@@ -749,7 +750,20 @@ function buildRuntimeConversationInstructions(variant: AgentRuntimeVariant): str
       '- For identity or names, never assert who the user is. Ask permission, for example: "I can call you Praxis if that\'s okay?".',
       '- Sound like a calm Ugandan doctor: short, clear, human, and curious.',
       '- If urgent symptoms appear, stop questioning and escalate immediately.'
-    ].join('\n');
+    ];
+
+    if (variant === 'agentnous') {
+      v3LikeRules.push(
+        '- Follow this multimodal WhatsApp flow when relevant: gather voice/audio via speech-to-text, images/photos via vision analysis, and text via NLP intake before reasoning.',
+        '- Treat prior chart data and conversation history as EHR context inputs that must be merged before advice.',
+        '- During reasoning, explicitly map findings to urgency assessment and symptom/vitals interpretation before deciding the triage level.',
+        '- Classify outcomes into Level 1 (resuscitation/immediate alerts), Level 2 (emergent/rapid clinical review), or Level 3-5 (non-emergent/standard workflow).',
+        '- After triage, give one clear next action: emergency notification, nurse/doctor queue assignment, or scheduling/self-care advice, then summarize next steps for the patient.'
+      );
+      v3LikeRules.push('- Because this is WhatsApp-first, keep responses concise, mobile-friendly, and avoid long paragraphs.');
+    }
+
+    return v3LikeRules.join('\n');
   }
 
   return sharedRules.join('\n');
@@ -797,6 +811,138 @@ function buildCurrentDateTimePayload(timezone: string, countryCode: string) {
     localNowIso,
     unixMs: now.getTime(),
   };
+}
+
+type AgentNousUrgencyLevel = 'level_1_resuscitation' | 'level_2_emergent' | 'level_3_to_5_non_emergent';
+
+type AgentNousPipelineSnapshot = {
+  inputLayer: {
+    modalities: {
+      text: boolean;
+      image: boolean;
+      audio: boolean;
+    };
+    hasEhrContext: boolean;
+    ehrStatus: 'connected' | 'not_configured' | 'error';
+  };
+  contextAggregator: {
+    chiefComplaint: string;
+    conversationSummary: string | null;
+    encounterFactCount: number;
+  };
+  processingLayer: {
+    urgencyAssessment: string;
+    symptomSignal: string;
+    confidence: number;
+  };
+  decisionLayer: {
+    urgencyLevel: AgentNousUrgencyLevel;
+    rationale: string;
+  };
+  actionLayer: {
+    path: 'immediate_alerts' | 'rapid_clinical_review' | 'standard_workflow';
+    recommendedNextStep: string;
+  };
+};
+
+interface AgentNousEhrProvider {
+  loadPatientContext(params: { tenantId: string; conversationId?: string; userId?: string }): Promise<{
+    status: 'connected' | 'not_configured' | 'error';
+    hasContext: boolean;
+  }>;
+}
+
+const defaultAgentNousEhrProvider: AgentNousEhrProvider = {
+  async loadPatientContext() {
+    return { status: 'not_configured', hasContext: false };
+  },
+};
+
+function getAgentNousEhrProvider(): AgentNousEhrProvider {
+  return defaultAgentNousEhrProvider;
+}
+
+function mapAgentNousActionPath(urgencyLevel: AgentNousUrgencyLevel): AgentNousPipelineSnapshot['actionLayer'] {
+  if (urgencyLevel === 'level_1_resuscitation') {
+    return {
+      path: 'immediate_alerts',
+      recommendedNextStep: 'Trigger immediate emergency escalation and advise direct EMS/ER action.',
+    };
+  }
+  if (urgencyLevel === 'level_2_emergent') {
+    return {
+      path: 'rapid_clinical_review',
+      recommendedNextStep: 'Route to rapid clinical review (nurse/doctor queue) with urgent follow-up.',
+    };
+  }
+  return {
+    path: 'standard_workflow',
+    recommendedNextStep: 'Provide standard workflow guidance with self-care/scheduling next steps.',
+  };
+}
+
+async function runAgentNousPipeline(params: {
+  tenantId: string;
+  options?: AgentRuntimeOptions;
+  history: { role: string; content: string; imageUrls?: string[] }[];
+  currentTask: string;
+  intent: ExtractedIntent;
+  agentContext: AgentContext;
+}): Promise<AgentNousPipelineSnapshot> {
+  const latestUserTurn = [...params.history].reverse().find((message) => message.role === 'user');
+  const hasImage = Array.isArray(latestUserTurn?.imageUrls) && latestUserTurn!.imageUrls!.length > 0;
+  const hasAudio = /\b(audio|voice note|voice message)\b/i.test(latestUserTurn?.content ?? '');
+  const hasText = Boolean((latestUserTurn?.content ?? '').trim());
+
+  const ehrProvider = getAgentNousEhrProvider();
+  const ehrContext = await ehrProvider.loadPatientContext({
+    tenantId: params.tenantId,
+    conversationId: params.options?.conversationId,
+    userId: params.options?.userId,
+  });
+
+  const latestText = latestUserTurn?.content?.trim() || params.currentTask.trim() || 'No clear complaint stated yet.';
+  const encounterFactCount = params.agentContext.structuredState.encounterFacts.length;
+  const isImmediateEmergency = isImmediateEmergencyHandoffSituation(latestText);
+  const isUrgent = isUrgentHandoffSituation(latestText);
+  const urgencyLevel: AgentNousUrgencyLevel = isImmediateEmergency
+    ? 'level_1_resuscitation'
+    : isUrgent
+      ? 'level_2_emergent'
+      : 'level_3_to_5_non_emergent';
+  const actionLayer = mapAgentNousActionPath(urgencyLevel);
+  const confidence = urgencyLevel === 'level_1_resuscitation' ? 0.95 : urgencyLevel === 'level_2_emergent' ? 0.82 : 0.7;
+
+  return {
+    inputLayer: {
+      modalities: {
+        text: hasText,
+        image: hasImage,
+        audio: hasAudio,
+      },
+      hasEhrContext: ehrContext.hasContext,
+      ehrStatus: ehrContext.status,
+    },
+    contextAggregator: {
+      chiefComplaint: latestText,
+      conversationSummary: params.agentContext.conversationMemory.summary ?? null,
+      encounterFactCount,
+    },
+    processingLayer: {
+      urgencyAssessment: urgencyLevel,
+      symptomSignal: params.intent.intent,
+      confidence,
+    },
+    decisionLayer: {
+      urgencyLevel,
+      rationale: `Deterministic urgency mapping from handoff policy + extracted intent (${params.intent.intent}).`,
+    },
+    actionLayer,
+  };
+}
+
+function formatAgentNousPipelineForPrompt(snapshot: AgentNousPipelineSnapshot): string {
+  return JSON.stringify(snapshot, null, 2);
 }
 
 
@@ -1169,6 +1315,21 @@ async function runAgentRuntime(
       hasConversationSummary: !!agentContext.conversationMemory.summary,
     });
 
+    let agentNousPipelineSnapshot: AgentNousPipelineSnapshot | null = null;
+    if (variant === 'agentnous') {
+      agentNousPipelineSnapshot = await runAgentNousPipeline({
+        tenantId,
+        options,
+        history,
+        currentTask,
+        intent,
+        agentContext,
+      });
+      logAgentFlow(variant, 'pipeline', {
+        pipeline: agentNousPipelineSnapshot,
+      });
+    }
+
     // ========================================================================
     // STEP 4: BUILD SYSTEM PROMPT (Optimized context)
     // ========================================================================
@@ -1237,6 +1398,9 @@ async function runAgentRuntime(
     }
     if (options?.conversationLanguageCode && options?.conversationLanguageName) {
       systemContent += `Conversation language flag: ${options.conversationLanguageName} (${options.conversationLanguageCode}). Reply in natural ${options.conversationLanguageName} unless the user explicitly asks to switch languages.\n\n`;
+    }
+    if (agentNousPipelineSnapshot) {
+      systemContent += `AgentNous deterministic pipeline snapshot (backend authoritative stage outputs):\n${formatAgentNousPipelineForPrompt(agentNousPipelineSnapshot)}\n\n`;
     }
     systemContent += `Time handling rules:\n- The tenant-configured timezone in Agent Settings is authoritative.\n- Never guess or invent the current date/time.\n- Before you mention the current time, compare a requested reminder time to now, or interpret words like today/tonight/this afternoon using the current clock, call get_current_datetime first.\n- Use get_current_datetime output as the source of truth for reminder timing language.\n\n`;
 
@@ -2264,4 +2428,12 @@ export async function runAgentV3(
   options?: AgentRuntimeOptions
 ): Promise<AgentResult> {
   return runAgentRuntime(tenantId, history, options, 'v3');
+}
+
+export async function runAgentNous(
+  tenantId: string,
+  history: { role: string; content: string; imageUrls?: string[] }[],
+  options?: AgentRuntimeOptions
+): Promise<AgentResult> {
+  return runAgentRuntime(tenantId, history, options, 'agentnous');
 }
