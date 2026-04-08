@@ -211,7 +211,7 @@ export default function HandoffChat() {
             </div>
             <div
               style={{
-                padding: '12px 16px',
+                padding: '0 16px',
                 borderRadius: 16,
                 borderTopLeftRadius: m.role === 'user' ? 4 : 16,
                 borderTopRightRadius: m.role === 'user' ? 16 : 4,
