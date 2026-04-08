@@ -13,6 +13,7 @@ import { isExplicitHumanRequest, isImmediateEmergencyHandoffSituation } from '..
 import { upsertClinicalSnapshot } from '../services/clinical-snapshot.js';
 import { upsertConversationClinicalAnalytics } from '../services/clinical-analytics.js';
 import { createAutoFollowupReminderIfNeeded } from '../services/reminders.js';
+import { sendWhatsAppOutboundMessage } from '../services/whatsapp-outbound.js';
 
 export const conversationRouter: Router = Router({ mergeParams: true });
 
@@ -90,53 +91,17 @@ function toWhatsAppAddress(value: string): string {
 }
 
 async function sendWhatsAppHumanMessage(params: {
-  tenantId: string;
   to: string;
   body: string;
+  tenantId: string;
+  preferredChannel?: 'whatsapp' | 'whatsapp_meta';
 }): Promise<void> {
-  const integrationDoc = await db.collection('tenant_integrations').doc(params.tenantId).get();
-  const whatsapp = integrationDoc.data()?.whatsapp;
-  if (!whatsapp?.connected) {
-    throw new Error('WhatsApp integration is not connected for this tenant.');
-  }
-
-  const accountSid = typeof whatsapp.accountSid === 'string' ? whatsapp.accountSid.trim() : '';
-  const authToken = typeof whatsapp.authToken === 'string' ? whatsapp.authToken.trim() : '';
-  const messagingServiceSid = typeof whatsapp.messagingServiceSid === 'string' ? whatsapp.messagingServiceSid.trim() : '';
-  const whatsappNumber = typeof whatsapp.whatsappNumber === 'string' ? whatsapp.whatsappNumber.trim() : '';
-
-  if (!accountSid || !authToken) {
-    throw new Error('WhatsApp integration credentials are incomplete.');
-  }
-
-  if (!messagingServiceSid && !whatsappNumber) {
-    throw new Error('WhatsApp integration requires either Messaging Service SID or WhatsApp number.');
-  }
-
-  const payload = new URLSearchParams({
-    To: toWhatsAppAddress(params.to),
-    Body: params.body,
+  await sendWhatsAppOutboundMessage({
+    tenantId: params.tenantId,
+    to: toWhatsAppAddress(params.to),
+    body: params.body,
+    preferredChannel: params.preferredChannel,
   });
-  if (messagingServiceSid) {
-    payload.set('MessagingServiceSid', messagingServiceSid);
-  } else {
-    payload.set('From', toWhatsAppAddress(whatsappNumber));
-  }
-
-  const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
-  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${auth}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: payload,
-  });
-
-  if (!response.ok) {
-    const details = await response.text();
-    throw new Error(`Twilio send failed (${response.status}): ${details}`);
-  }
 }
 
 conversationRouter.use(requireTenantParam);
@@ -574,7 +539,7 @@ conversationRouter.post('/:conversationId/agent-message', requireAuth, requireAd
   const externalUserId = typeof convData.externalUserId === 'string' ? convData.externalUserId : '';
 
   try {
-    if (channel === 'whatsapp') {
+    if (channel === 'whatsapp' || channel === 'whatsapp_meta') {
       if (!externalUserId) {
         res.status(400).json({ error: 'WhatsApp conversation is missing externalUserId' });
         return;
@@ -583,6 +548,7 @@ conversationRouter.post('/:conversationId/agent-message', requireAuth, requireAd
         tenantId,
         to: externalUserId,
         body: body.data.content,
+        preferredChannel: channel,
       });
     }
   } catch (error) {
