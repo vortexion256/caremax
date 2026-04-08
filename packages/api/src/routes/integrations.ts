@@ -1974,8 +1974,8 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         updatedAt: FieldValue.serverTimestamp(),
       });
       const shortMessage = alreadyRequestedHandoff
-        ? 'A care team member has already been notified and will join shortly.'
-        : 'Thanks for your message. A care team member has been notified and will join shortly.';
+        ? 'A human agent has already been notified and will join shortly.'
+        : 'Thanks for your message. A human agent has been notified and will join shortly.';
 
       await db.collection('messages').add({
         conversationId: conversationRef.id,
