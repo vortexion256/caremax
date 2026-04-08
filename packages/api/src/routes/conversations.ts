@@ -315,7 +315,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
 
   if (alreadyRequestedHandoff && wantsHumanAgain(content)) {
     const shortMessage =
-      "A care team member has already been notified and will join shortly. Please stay on this page.";
+      "A human agent has already been notified and will join shortly. Please stay on this page.";
     const assistantMsgRef = await db.collection(MESSAGES).add({
       conversationId,
       tenantId,
