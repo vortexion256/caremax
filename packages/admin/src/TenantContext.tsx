@@ -4,6 +4,7 @@ export type TenantProfile = {
   tenantId: string;
   isAdmin: boolean;
   isPlatformAdmin?: boolean;
+  isDoctor?: boolean;
   name?: string;
   uid?: string;
   email?: string;

@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { db } from '../config/firebase.js';
-import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireTenantParam, requireAdminOrDoctor } from '../middleware/auth.js';
 
 export const handoffRouter: Router = Router({ mergeParams: true });
 
 handoffRouter.use(requireTenantParam);
 
-handoffRouter.get('/', requireAuth, requireAdmin, async (req, res) => {
+handoffRouter.get('/', requireAuth, requireAdminOrDoctor, async (req, res) => {
   const tenantId = res.locals.tenantId as string;
   const snap = await db
     .collection('conversations')

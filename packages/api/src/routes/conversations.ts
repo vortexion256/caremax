@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../config/firebase.js';
-import { requireAuth, requireTenantParam, requireAdmin, type AuthLocals } from '../middleware/auth.js';
+import { requireAuth, requireTenantParam, requireAdmin, requireAdminOrDoctor, type AuthLocals } from '../middleware/auth.js';
 import { extractAndRecordLearningFromHistory } from '../services/agent.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
 import { getTenantBillingStatus, WIDGET_BILLING_ERROR } from '../services/billing.js';
@@ -468,7 +468,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
   });
 });
 
-conversationRouter.post('/:conversationId/join', requireAuth, async (req, res) => {
+conversationRouter.post('/:conversationId/join', requireAuth, requireAdminOrDoctor, async (req, res) => {
   const { conversationId } = req.params;
   const tenantId = res.locals.tenantId as string;
   const { uid } = res.locals as AuthLocals;
@@ -486,7 +486,7 @@ conversationRouter.post('/:conversationId/join', requireAuth, async (req, res) =
   res.json({ conversationId, status: 'human_joined' });
 });
 
-conversationRouter.post('/:conversationId/return-to-agent', requireAuth, requireAdmin, async (req, res) => {
+conversationRouter.post('/:conversationId/return-to-agent', requireAuth, requireAdminOrDoctor, async (req, res) => {
   const { conversationId } = req.params;
   const tenantId = res.locals.tenantId as string;
   const convRef = db.collection(CONVERSATIONS).doc(conversationId);
@@ -521,7 +521,7 @@ conversationRouter.post('/:conversationId/return-to-agent', requireAuth, require
   res.json({ conversationId, status: 'open' });
 });
 
-conversationRouter.post('/:conversationId/agent-message', requireAuth, requireAdmin, async (req, res) => {
+conversationRouter.post('/:conversationId/agent-message', requireAuth, requireAdminOrDoctor, async (req, res) => {
   const { conversationId } = req.params;
   const tenantId = res.locals.tenantId as string;
   const body = z.object({ content: z.string().min(1) }).safeParse(req.body);

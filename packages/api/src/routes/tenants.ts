@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Request, Router } from 'express';
 import { requireAuth, requireTenantParam } from '../middleware/auth.js';
-import { db } from '../config/firebase.js';
+import { auth, db } from '../config/firebase.js';
 import { activateTenantSubscription, getTenantBillingStatus, getTenantUsageTotalsSince } from '../services/billing.js';
 import { initializeMarzPayPayment, verifyMarzPayTransaction } from '../services/marzpay.js';
 import { z } from 'zod';
@@ -76,6 +76,10 @@ type TenantUserActivity = {
 const tenantNameUpdateSchema = z.object({
   name: z.string().trim().min(1).max(120),
 });
+const doctorUpsertSchema = z.object({
+  email: z.string().trim().email(),
+  displayName: z.string().trim().min(2).max(120).optional(),
+});
 
 tenantRouter.get('/:tenantId', requireTenantParam, async (req, res) => {
   const tenantId = res.locals.tenantId as string;
@@ -111,6 +115,68 @@ tenantRouter.get('/:tenantId/account', requireTenantParam, async (_req, res) => 
     createdBy: data.createdBy ?? null,
     billingPlanId: data.billingPlanId ?? 'free',
   });
+});
+
+tenantRouter.get('/:tenantId/doctors', requireTenantParam, async (_req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const requesterIsAdmin = res.locals.isAdmin === true;
+  if (!requesterIsAdmin) {
+    res.status(403).json({ error: 'Admin access required' });
+    return;
+  }
+  const snap = await db.collection('tenant_doctors').where('tenantId', '==', tenantId).orderBy('createdAt', 'desc').get();
+  const doctors = snap.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      doctorUserId: doc.id,
+      email: data.email ?? '',
+      displayName: data.displayName ?? '',
+      createdAt: data.createdAt?.toMillis?.() ?? null,
+      createdBy: data.createdBy ?? null,
+    };
+  });
+  res.json({ doctors });
+});
+
+tenantRouter.post('/:tenantId/doctors', requireTenantParam, async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const requesterIsAdmin = res.locals.isAdmin === true;
+  const requesterUid = (res.locals.uid as string) ?? null;
+  if (!requesterIsAdmin) {
+    res.status(403).json({ error: 'Admin access required' });
+    return;
+  }
+  const parsed = doctorUpsertSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+  const email = parsed.data.email.trim().toLowerCase();
+  const targetUser = await auth.getUserByEmail(email).catch(() => null);
+  if (!targetUser) {
+    res.status(404).json({ error: 'No user account found for this email. Ask doctor to sign up first.' });
+    return;
+  }
+  const existingClaims = (targetUser.customClaims ?? {}) as Record<string, unknown>;
+  if (existingClaims.isAdmin === true || existingClaims.isPlatformAdmin === true) {
+    res.status(409).json({ error: 'This email is already used by a tenant/platform admin and cannot be used as doctor user.' });
+    return;
+  }
+  const nextClaims: Record<string, unknown> = {
+    ...existingClaims,
+    tenantId,
+    isDoctor: true,
+    isAdmin: false,
+  };
+  await auth.setCustomUserClaims(targetUser.uid, nextClaims);
+  await db.collection('tenant_doctors').doc(targetUser.uid).set({
+    tenantId,
+    email,
+    displayName: parsed.data.displayName ?? targetUser.displayName ?? '',
+    createdBy: requesterUid,
+    createdAt: new Date(),
+  }, { merge: true });
+  res.status(201).json({ success: true, doctorUserId: targetUser.uid });
 });
 
 tenantRouter.get('/:tenantId/user-activity', requireTenantParam, async (req, res) => {

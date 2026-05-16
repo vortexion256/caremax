@@ -45,6 +45,7 @@ type MeResponse = {
   tenantName?: string;
   isAdmin?: boolean;
   isPlatformAdmin?: boolean;
+  isDoctor?: boolean;
 };
 
 export default function App() {
@@ -73,11 +74,12 @@ export default function App() {
     if (!authenticated) return;
     api<MeResponse>('/auth/me')
       .then((me) => {
-        if (me.tenantId && me.isAdmin) {
+        if (me.tenantId && (me.isAdmin || me.isDoctor)) {
           const profile = {
             tenantId: me.tenantId,
             name: me.tenantName,
-            isAdmin: true,
+            isAdmin: me.isAdmin === true,
+            isDoctor: me.isDoctor === true,
             isPlatformAdmin: me.isPlatformAdmin === true,
             uid: me.uid,
             email: me.email,
@@ -201,25 +203,25 @@ export default function App() {
   return (
     <TenantProvider value={userProfile}>
       <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="agent" element={<AgentSettings />} />
-          <Route path="visual-diagram" element={<VisualDiagram />} />
+          <Route path="/" element={<Layout />}>
+            <Route index element={<Dashboard />} />
+          <Route path="agent" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <AgentSettings />} />
+          <Route path="visual-diagram" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <VisualDiagram />} />
           <Route path="conversations" element={<Conversations />} />
           <Route path="conversations/:conversationId" element={<ConversationView />} />
           <Route path="handoffs" element={<HandoffQueue />} />
           <Route path="handoffs/:conversationId" element={<HandoffChat />} />
-          <Route path="rag" element={<RAG />} />
-          <Route path="agent-brain" element={<AutoAgentBrain />} />
-          <Route path="integrations" element={<Integrations />} />
-          <Route path="whatsapp" element={<WhatsAppIntegration />} />
-          <Route path="whatsapp-patient-activity" element={<WhatsAppPatientActivityPage />} />
-          <Route path="embed" element={<Embed />} />
-          <Route path="account" element={<TenantAccount />} />
-          <Route path="billing" element={<TenantBilling />} />
-          <Route path="patient-profile" element={<PatientProfilePage />} />
-          <Route path="special-messages" element={<SpecialMessagesPage />} />
-          <Route path="agent-learning" element={<AgentLearningHub />} />
+          <Route path="rag" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <RAG />} />
+          <Route path="agent-brain" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <AutoAgentBrain />} />
+          <Route path="integrations" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <Integrations />} />
+          <Route path="whatsapp" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <WhatsAppIntegration />} />
+          <Route path="whatsapp-patient-activity" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <WhatsAppPatientActivityPage />} />
+          <Route path="embed" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <Embed />} />
+          <Route path="account" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <TenantAccount />} />
+          <Route path="billing" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <TenantBilling />} />
+          <Route path="patient-profile" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <PatientProfilePage />} />
+          <Route path="special-messages" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <SpecialMessagesPage />} />
+          <Route path="agent-learning" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <AgentLearningHub />} />
         </Route>
         <Route path="/platform" element={<PlatformLayout />}>
           <Route index element={<PlatformDashboard />} />
