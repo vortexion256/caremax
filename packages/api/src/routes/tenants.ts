@@ -133,8 +133,28 @@ tenantRouter.get('/:tenantId/doctors', requireTenantParam, async (_req, res) => 
       displayName: data.displayName ?? '',
       createdAt: data.createdAt?.toMillis?.() ?? null,
       createdBy: data.createdBy ?? null,
+      interactionsHandled: 0,
+      activeConversations: 0,
     };
   });
+
+  await Promise.all(doctors.map(async (doctor) => {
+    const handledSnap = await db
+      .collection('conversations')
+      .where('tenantId', '==', tenantId)
+      .where('joinedBy', '==', doctor.doctorUserId)
+      .get();
+    doctor.interactionsHandled = handledSnap.size;
+
+    const activeSnap = await db
+      .collection('conversations')
+      .where('tenantId', '==', tenantId)
+      .where('status', '==', 'human_joined')
+      .where('joinedBy', '==', doctor.doctorUserId)
+      .get();
+    doctor.activeConversations = activeSnap.size;
+  }));
+
   res.json({ doctors });
 });
 

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useTenant } from '../TenantContext';
 import { api } from '../api';
+import AppNotification from '../components/AppNotification';
 
 type Account = {
   tenantId: string;
@@ -14,7 +15,14 @@ type Account = {
   createdBy: string | null;
   billingPlanId: string;
 };
-type DoctorUser = { doctorUserId: string; email: string; displayName: string; createdAt: number | null };
+type DoctorUser = {
+  doctorUserId: string;
+  email: string;
+  displayName: string;
+  createdAt: number | null;
+  interactionsHandled?: number;
+  activeConversations?: number;
+};
 
 export default function TenantAccount() {
   const { tenantId, email, uid } = useTenant();
@@ -26,6 +34,7 @@ export default function TenantAccount() {
   const [doctorEmail, setDoctorEmail] = useState('');
   const [doctorName, setDoctorName] = useState('');
   const [doctorError, setDoctorError] = useState<string | null>(null);
+  const [doctorSuccess, setDoctorSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') {
@@ -52,6 +61,7 @@ export default function TenantAccount() {
     e.preventDefault();
     if (!tenantId) return;
     setDoctorError(null);
+    setDoctorSuccess(null);
     try {
       await api(`/tenants/${tenantId}/doctors`, {
         method: 'POST',
@@ -61,6 +71,7 @@ export default function TenantAccount() {
       setDoctors(refreshed.doctors);
       setDoctorEmail('');
       setDoctorName('');
+      setDoctorSuccess('Doctor has been added successfully.');
     } catch (e) {
       setDoctorError(e instanceof Error ? e.message : 'Failed to add doctor');
     }
@@ -98,6 +109,7 @@ export default function TenantAccount() {
 
   return (
     <div>
+      {doctorSuccess && <AppNotification message={doctorSuccess} type="success" onClose={() => setDoctorSuccess(null)} />}
       <h1 style={{ marginTop: 0 }}>Account Settings</h1>
       <p style={{ color: '#64748b' }}>Tenant account details and subscription assignment.</p>
       {!account && !error && <p>Loading account details...</p>}
@@ -157,8 +169,16 @@ export default function TenantAccount() {
               <button type="submit" style={{ border: 0, borderRadius: 8, padding: '8px 12px', background: '#2563eb', color: '#fff', fontWeight: 600 }}>Add Doctor</button>
             </div>
             {doctorError && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 6 }}>{doctorError}</div>}
-            <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
-              {doctors.map((d) => <div key={d.doctorUserId} style={{ fontSize: 13, color: '#0f172a' }}>{d.displayName || 'Doctor'} — {d.email}</div>)}
+            <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+              {doctors.length === 0 && <div style={{ fontSize: 13, color: '#64748b' }}>No doctors added yet.</div>}
+              {doctors.map((d) => (
+                <div key={d.doctorUserId} style={{ fontSize: 13, color: '#0f172a', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', background: '#fff' }}>
+                  <div style={{ fontWeight: 600 }}>{d.displayName || 'Doctor'} — {d.email}</div>
+                  <div style={{ color: '#475569', marginTop: 4, fontSize: 12 }}>
+                    Interactions handled: {d.interactionsHandled ?? 0} · Active chats: {d.activeConversations ?? 0}
+                  </div>
+                </div>
+              ))}
             </div>
           </form>
         </div>
