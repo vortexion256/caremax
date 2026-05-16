@@ -438,7 +438,13 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
     .get();
   const history = historySnap.docs.reverse().map((d) => {
     const data = d.data();
-    return { role: data.role, content: data.content, imageUrls: data.imageUrls ?? [] };
+    const createdAt = data.createdAt?.toDate?.();
+    return {
+      role: data.role,
+      content: data.content,
+      imageUrls: data.imageUrls ?? [],
+      createdAtIso: createdAt instanceof Date ? createdAt.toISOString() : undefined,
+    };
   });
 
   let agentResponse: { text: string; requestHandoff?: boolean };

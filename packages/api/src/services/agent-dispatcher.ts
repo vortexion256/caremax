@@ -2,7 +2,7 @@ import { db } from '../config/firebase.js';
 import { runAgent, type AgentResult } from './agent.js';
 import { runAgentNous, runAgentV2, runAgentV3 } from './agent-v2.js';
 
-type AgentHistoryMessage = { role: string; content: string; imageUrls?: string[] };
+type AgentHistoryMessage = { role: string; content: string; imageUrls?: string[]; createdAtIso?: string };
 type AgentOptions = {
   userId?: string;
   externalUserId?: string;
