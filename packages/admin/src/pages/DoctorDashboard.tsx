@@ -5,6 +5,7 @@ import { useTenant } from '../TenantContext';
 
 type ConversationRecord = {
   joinedBy?: string;
+  handledBy?: string;
   status?: 'open' | 'handoff_requested' | 'human_joined';
 };
 
@@ -26,7 +27,7 @@ export default function DoctorDashboard() {
   }, [tenantId]);
 
   const stats = useMemo(() => {
-    const interactionsHandled = conversations.filter((row) => row.joinedBy === uid).length;
+    const interactionsHandled = conversations.filter((row) => (row.handledBy ?? row.joinedBy) === uid).length;
     const openHandoffs = conversations.filter((row) => row.status === 'handoff_requested').length;
     const activeMine = conversations.filter((row) => row.status === 'human_joined' && row.joinedBy === uid).length;
     return { interactionsHandled, openHandoffs, activeMine };

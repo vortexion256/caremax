@@ -142,12 +142,22 @@ tenantRouter.get('/:tenantId/doctors', requireTenantParam, async (_req, res) => 
   });
 
   await Promise.all(doctors.map(async (doctor) => {
-    const handledSnap = await db
-      .collection('conversations')
-      .where('tenantId', '==', tenantId)
-      .where('joinedBy', '==', doctor.doctorUserId)
-      .get();
-    doctor.interactionsHandled = handledSnap.size;
+    const [handledBySnap, joinedBySnap] = await Promise.all([
+      db
+        .collection('conversations')
+        .where('tenantId', '==', tenantId)
+        .where('handledBy', '==', doctor.doctorUserId)
+        .get(),
+      db
+        .collection('conversations')
+        .where('tenantId', '==', tenantId)
+        .where('joinedBy', '==', doctor.doctorUserId)
+        .get(),
+    ]);
+    const conversationIds = new Set<string>();
+    handledBySnap.docs.forEach((doc) => conversationIds.add(doc.id));
+    joinedBySnap.docs.forEach((doc) => conversationIds.add(doc.id));
+    doctor.interactionsHandled = conversationIds.size;
 
     const activeSnap = await db
       .collection('conversations')

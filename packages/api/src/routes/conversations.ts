@@ -489,6 +489,7 @@ conversationRouter.post('/:conversationId/join', requireAuth, requireAdminOrDoct
     status: 'human_joined',
     updatedAt: FieldValue.serverTimestamp(),
     joinedBy: uid,
+    handledBy: uid,
   });
   res.json({ conversationId, status: 'human_joined' });
 });
