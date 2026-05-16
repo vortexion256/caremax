@@ -23,6 +23,22 @@ const DIAGNOSTIC_LOGS = 'tenant_diagnostic_logs';
 const DEFAULT_AGENT_HISTORY_LIMIT = 10;
 const MIN_AGENT_HISTORY_LIMIT = 10;
 const MAX_AGENT_HISTORY_LIMIT = 20;
+const HANDOFF_CONFIRMATION_PENDING_REPLY =
+  'I can connect you to a human doctor. Please confirm if you would like me to proceed with the handoff (reply: "yes, proceed" to continue).';
+const HANDOFF_CONFIRMATION_DECLINED_REPLY =
+  'Okay — I will keep this conversation with AI for now. If you want a doctor later, just ask me to hand off again.';
+
+function isHandoffProceedConfirmation(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return /\b(yes|confirm|proceed|go ahead|continue|do it|okay|ok)\b/.test(normalized);
+}
+
+function isHandoffDeclineConfirmation(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return /\b(no|cancel|not now|don't|do not|stop|wait)\b/.test(normalized);
+}
 
 function resolveAgentHistoryLimit(): number {
   const fromEnv = Number(process.env.AGENT_HISTORY_LIMIT);
@@ -299,6 +315,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
   const status = (conv.data()?.status as string) ?? 'open';
   const humanActive = status === 'human_joined';
   const alreadyRequestedHandoff = status === 'handoff_requested';
+  const handoffConfirmationPending = convData?.handoffConfirmationPending === true;
 
   if (humanActive) {
     await convRef.update({ updatedAt: FieldValue.serverTimestamp() });
@@ -312,6 +329,58 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
   }
 
   const wantsHumanAgain = (text: string) => isExplicitHumanRequest(text) || isImmediateEmergencyHandoffSituation(text);
+
+  if (status === 'open' && handoffConfirmationPending) {
+    if (isHandoffProceedConfirmation(content)) {
+      await convRef.update({
+        status: 'handoff_requested',
+        handoffConfirmationPending: false,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      const assistantMsgRef = await db.collection(MESSAGES).add({
+        conversationId,
+        tenantId,
+        role: 'assistant',
+        content: 'Thanks for confirming. I have now requested a human doctor to join this chat.',
+        metadata: {
+          source: 'handoff_status',
+          event: 'handoff_requested_confirmed',
+        },
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.status(201).json({
+        userMessageId: userMsgRef.id,
+        assistantMessageId: assistantMsgRef.id,
+        assistantContent: 'Thanks for confirming. I have now requested a human doctor to join this chat.',
+        requestHandoff: true,
+      });
+      return;
+    }
+    if (isHandoffDeclineConfirmation(content)) {
+      await convRef.update({
+        handoffConfirmationPending: false,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      const assistantMsgRef = await db.collection(MESSAGES).add({
+        conversationId,
+        tenantId,
+        role: 'assistant',
+        content: HANDOFF_CONFIRMATION_DECLINED_REPLY,
+        metadata: {
+          source: 'handoff_status',
+          event: 'handoff_confirmation_declined',
+        },
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.status(201).json({
+        userMessageId: userMsgRef.id,
+        assistantMessageId: assistantMsgRef.id,
+        assistantContent: HANDOFF_CONFIRMATION_DECLINED_REPLY,
+        requestHandoff: false,
+      });
+      return;
+    }
+  }
 
   if (alreadyRequestedHandoff && wantsHumanAgain(content)) {
     const shortMessage =
@@ -337,9 +406,27 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
   // request (double-send or quick repeat) gets the short reply instead of running the agent again.
   if (status === 'open' && wantsHumanAgain(content)) {
     await convRef.update({
-      status: 'handoff_requested',
+      handoffConfirmationPending: true,
       updatedAt: FieldValue.serverTimestamp(),
     });
+    const assistantMsgRef = await db.collection(MESSAGES).add({
+      conversationId,
+      tenantId,
+      role: 'assistant',
+      content: HANDOFF_CONFIRMATION_PENDING_REPLY,
+      metadata: {
+        source: 'handoff_status',
+        event: 'handoff_confirmation_requested',
+      },
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    res.status(201).json({
+      userMessageId: userMsgRef.id,
+      assistantMessageId: assistantMsgRef.id,
+      assistantContent: HANDOFF_CONFIRMATION_PENDING_REPLY,
+      requestHandoff: false,
+    });
+    return;
   }
 
   const historyLimit = resolveAgentHistoryLimit();
@@ -434,7 +521,8 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
 
   if (handoffRequested) {
     await convRef.update({
-      status: 'handoff_requested',
+      status: alreadyRequestedHandoff ? status : 'handoff_requested',
+      handoffConfirmationPending: false,
       updatedAt: FieldValue.serverTimestamp(),
     });
   }
@@ -490,6 +578,24 @@ conversationRouter.post('/:conversationId/join', requireAuth, requireAdminOrDoct
     updatedAt: FieldValue.serverTimestamp(),
     joinedBy: uid,
     handledBy: uid,
+    handoffConfirmationPending: false,
+  });
+  const doctorDoc = await db.collection('users').doc(uid).get();
+  const doctorName = typeof doctorDoc.data()?.displayName === 'string' && doctorDoc.data()?.displayName.trim()
+    ? doctorDoc.data()!.displayName.trim()
+    : uid;
+  await db.collection(MESSAGES).add({
+    conversationId,
+    tenantId,
+    role: 'human_agent',
+    content: `🔔 Dr. ${doctorName} joined handoff at ${new Date().toISOString()}.`,
+    metadata: {
+      source: 'handoff_status',
+      event: 'doctor_joined_handoff',
+      doctorId: uid,
+      doctorName,
+    },
+    createdAt: FieldValue.serverTimestamp(),
   });
   res.json({ conversationId, status: 'human_joined' });
 });
@@ -507,6 +613,25 @@ conversationRouter.post('/:conversationId/return-to-agent', requireAuth, require
     status: 'open',
     updatedAt: FieldValue.serverTimestamp(),
     joinedBy: FieldValue.delete(),
+    handoffConfirmationPending: false,
+  });
+  const { uid } = res.locals as AuthLocals;
+  const doctorDoc = await db.collection('users').doc(uid).get();
+  const doctorName = typeof doctorDoc.data()?.displayName === 'string' && doctorDoc.data()?.displayName.trim()
+    ? doctorDoc.data()!.displayName.trim()
+    : uid;
+  await db.collection(MESSAGES).add({
+    conversationId,
+    tenantId,
+    role: 'assistant',
+    content: `🔔 Dr. ${doctorName} returned this conversation to AI at ${new Date().toISOString()}.`,
+    metadata: {
+      source: 'handoff_status',
+      event: 'returned_to_ai',
+      doctorId: uid,
+      doctorName,
+    },
+    createdAt: FieldValue.serverTimestamp(),
   });
 
   // Record what was learned from the human-handoff conversation so the agent doesn't miss it

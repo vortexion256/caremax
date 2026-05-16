@@ -88,6 +88,29 @@ export async function createRelayTicket(params: {
   const now = Date.now();
   const expiresAt = Timestamp.fromMillis(now + RELAY_TICKET_TTL_HOURS * 60 * 60 * 1000);
 
+  const activeTicketSnap = await db.collection('relay_tickets')
+    .where('tenantId', '==', params.tenantId)
+    .where('nokExternalUserId', '==', nokExternalUserId)
+    .where('status', '==', 'open')
+    .limit(1)
+    .get();
+  if (!activeTicketSnap.empty) {
+    throw new Error('This phone number already has an active handoff session.');
+  }
+
+  const conversationIdCandidates = buildNormalizedWhatsAppIdCandidates(nokExternalUserId);
+  for (const candidate of conversationIdCandidates) {
+    const activeConversationSnap = await db.collection('conversations')
+      .where('tenantId', '==', params.tenantId)
+      .where('externalUserId', '==', candidate)
+      .where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
+      .limit(1)
+      .get();
+    if (!activeConversationSnap.empty) {
+      throw new Error('This phone number already has an active conversation.');
+    }
+  }
+
   if (params.supersedeOpenTicketsForPair && params.patientExternalUserId) {
     const existingOpenTickets = await db.collection('relay_tickets')
       .where('tenantId', '==', params.tenantId)
