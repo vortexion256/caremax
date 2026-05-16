@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../config/firebase.js';
 import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/auth.js';
 import { buildNightlyClinicalAnalyticsSummary } from '../services/clinical-analytics.js';
+import { normalizeWhatsAppExternalUserId } from '../services/user-identity.js';
 
 export const analyticsRouter: Router = Router({ mergeParams: true });
 export const analyticsDispatchRouter: Router = Router();
@@ -356,12 +357,33 @@ analyticsRouter.get('/learning-loop', async (req, res) => {
     let totalAssistantMessages = 0;
     let fallbackAssistantMessages = 0;
     const users = new Map<string, number>();
+    let missingIdentityConversations = 0;
     const topSymptoms = new Map<string, number>();
     const topRiskSignals = new Map<string, number>();
 
+    const resolveStableUserKey = (convo: any): string | null => {
+      const userId = typeof convo?.userId === 'string' ? convo.userId.trim() : '';
+      if (userId) return userId;
+
+      const channel = typeof convo?.channel === 'string' ? convo.channel.trim() : '';
+      const externalUserId = typeof convo?.externalUserId === 'string' ? convo.externalUserId.trim() : '';
+      if (!channel || !externalUserId) return null;
+
+      if (channel === 'whatsapp' || channel === 'whatsapp_meta') {
+        const normalizedExternal = normalizeWhatsAppExternalUserId(externalUserId);
+        return normalizedExternal ? `${channel}:${normalizedExternal}` : null;
+      }
+
+      return `${channel}:${externalUserId}`;
+    };
+
     for (const convo of recentConversations) {
-      const userId = typeof (convo as any).userId === 'string' ? (convo as any).userId : '';
-      if (userId) users.set(userId, (users.get(userId) ?? 0) + 1);
+      const stableUserKey = resolveStableUserKey(convo as any);
+      if (stableUserKey) {
+        users.set(stableUserKey, (users.get(stableUserKey) ?? 0) + 1);
+      } else {
+        missingIdentityConversations += 1;
+      }
 
       const convoMessages = messagesByConversation.get(convo.id) ?? [];
       const userCount = convoMessages.filter((msg) => msg.role === 'user').length;
@@ -457,6 +479,8 @@ analyticsRouter.get('/learning-loop', async (req, res) => {
         avgMessagesPerSession: totalSessions > 0 ? Number((Array.from(messagesByConversation.values()).reduce((sum, rows) => sum + rows.length, 0) / totalSessions).toFixed(2)) : 0,
         repeatUserRate: users.size > 0 ? Number((repeatUsers / users.size).toFixed(4)) : 0,
         fallbackResponseRate: totalAssistantMessages > 0 ? Number((fallbackAssistantMessages / totalAssistantMessages).toFixed(4)) : 0,
+        identityCoverageRate: totalSessions > 0 ? Number(((totalSessions - missingIdentityConversations) / totalSessions).toFixed(4)) : 0,
+        missingIdentitySessions: missingIdentityConversations,
       },
       clinicalInsights: {
         topSymptoms: Array.from(topSymptoms.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([symptom, count]) => ({ symptom, count })),
