@@ -19,36 +19,66 @@ export default function TenantDoctors() {
   const [doctorName, setDoctorName] = useState('');
   const [doctorError, setDoctorError] = useState<string | null>(null);
   const [doctorSuccess, setDoctorSuccess] = useState<string | null>(null);
+  const [loadingDoctors, setLoadingDoctors] = useState(false);
+  const [submittingDoctor, setSubmittingDoctor] = useState(false);
+  const [loadDoctorsError, setLoadDoctorsError] = useState<string | null>(null);
+
+  async function loadDoctors(currentTenantId: string) {
+    setLoadingDoctors(true);
+    setLoadDoctorsError(null);
+    try {
+      const res = await api<{ doctors: DoctorUser[] }>(`/tenants/${currentTenantId}/doctors`);
+      setDoctors(res.doctors);
+    } catch (e) {
+      setDoctors([]);
+      setLoadDoctorsError(e instanceof Error ? e.message : 'Failed to load doctors');
+    } finally {
+      setLoadingDoctors(false);
+    }
+  }
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') {
       setDoctors([]);
+      setLoadDoctorsError(null);
       return;
     }
-
-    api<{ doctors: DoctorUser[] }>(`/tenants/${tenantId}/doctors`)
-      .then((res) => setDoctors(res.doctors))
-      .catch(() => setDoctors([]));
+    loadDoctors(tenantId);
   }, [tenantId]);
 
   async function addDoctor(e: FormEvent) {
     e.preventDefault();
-    if (!tenantId) return;
+    if (!tenantId || tenantId === 'platform' || submittingDoctor) return;
+
+    const normalizedDoctorEmail = doctorEmail.trim().toLowerCase();
+    const normalizedDoctorName = doctorName.trim();
+    if (!normalizedDoctorEmail) {
+      setDoctorError('Enter a doctor email address.');
+      return;
+    }
 
     setDoctorError(null);
     setDoctorSuccess(null);
+    setSubmittingDoctor(true);
     try {
       await api(`/tenants/${tenantId}/doctors`, {
         method: 'POST',
-        body: JSON.stringify({ email: doctorEmail, displayName: doctorName || undefined }),
+        body: JSON.stringify({ email: normalizedDoctorEmail, displayName: normalizedDoctorName || undefined }),
       });
-      const refreshed = await api<{ doctors: DoctorUser[] }>(`/tenants/${tenantId}/doctors`);
-      setDoctors(refreshed.doctors);
+      await loadDoctors(tenantId);
       setDoctorEmail('');
       setDoctorName('');
       setDoctorSuccess('Doctor has been added successfully.');
     } catch (e) {
-      setDoctorError(e instanceof Error ? e.message : 'Failed to add doctor');
+      const errorMessage = e instanceof Error ? e.message : 'Failed to add doctor';
+      if (errorMessage.toLowerCase().includes('409') || errorMessage.toLowerCase().includes('already')) {
+        setDoctorError('That doctor is already in this tenant.');
+      } else {
+        setDoctorError(errorMessage);
+      }
+      await loadDoctors(tenantId);
+    } finally {
+      setSubmittingDoctor(false);
     }
   }
 
@@ -65,11 +95,13 @@ export default function TenantDoctors() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <input value={doctorEmail} onChange={(e) => setDoctorEmail(e.target.value)} placeholder="doctor@email.com" style={{ flex: 1, minWidth: 220, border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
           <input value={doctorName} onChange={(e) => setDoctorName(e.target.value)} placeholder="Display name (optional)" style={{ flex: 1, minWidth: 180, border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
-          <button type="submit" style={{ border: 0, borderRadius: 8, padding: '8px 12px', background: '#2563eb', color: '#fff', fontWeight: 600 }}>Add Doctor</button>
+          <button disabled={submittingDoctor} type="submit" style={{ border: 0, borderRadius: 8, padding: '8px 12px', background: '#2563eb', color: '#fff', fontWeight: 600, opacity: submittingDoctor ? 0.7 : 1, cursor: submittingDoctor ? 'not-allowed' : 'pointer' }}>{submittingDoctor ? 'Adding...' : 'Add Doctor'}</button>
         </div>
         {doctorError && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 6 }}>{doctorError}</div>}
+        {loadDoctorsError && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 6 }}>Could not load doctors list: {loadDoctorsError}</div>}
         <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-          {doctors.length === 0 && <div style={{ fontSize: 13, color: '#64748b' }}>No doctors added yet.</div>}
+          {loadingDoctors && <div style={{ fontSize: 13, color: '#64748b' }}>Loading doctors...</div>}
+          {!loadingDoctors && doctors.length === 0 && <div style={{ fontSize: 13, color: '#64748b' }}>No doctors added yet.</div>}
           {doctors.map((d) => (
             <div key={d.doctorUserId} style={{ fontSize: 13, color: '#0f172a', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', background: '#fff' }}>
               <div style={{ fontWeight: 600 }}>{d.displayName || 'Doctor'} — {d.email}</div>
