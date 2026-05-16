@@ -478,6 +478,13 @@ conversationRouter.post('/:conversationId/join', requireAuth, requireAdminOrDoct
     res.status(404).json({ error: 'Conversation not found' });
     return;
   }
+  const convData = conv.data() ?? {};
+  const joinedBy = typeof convData.joinedBy === 'string' ? convData.joinedBy : null;
+  const status = typeof convData.status === 'string' ? convData.status : 'open';
+  if (status === 'human_joined' && joinedBy && joinedBy !== uid) {
+    res.status(409).json({ error: 'Another doctor is currently handling this conversation.' });
+    return;
+  }
   await convRef.update({
     status: 'human_joined',
     updatedAt: FieldValue.serverTimestamp(),

@@ -78,7 +78,8 @@ export default function Layout() {
     };
   }, [tenantId]);
 
-  const primaryNav: NavItem[] = isDoctor ? [
+const primaryNav: NavItem[] = isDoctor ? [
+    { path: '/', label: 'Dashboard' },
     { path: '/conversations', label: 'Conversations' },
     { path: '/handoffs', label: 'Handoff Queue' },
   ] : [
