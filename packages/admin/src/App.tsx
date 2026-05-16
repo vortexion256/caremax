@@ -37,6 +37,7 @@ import Contact from './pages/Contact';
 import PatientProfilePage from './pages/XPersonProfile';
 import SpecialMessagesPage from './pages/SpecialMessages';
 import AgentLearningHub from './pages/AgentLearningHub';
+import DoctorDashboard from './pages/DoctorDashboard';
 
 type MeResponse = {
   uid: string;
@@ -204,7 +205,7 @@ export default function App() {
     <TenantProvider value={userProfile}>
       <Routes>
           <Route path="/" element={<Layout />}>
-            <Route index element={<Dashboard />} />
+            <Route index element={userProfile.isDoctor ? <DoctorDashboard /> : <Dashboard />} />
           <Route path="agent" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <AgentSettings />} />
           <Route path="visual-diagram" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <VisualDiagram />} />
           <Route path="conversations" element={<Conversations />} />

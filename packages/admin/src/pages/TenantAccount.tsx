@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useTenant } from '../TenantContext';
 import { api } from '../api';
+import AppNotification from '../components/AppNotification';
 
 type Account = {
   tenantId: string;
@@ -26,6 +27,7 @@ export default function TenantAccount() {
   const [doctorEmail, setDoctorEmail] = useState('');
   const [doctorName, setDoctorName] = useState('');
   const [doctorError, setDoctorError] = useState<string | null>(null);
+  const [doctorSuccess, setDoctorSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') {
@@ -52,6 +54,7 @@ export default function TenantAccount() {
     e.preventDefault();
     if (!tenantId) return;
     setDoctorError(null);
+    setDoctorSuccess(null);
     try {
       await api(`/tenants/${tenantId}/doctors`, {
         method: 'POST',
@@ -61,6 +64,7 @@ export default function TenantAccount() {
       setDoctors(refreshed.doctors);
       setDoctorEmail('');
       setDoctorName('');
+      setDoctorSuccess('Doctor has been added successfully.');
     } catch (e) {
       setDoctorError(e instanceof Error ? e.message : 'Failed to add doctor');
     }
@@ -98,6 +102,7 @@ export default function TenantAccount() {
 
   return (
     <div>
+      {doctorSuccess && <AppNotification message={doctorSuccess} type="success" onClose={() => setDoctorSuccess(null)} />}
       <h1 style={{ marginTop: 0 }}>Account Settings</h1>
       <p style={{ color: '#64748b' }}>Tenant account details and subscription assignment.</p>
       {!account && !error && <p>Loading account details...</p>}
