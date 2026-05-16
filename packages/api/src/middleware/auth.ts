@@ -7,6 +7,7 @@ export type AuthLocals = {
   tenantId?: string;
   isAdmin?: boolean;
   isPlatformAdmin?: boolean;
+  isDoctor?: boolean;
 };
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -22,6 +23,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     (res.locals as AuthLocals).tenantId = (decoded as { tenantId?: string }).tenantId;
     (res.locals as AuthLocals).isAdmin = (decoded as { isAdmin?: boolean }).isAdmin === true;
     (res.locals as AuthLocals).isPlatformAdmin = (decoded as { isPlatformAdmin?: boolean }).isPlatformAdmin === true;
+    (res.locals as AuthLocals).isDoctor = (decoded as { isDoctor?: boolean }).isDoctor === true;
     next();
   } catch (e) {
     res.status(401).json({ error: 'Invalid token' });
@@ -60,6 +62,15 @@ export function requirePlatformAdmin(req: Request, res: Response, next: NextFunc
   const locals = res.locals as AuthLocals;
   if (!locals.isPlatformAdmin) {
     res.status(403).json({ error: 'Platform admin access required' });
+    return;
+  }
+  next();
+}
+
+export function requireAdminOrDoctor(req: Request, res: Response, next: NextFunction): void {
+  const locals = res.locals as AuthLocals;
+  if (!locals.isAdmin && !locals.isDoctor) {
+    res.status(403).json({ error: 'Admin or doctor access required' });
     return;
   }
   next();

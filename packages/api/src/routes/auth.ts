@@ -22,6 +22,7 @@ authRouter.post('/google', async (req, res) => {
       tenantId: (decoded as { tenantId?: string }).tenantId,
       isAdmin: (decoded as { isAdmin?: boolean }).isAdmin === true,
       isPlatformAdmin: (decoded as { isPlatformAdmin?: boolean }).isPlatformAdmin === true,
+      isDoctor: (decoded as { isDoctor?: boolean }).isDoctor === true,
     });
   } catch (e) {
     res.status(401).json({ error: 'Invalid Google token' });
@@ -29,7 +30,7 @@ authRouter.post('/google', async (req, res) => {
 });
 
 authRouter.get('/me', requireAuth, async (_req, res) => {
-  const { uid, email, tenantId, isAdmin, isPlatformAdmin } = res.locals as AuthLocals;
+  const { uid, email, tenantId, isAdmin, isPlatformAdmin, isDoctor } = res.locals as AuthLocals;
   let tenantName: string | undefined;
 
   if (tenantId && tenantId !== 'platform') {
@@ -37,5 +38,5 @@ authRouter.get('/me', requireAuth, async (_req, res) => {
     tenantName = tenantSnap.data()?.name;
   }
 
-  res.json({ uid, email, tenantId, tenantName, isAdmin, isPlatformAdmin });
+  res.json({ uid, email, tenantId, tenantName, isAdmin, isPlatformAdmin, isDoctor });
 });

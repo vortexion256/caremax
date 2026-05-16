@@ -10,7 +10,7 @@ type NavGroup = { key: string; label: string; items: NavItem[] };
 
 export default function Layout() {
   const location = useLocation();
-  const { tenantId, name, email, isPlatformAdmin } = useTenant();
+  const { tenantId, name, email, isPlatformAdmin, isDoctor } = useTenant();
   const { isMobile } = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
   const [handoffCount, setHandoffCount] = useState(0);
@@ -78,14 +78,17 @@ export default function Layout() {
     };
   }, [tenantId]);
 
-  const primaryNav: NavItem[] = [
+  const primaryNav: NavItem[] = isDoctor ? [
+    { path: '/conversations', label: 'Conversations' },
+    { path: '/handoffs', label: 'Handoff Queue' },
+  ] : [
     { path: '/', label: 'Dashboard' },
     { path: '/visual-diagram', label: 'Visual Diagram' },
     { path: '/conversations', label: 'Conversations' },
     { path: '/handoffs', label: 'Handoff Queue' },
   ];
 
-  const navGroups: NavGroup[] = [
+  const navGroups: NavGroup[] = isDoctor ? [] : [
     {
       key: 'agent',
       label: 'Agent Config',
