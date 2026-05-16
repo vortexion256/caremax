@@ -17,7 +17,7 @@ export default function DoctorDashboard() {
     const q = query(
       collection(firestore, 'conversations'),
       where('tenantId', '==', tenantId),
-      where('status', 'in', ['handoff_requested', 'human_joined'])
+      where('status', 'in', ['open', 'handoff_requested', 'human_joined'])
     );
     const unsub = onSnapshot(q, (snap) => {
       setConversations(snap.docs.map((doc) => doc.data() as ConversationRecord));
