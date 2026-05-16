@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useTenant } from '../TenantContext';
 import { api } from '../api';
 import AppNotification from '../components/AppNotification';
@@ -22,23 +22,31 @@ export default function TenantDoctors() {
   const [loadingDoctors, setLoadingDoctors] = useState(false);
   const [submittingDoctor, setSubmittingDoctor] = useState(false);
   const [loadDoctorsError, setLoadDoctorsError] = useState<string | null>(null);
+  const doctorsRequestSeq = useRef(0);
 
   async function loadDoctors(currentTenantId: string) {
+    const requestId = ++doctorsRequestSeq.current;
     setLoadingDoctors(true);
     setLoadDoctorsError(null);
     try {
       const res = await api<{ doctors: DoctorUser[] }>(`/tenants/${currentTenantId}/doctors`);
-      setDoctors(res.doctors);
+      if (requestId !== doctorsRequestSeq.current) return;
+      setDoctors(Array.isArray(res?.doctors) ? res.doctors : []);
     } catch (e) {
+      if (requestId !== doctorsRequestSeq.current) return;
       setDoctors([]);
       setLoadDoctorsError(e instanceof Error ? e.message : 'Failed to load doctors');
     } finally {
-      setLoadingDoctors(false);
+      if (requestId === doctorsRequestSeq.current) {
+        setLoadingDoctors(false);
+      }
     }
   }
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') {
+      doctorsRequestSeq.current += 1;
+      setLoadingDoctors(false);
       setDoctors([]);
       setLoadDoctorsError(null);
       return;
