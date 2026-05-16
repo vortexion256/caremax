@@ -30,6 +30,7 @@ import PlatformPayments from './pages/PlatformPayments';
 import PlatformContentAdmin from './pages/PlatformContentAdmin';
 import TenantBilling from './pages/TenantBilling';
 import TenantAccount from './pages/TenantAccount';
+import TenantDoctors from './pages/TenantDoctors';
 import VisualDiagram from './pages/VisualDiagram';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
@@ -220,6 +221,7 @@ export default function App() {
           <Route path="embed" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <Embed />} />
           <Route path="account" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <TenantAccount />} />
           <Route path="billing" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <TenantBilling />} />
+          <Route path="doctors" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <TenantDoctors />} />
           <Route path="patient-profile" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <PatientProfilePage />} />
           <Route path="special-messages" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <SpecialMessagesPage />} />
           <Route path="agent-learning" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <AgentLearningHub />} />

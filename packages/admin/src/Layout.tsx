@@ -112,6 +112,7 @@ const primaryNav: NavItem[] = isDoctor ? [
       label: 'Account',
       items: [
         { path: '/account', label: 'Account Settings' },
+        { path: '/doctors', label: 'Doctors' },
         { path: '/billing', label: 'Billing' },
       ],
     },
