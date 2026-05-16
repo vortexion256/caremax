@@ -80,6 +80,9 @@ const doctorUpsertSchema = z.object({
   email: z.string().trim().email(),
   displayName: z.string().trim().min(2).max(120).optional(),
 });
+const doctorUpdateSchema = z.object({
+  displayName: z.string().trim().min(2).max(120).optional(),
+});
 
 tenantRouter.get('/:tenantId', requireTenantParam, async (req, res) => {
   const tenantId = res.locals.tenantId as string;
@@ -182,6 +185,11 @@ tenantRouter.post('/:tenantId/doctors', requireTenantParam, async (req, res) => 
     res.status(409).json({ error: 'This email is already used by a tenant/platform admin and cannot be used as doctor user.' });
     return;
   }
+  const existingDoctorDoc = await db.collection('tenant_doctors').doc(targetUser.uid).get();
+  if (existingDoctorDoc.exists && (existingDoctorDoc.data()?.tenantId === tenantId)) {
+    res.status(409).json({ error: 'That doctor is already in this tenant.' });
+    return;
+  }
   const nextClaims: Record<string, unknown> = {
     ...existingClaims,
     tenantId,
@@ -197,6 +205,36 @@ tenantRouter.post('/:tenantId/doctors', requireTenantParam, async (req, res) => 
     createdAt: new Date(),
   }, { merge: true });
   res.status(201).json({ success: true, doctorUserId: targetUser.uid });
+});
+
+tenantRouter.put('/:tenantId/doctors/:doctorUserId', requireTenantParam, async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const requesterIsAdmin = res.locals.isAdmin === true;
+  if (!requesterIsAdmin) {
+    res.status(403).json({ error: 'Admin access required' });
+    return;
+  }
+  const doctorUserId = (req.params.doctorUserId ?? '').trim();
+  if (!doctorUserId) {
+    res.status(400).json({ error: 'Doctor user id is required' });
+    return;
+  }
+  const parsed = doctorUpdateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+  const doctorRef = db.collection('tenant_doctors').doc(doctorUserId);
+  const doctorDoc = await doctorRef.get();
+  if (!doctorDoc.exists || doctorDoc.data()?.tenantId !== tenantId) {
+    res.status(404).json({ error: 'Doctor not found in this tenant.' });
+    return;
+  }
+  await doctorRef.set({
+    displayName: parsed.data.displayName ?? '',
+    updatedAt: new Date(),
+  }, { merge: true });
+  res.json({ success: true, doctorUserId });
 });
 
 tenantRouter.get('/:tenantId/user-activity', requireTenantParam, async (req, res) => {
