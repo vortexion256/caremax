@@ -400,8 +400,13 @@ async function fetchImageAsDataUrl(url: string): Promise<string | null> {
   }
 }
 
+function withHistoryTimestampPrefix(content: string, createdAtIso?: string): string {
+  if (!createdAtIso || !createdAtIso.trim()) return content;
+  return `[Message timestamp: ${createdAtIso}] ${content}`;
+}
+
 async function toLangChainMessages(
-  history: { role: string; content: string; imageUrls?: string[] }[]
+  history: { role: string; content: string; imageUrls?: string[]; createdAtIso?: string }[]
 ): Promise<BaseMessage[]> {
   const out: BaseMessage[] = [];
   for (const m of history) {
@@ -409,7 +414,7 @@ async function toLangChainMessages(
       const imageUrls = m.imageUrls ?? [];
       if (imageUrls.length > 0) {
         const content: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = [];
-        if (m.content?.trim()) content.push({ type: 'text', text: m.content });
+        if (m.content?.trim()) content.push({ type: 'text', text: withHistoryTimestampPrefix(m.content, m.createdAtIso) });
         for (const url of imageUrls) {
           if (!url?.trim()) continue;
           const dataUrl = await fetchImageAsDataUrl(url.trim());
@@ -418,12 +423,12 @@ async function toLangChainMessages(
         if (content.length === 0) content.push({ type: 'text', text: '(User sent an image with no text)' });
         out.push(new HumanMessage({ content }));
       } else {
-        out.push(new HumanMessage({ content: m.content }));
+        out.push(new HumanMessage({ content: withHistoryTimestampPrefix(m.content, m.createdAtIso) }));
       }
     } else if (m.role === 'assistant') {
-      out.push(new AIMessage({ content: m.content }));
+      out.push(new AIMessage({ content: withHistoryTimestampPrefix(m.content, m.createdAtIso) }));
     } else if (m.role === 'human_agent') {
-      out.push(new AIMessage({ content: `[Care team said to the user]: ${m.content}` }));
+      out.push(new AIMessage({ content: withHistoryTimestampPrefix(`[Care team said to the user]: ${m.content}`, m.createdAtIso) }));
     }
   }
   return out;
@@ -437,7 +442,7 @@ function lastReplyWasUnhelpfulOrUncertain(history: { role: string; content: stri
 
 export async function runAgent(
   tenantId: string,
-  history: { role: string; content: string; imageUrls?: string[] }[],
+  history: { role: string; content: string; imageUrls?: string[]; createdAtIso?: string }[],
   options?: {
     userId?: string;
     externalUserId?: string;
@@ -1750,7 +1755,7 @@ Provide a clear, user-friendly response based on these results.`,
  */
 export async function extractAndRecordLearningFromHistory(
   tenantId: string,
-  history: { role: string; content: string; imageUrls?: string[] }[],
+  history: { role: string; content: string; imageUrls?: string[]; createdAtIso?: string }[],
   options?: { userId?: string; externalUserId?: string; conversationId?: string }
 ): Promise<void> {
   const config = await getAgentConfig(tenantId);
