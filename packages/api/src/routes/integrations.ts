@@ -234,11 +234,22 @@ const QUESTIONNAIRE_CONSENT_KEYWORDS = {
 } as const;
 
 function normalizeQuestionnaireConsent(text: string): 'yes' | 'no' | null {
-  const normalized = text.trim().toLowerCase().replace(/[.!?,]/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalized = text.trim().toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!normalized) return null;
-  if (QUESTIONNAIRE_CONSENT_KEYWORDS.yes.has(normalized)) return 'yes';
-  if (QUESTIONNAIRE_CONSENT_KEYWORDS.no.has(normalized)) return 'no';
+  const firstToken = normalized.split(' ')[0] ?? '';
+  if (QUESTIONNAIRE_CONSENT_KEYWORDS.yes.has(normalized) || QUESTIONNAIRE_CONSENT_KEYWORDS.yes.has(firstToken)) return 'yes';
+  if (QUESTIONNAIRE_CONSENT_KEYWORDS.no.has(normalized) || QUESTIONNAIRE_CONSENT_KEYWORDS.no.has(firstToken)) return 'no';
   return null;
+}
+
+function buildQuestionnaireConsentPrompt(introMessage: string): string {
+  const suffix = 'Reply with Yes to proceed or No to cancel';
+  const trimmedIntro = introMessage.trim();
+  if (!trimmedIntro) return suffix;
+  if (/reply\s+with\s+yes\s+to\s+proceed\s+or\s+no\s+to\s+cancel/i.test(trimmedIntro)) return trimmedIntro;
+  return `${trimmedIntro}
+
+${suffix}`;
 }
 
 function normalizeWhatsAppAddress(value: string): string {
@@ -310,7 +321,7 @@ async function tryProcessQuestionnaireReply(params: { tenantId: string; from: st
       return { handled: true, reply: 'Okay, canceled. You will not receive questionnaire questions.' };
     }
     if (decision !== 'yes') {
-      return { handled: true, reply: 'Please reply YES to continue or NO to cancel this questionnaire.' };
+      return { handled: true, reply: buildQuestionnaireConsentPrompt('Please reply YES to continue or NO to cancel this questionnaire.') };
     }
     session.awaitingIntroConsent = false;
     session.status = 'in_progress';
@@ -3507,7 +3518,7 @@ tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign/launch', require
     }
     try {
       const bodyToSend = session.awaitingIntroConsent
-        ? (introMessage || 'Reply YES to continue with this questionnaire or NO to cancel.')
+        ? buildQuestionnaireConsentPrompt(introMessage || 'Reply YES to continue with this questionnaire or NO to cancel.')
         : pendingRow.question;
 
       const trimmedPhone = session.phone.trim();
