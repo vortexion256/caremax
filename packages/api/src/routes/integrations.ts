@@ -233,20 +233,36 @@ function normalizeWhatsAppAddress(value: string): string {
   return trimmed.startsWith('whatsapp:') ? trimmed : `whatsapp:${trimmed}`;
 }
 
-async function tryProcessQuestionnaireReply(params: { tenantId: string; from: string; incomingBody: string }): Promise<{ handled: boolean; reply?: string }> {
+
+async function getActiveQuestionnaireSession(params: { tenantId: string; from: string }): Promise<{ campaignRef: FirebaseFirestore.DocumentReference; sessions: QuestionnaireSession[]; sessionIndex: number } | null> {
   const normalizedFrom = params.from.replace(/^whatsapp:/i, '').trim();
-  if (!normalizedFrom || !params.incomingBody.trim()) return { handled: false };
+  if (!normalizedFrom) return null;
   const activeSnap = await db.collection(WHATSAPP_QNA_COLLECTION)
     .where('tenantId', '==', params.tenantId)
     .where('status', '==', 'active')
     .limit(1)
     .get();
   const doc = activeSnap.docs[0];
-  if (!doc) return { handled: false };
+  if (!doc) return null;
   const data = doc.data() as { sessions?: QuestionnaireSession[] };
   const sessions = Array.isArray(data.sessions) ? data.sessions : [];
-  const idx = sessions.findIndex((s) => s.phone.replace(/^whatsapp:/i, '').trim() === normalizedFrom);
-  if (idx < 0) return { handled: false };
+  const idx = sessions.findIndex((session) => session.phone.replace(/^whatsapp:/i, '').trim() === normalizedFrom);
+  if (idx < 0) return null;
+  return { campaignRef: doc.ref, sessions, sessionIndex: idx };
+}
+
+async function isQuestionnaireInProgressForUser(params: { tenantId: string; from: string }): Promise<boolean> {
+  const activeSession = await getActiveQuestionnaireSession(params);
+  if (!activeSession) return false;
+  const session = activeSession.sessions[activeSession.sessionIndex];
+  const hasPendingQuestions = session.rows.some((row) => !row.answer.trim());
+  return hasPendingQuestions && session.status !== 'completed';
+}
+async function tryProcessQuestionnaireReply(params: { tenantId: string; from: string; incomingBody: string }): Promise<{ handled: boolean; reply?: string }> {
+  if (!params.incomingBody.trim()) return { handled: false };
+  const activeSession = await getActiveQuestionnaireSession({ tenantId: params.tenantId, from: params.from });
+  if (!activeSession) return { handled: false };
+  const { campaignRef, sessions, sessionIndex: idx } = activeSession;
   const session = sessions[idx];
   const rowIdx = session.rows.findIndex((r) => !r.answer.trim());
   if (rowIdx < 0) return { handled: true, reply: 'Thanks. This questionnaire is already complete.' };
@@ -256,7 +272,7 @@ async function tryProcessQuestionnaireReply(params: { tenantId: string; from: st
   session.updatedAt = new Date().toISOString();
   sessions[idx] = session;
   const allDone = sessions.every((s) => s.status === 'completed');
-  await doc.ref.set({ sessions, status: allDone ? 'completed' : 'active', updatedAt: new Date().toISOString() }, { merge: true });
+  await campaignRef.set({ sessions, status: allDone ? 'completed' : 'active', updatedAt: new Date().toISOString() }, { merge: true });
   if (nextIdx >= 0) return { handled: true, reply: session.rows[nextIdx].question };
   return { handled: true, reply: 'Thanks. You have completed all questions.' };
 }
@@ -1748,7 +1764,12 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       }
     }
 
-    if (incomingBody) {
+    if (await isQuestionnaireInProgressForUser({ tenantId, from: identity.externalUserId })) {
+      if (!incomingBody) {
+        res.set('Content-Type', 'text/xml');
+        res.status(200).send(xmlResponse('Please reply using text so we can continue your questionnaire.'));
+        return;
+      }
       const questionnaireFlow = await tryProcessQuestionnaireReply({
         tenantId,
         from: identity.externalUserId,
@@ -2613,7 +2634,16 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             continue;
           }
 
-          if (body) {
+          if (await isQuestionnaireInProgressForUser({ tenantId, from: identity.externalUserId })) {
+            if (!body) {
+              await sendMetaWhatsAppTextMessage({
+                phoneNumberId,
+                accessToken,
+                to: identity.externalUserId,
+                body: 'Please reply using text so we can continue your questionnaire.',
+              });
+              continue;
+            }
             const questionnaireFlow = await tryProcessQuestionnaireReply({
               tenantId,
               from: identity.externalUserId,
