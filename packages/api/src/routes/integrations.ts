@@ -961,6 +961,11 @@ async function runAgentWithRetry(
 }
 
 
+
+function isHandoffStatusMetadata(metadata: unknown): boolean {
+  return typeof metadata === 'object' && metadata !== null && (metadata as { source?: unknown }).source === 'handoff_status';
+}
+
 function parseExtraHeaders(raw: string): Record<string, string> {
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -2138,7 +2143,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/process/:tenantId/:conversatio
 
     const history = historySnap.docs.reverse().flatMap((doc) => {
       const data = doc.data();
-      if (shouldFilterLanguageFlowMessage(data.metadata)) return [];
+      if (shouldFilterLanguageFlowMessage(data.metadata) || isHandoffStatusMetadata(data.metadata)) return [];
       return buildReplyAwareHistoryMessage(data);
     });
 
@@ -2769,7 +2774,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
 
           const history = historySnap.docs.reverse().flatMap((doc) => {
             const data = doc.data() as { role?: 'user' | 'assistant' | string; content?: string; imageUrls?: string[] };
-            if (shouldFilterLanguageFlowMessage((data as { metadata?: unknown }).metadata)) return [];
+            if (shouldFilterLanguageFlowMessage((data as { metadata?: unknown }).metadata) || isHandoffStatusMetadata((data as { metadata?: unknown }).metadata)) return [];
             return buildReplyAwareHistoryMessage(data);
           });
 
