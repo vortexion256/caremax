@@ -130,6 +130,22 @@ export default function WhatsAppIntegration() {
   const [questionnaireRows, setQuestionnaireRows] = useState<QuestionnaireRow[]>([]);
   const [questionnaireSessions, setQuestionnaireSessions] = useState<QuestionnaireSession[]>([]);
 
+  const loadRecentContacts = async () => {
+    if (!tenantId) return;
+    setSaving(true);
+    setError('');
+    try {
+      const response = await api<{ contacts: string[]; windowHours: number }>(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-campaign/recent-contacts`);
+      setQuestionnaireRecipientsText(response.contacts.join('\n'));
+      setMessage(`Loaded ${response.contacts.length} recent WhatsApp contact(s) from the last ${response.windowHours} hours.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load recent contacts');
+      setMessage('');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const loadConfig = async () => {
     if (!tenantId) return;
     setLoading(true);
@@ -367,8 +383,27 @@ export default function WhatsAppIntegration() {
     });
     setQuestionnaireSessions(response.sessions);
     setSaving(false);
-    setMessage(`Questionnaire campaign "${questionnaireName}" prepared for ${recipients.length} phone number(s). Send your template to begin conversations on WhatsApp.`);
+    setMessage(`Questionnaire campaign "${questionnaireName}" prepared for ${recipients.length} phone number(s). Click "Launch Auto Research" so AI sends question 1 automatically.`);
     setError('');
+  };
+
+  const launchQuestionnaireCampaign = async () => {
+    if (!tenantId) return;
+    setSaving(true);
+    setError('');
+    try {
+      const response = await api<{ launched: number; sessions: QuestionnaireSession[] }>(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-campaign/launch`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setQuestionnaireSessions(response.sessions);
+      setMessage(`Auto research launched. First question sent to ${response.launched} contact(s).`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to launch questionnaire campaign');
+      setMessage('');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) {
@@ -600,8 +635,10 @@ export default function WhatsAppIntegration() {
           />
         </label>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button type="button" onClick={loadRecentContacts} style={{ border: '1px solid #0f766e', background: '#f0fdfa', color: '#0f766e', borderRadius: 8, padding: '10px 14px', fontWeight: 600 }}>Auto-load last 23h contacts</button>
           <button type="button" onClick={uploadQuestions} style={{ border: 'none', background: '#2563eb', color: '#fff', borderRadius: 8, padding: '10px 14px', fontWeight: 600 }}>Load Questions</button>
           <button type="button" onClick={startQuestionnaireCampaign} style={{ border: '1px solid #1d4ed8', background: '#eff6ff', color: '#1d4ed8', borderRadius: 8, padding: '10px 14px', fontWeight: 600 }}>Create Results Table</button>
+          <button type="button" onClick={launchQuestionnaireCampaign} style={{ border: '1px solid #7c3aed', background: '#f5f3ff', color: '#6d28d9', borderRadius: 8, padding: '10px 14px', fontWeight: 600 }}>Launch Auto Research</button>
         </div>
 
         {questionnaireRows.length > 0 && (

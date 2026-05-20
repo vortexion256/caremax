@@ -25,6 +25,7 @@ import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
 import { isExplicitHumanRequest, isImmediateEmergencyHandoffSituation } from '../services/handoff-policy.js';
 import { upsertClinicalSnapshot } from '../services/clinical-snapshot.js';
+import { sendWhatsAppOutboundMessage } from '../services/whatsapp-outbound.js';
 
 const execFile = promisify(execFileCb);
 
@@ -215,7 +216,22 @@ const WHATSAPP_ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'i
 const WHATSAPP_QNA_COLLECTION = 'whatsapp_questionnaire_campaigns';
 
 type QuestionnaireSessionRow = { id: string; question: string; answer: string };
-type QuestionnaireSession = { phone: string; status: 'queued' | 'in_progress' | 'completed'; updatedAt: string; rows: QuestionnaireSessionRow[] };
+type QuestionnaireSession = {
+  phone: string;
+  status: 'queued' | 'in_progress' | 'completed';
+  updatedAt: string;
+  startedAt?: string;
+  lastQuestionSent?: string;
+  userId?: string;
+  conversationId?: string;
+  rows: QuestionnaireSessionRow[];
+};
+
+function normalizeWhatsAppAddress(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  return trimmed.startsWith('whatsapp:') ? trimmed : `whatsapp:${trimmed}`;
+}
 
 async function tryProcessQuestionnaireReply(params: { tenantId: string; from: string; incomingBody: string }): Promise<{ handled: boolean; reply?: string }> {
   const normalizedFrom = params.from.replace(/^whatsapp:/i, '').trim();
@@ -3039,6 +3055,10 @@ const whatsappQuestionnaireCampaignBody = z.object({
   rows: z.array(z.object({ id: z.string().min(1), question: z.string().min(1) })).min(1),
 });
 
+const questionnaireLaunchBody = z.object({
+  campaignId: z.string().optional(),
+});
+
 function maskSecret(secret: string): string {
   if (secret.length <= 4) return '*'.repeat(secret.length);
   return `${'*'.repeat(Math.max(secret.length - 4, 0))}${secret.slice(-4)}`;
@@ -3291,6 +3311,79 @@ tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign', requireAuth, r
     sessions,
   });
   res.status(201).json({ ok: true, campaignId: ref.id, sessions });
+});
+
+tenantIntegrationsRouter.get('/whatsapp/questionnaire-campaign/recent-contacts', requireAuth, requireAdmin, async (_req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const nowMs = Date.now();
+  const cutoff = Timestamp.fromMillis(nowMs - (23 * 60 * 60 * 1000));
+  const convSnap = await db.collection('conversations')
+    .where('tenantId', '==', tenantId)
+    .where('updatedAt', '>=', cutoff)
+    .orderBy('updatedAt', 'desc')
+    .limit(300)
+    .get();
+  const contacts = Array.from(new Set(convSnap.docs
+    .map((doc) => doc.data())
+    .filter((data) => data.channel === 'whatsapp' || data.channel === 'whatsapp_meta')
+    .map((data) => (typeof data.externalUserId === 'string' ? data.externalUserId.trim() : ''))
+    .filter(Boolean)));
+  res.json({ contacts, windowHours: 23 });
+});
+
+tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign/launch', requireAuth, requireAdmin, async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const parsed = questionnaireLaunchBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+  const campaignRef = parsed.data.campaignId
+    ? db.collection(WHATSAPP_QNA_COLLECTION).doc(parsed.data.campaignId)
+    : null;
+  let campaignDoc = campaignRef ? await campaignRef.get() : null;
+  if (!campaignDoc || !campaignDoc.exists) {
+    const snap = await db.collection(WHATSAPP_QNA_COLLECTION).where('tenantId', '==', tenantId).orderBy('createdAt', 'desc').limit(1).get();
+    campaignDoc = snap.docs[0] ?? null;
+  }
+  if (!campaignDoc?.exists) {
+    res.status(404).json({ error: 'Questionnaire campaign not found' });
+    return;
+  }
+  const data = campaignDoc.data() as { sessions?: QuestionnaireSession[] } | undefined;
+  const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
+  const now = new Date().toISOString();
+  let launched = 0;
+  const results: Array<{ phone: string; status: 'sent' | 'failed' | 'skipped'; reason?: string }> = [];
+
+  for (const session of sessions) {
+    const pendingRow = session.rows.find((row) => !row.answer.trim());
+    if (!pendingRow) {
+      results.push({ phone: session.phone, status: 'skipped', reason: 'already completed' });
+      continue;
+    }
+    if (session.status === 'in_progress') {
+      results.push({ phone: session.phone, status: 'skipped', reason: 'already launched' });
+      continue;
+    }
+    try {
+      await sendWhatsAppOutboundMessage({
+        tenantId,
+        to: normalizeWhatsAppAddress(session.phone),
+        body: pendingRow.question,
+      });
+      session.status = 'in_progress';
+      session.startedAt = session.startedAt ?? now;
+      session.lastQuestionSent = pendingRow.question;
+      session.updatedAt = now;
+      launched += 1;
+      results.push({ phone: session.phone, status: 'sent' });
+    } catch (error) {
+      results.push({ phone: session.phone, status: 'failed', reason: error instanceof Error ? error.message : 'Failed to send first question' });
+    }
+  }
+  await campaignDoc.ref.set({ sessions, updatedAt: now }, { merge: true });
+  res.json({ ok: true, launched, results, sessions });
 });
 
 tenantIntegrationsRouter.delete('/whatsapp/meta', requireAuth, requireAdmin, async (_req, res) => {
