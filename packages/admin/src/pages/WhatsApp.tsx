@@ -87,6 +87,21 @@ type MetaTemplateParameterInput = {
   };
 };
 
+
+
+type QuestionnaireRow = {
+  id: string;
+  question: string;
+  answer: string;
+};
+
+type QuestionnaireSession = {
+  phone: string;
+  status: 'queued' | 'in_progress' | 'completed';
+  rows: QuestionnaireRow[];
+  updatedAt: string;
+};
+
 type MetaTemplateComponentInput = {
   type: 'header' | 'body' | 'button';
   sub_type?: 'quick_reply' | 'url';
@@ -109,6 +124,10 @@ export default function WhatsAppIntegration() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [questionUploadText, setQuestionUploadText] = useState('');
+  const [questionnaireName, setQuestionnaireName] = useState('New WhatsApp Questionnaire');
+  const [questionnaireRows, setQuestionnaireRows] = useState<QuestionnaireRow[]>([]);
+  const [questionnaireSessions, setQuestionnaireSessions] = useState<QuestionnaireSession[]>([]);
 
   const loadConfig = async () => {
     if (!tenantId) return;
@@ -294,6 +313,52 @@ export default function WhatsAppIntegration() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const uploadQuestions = () => {
+    const parsed = questionUploadText
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (!parsed.length) {
+      setError('Please paste at least one question (one per line).');
+      return;
+    }
+
+    setQuestionnaireRows(parsed.map((question, index) => ({
+      id: `q-${index + 1}`,
+      question,
+      answer: '',
+    })));
+    setMessage(`Loaded ${parsed.length} question(s) for WhatsApp flow.`);
+    setError('');
+  };
+
+  const startQuestionnaireCampaign = () => {
+    const recipients = Array.from(new Set(metaTemplateSend.recipientsText
+      .split(/[\n,\s]+/)
+      .map((value) => value.trim())
+      .filter(Boolean)));
+
+    if (!questionnaireRows.length) {
+      setError('Upload your questions first.');
+      return;
+    }
+    if (!recipients.length) {
+      setError('Provide one or more recipient numbers to start the questionnaire campaign.');
+      return;
+    }
+
+    const now = new Date().toISOString();
+    setQuestionnaireSessions(recipients.map((phone) => ({
+      phone,
+      status: 'queued',
+      updatedAt: now,
+      rows: questionnaireRows.map((row) => ({ ...row })),
+    })));
+    setMessage(`Questionnaire campaign "${questionnaireName}" prepared for ${recipients.length} phone number(s). Send your template to begin conversations on WhatsApp.`);
+    setError('');
   };
 
   if (loading) {
@@ -498,6 +563,74 @@ export default function WhatsAppIntegration() {
             )}
 	        </>
 	      )}
+
+
+
+      <div style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: 16, display: 'grid', gap: 12, background: '#f8fafc' }}>
+        <h2 style={{ margin: 0, color: '#0f172a' }}>WhatsApp Questionnaire Flow Builder</h2>
+        <p style={{ margin: 0, color: '#475569', fontSize: 14 }}>
+          Upload one question per line, then assign recipient numbers. The AI can ask each question sequentially and this table is used to monitor answers during/after conversations.
+        </p>
+        <label style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155' }}>
+          Questionnaire Name
+          <input value={questionnaireName} onChange={(e) => setQuestionnaireName(e.target.value)} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '10px 12px' }} />
+        </label>
+        <label style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155' }}>
+          Upload Questions (one per line)
+          <textarea rows={8} value={questionUploadText} onChange={(e) => setQuestionUploadText(e.target.value)} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '10px 12px' }} />
+        </label>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button type="button" onClick={uploadQuestions} style={{ border: 'none', background: '#2563eb', color: '#fff', borderRadius: 8, padding: '10px 14px', fontWeight: 600 }}>Load Questions</button>
+          <button type="button" onClick={startQuestionnaireCampaign} style={{ border: '1px solid #1d4ed8', background: '#eff6ff', color: '#1d4ed8', borderRadius: 8, padding: '10px 14px', fontWeight: 600 }}>Create Results Table</button>
+        </div>
+
+        {questionnaireRows.length > 0 && (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0', padding: 8 }}>Question #</th>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0', padding: 8 }}>Question</th>
+                </tr>
+              </thead>
+              <tbody>
+                {questionnaireRows.map((row, idx) => (
+                  <tr key={row.id}>
+                    <td style={{ borderBottom: '1px solid #f1f5f9', padding: 8 }}>{idx + 1}</td>
+                    <td style={{ borderBottom: '1px solid #f1f5f9', padding: 8 }}>{row.question}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {questionnaireSessions.length > 0 && (
+          <div style={{ overflowX: 'auto' }}>
+            <h3 style={{ margin: '4px 0', color: '#0f172a' }}>Results / Feedback Table</h3>
+            <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0', padding: 8 }}>Phone</th>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0', padding: 8 }}>Status</th>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0', padding: 8 }}>Questions / Answers</th>
+                </tr>
+              </thead>
+              <tbody>
+                {questionnaireSessions.map((session) => (
+                  <tr key={session.phone}>
+                    <td style={{ borderBottom: '1px solid #f1f5f9', padding: 8 }}>{session.phone}</td>
+                    <td style={{ borderBottom: '1px solid #f1f5f9', padding: 8 }}>{session.status}</td>
+                    <td style={{ borderBottom: '1px solid #f1f5f9', padding: 8 }}>
+                      {session.rows.map((row) => `${row.question}: ${row.answer || '[pending]'}`).join(' | ')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {message && <div style={{ color: '#047857', fontWeight: 500 }}>{message}</div>}
       {error && <div style={{ color: '#b91c1c', fontWeight: 500 }}>{error}</div>}
