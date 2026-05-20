@@ -105,6 +105,7 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
   const [details, setDetails] = useState<TenantDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [endingTrial, setEndingTrial] = useState(false);
   const [resettingTrial, setResettingTrial] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -151,10 +152,12 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
     if (!details || endingTrial) return;
     setEndingTrial(true);
     setError(null);
+    setActionNotice(null);
     try {
       await api(`/platform/tenants/${tenantId}/trial/end`, { method: 'PATCH' });
       const refreshed = await api<TenantDetails>(`/platform/tenants/${tenantId}`);
       setDetails(refreshed);
+      setActionNotice('Trial ended successfully. This tenant now needs an active paid plan.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to end trial early');
     } finally {
@@ -168,10 +171,13 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
     if (!details || resettingTrial) return;
     setResettingTrial(true);
     setError(null);
+    setActionNotice(null);
     try {
-      await api(`/platform/tenants/${tenantId}/trial/reset`, { method: 'PATCH' });
+      const response = await api<{ trialDays?: number }>(`/platform/tenants/${tenantId}/trial/reset`, { method: 'PATCH' });
       const refreshed = await api<TenantDetails>(`/platform/tenants/${tenantId}`);
       setDetails(refreshed);
+      const days = typeof response.trialDays === 'number' ? response.trialDays : 30;
+      setActionNotice(`Tenant switched to Free Trial successfully. Trial days reset to ${days}.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to reset trial package');
     } finally {
@@ -283,6 +289,7 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
 
         {loading && <p>Loading tenant details...</p>}
         {error && <p style={{ color: '#c62828' }}>{error}</p>}
+        {actionNotice && <p style={{ color: '#0f766e', fontWeight: 600 }}>{actionNotice}</p>}
         {details && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
