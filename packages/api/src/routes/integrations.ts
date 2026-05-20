@@ -1707,6 +1707,18 @@ function getLanguagePreferenceInstructionTag(languageTag: string | null): 'lugan
   return null;
 }
 
+function normalizeWhatsAppNumber(value: string): string {
+  return value.replace(/^whatsapp:/i, '').replace(/[^\d]/g, '').trim();
+}
+
+function isAutoReplySuppressedForNumber(agentConfigData: Record<string, unknown> | undefined, externalUserId: string): boolean {
+  const raw = agentConfigData?.whatsappAutoReplyDisabledNumbers;
+  if (!Array.isArray(raw) || raw.length === 0) return false;
+  const incoming = normalizeWhatsAppNumber(externalUserId);
+  if (!incoming) return false;
+  return raw.some((entry) => typeof entry === 'string' && normalizeWhatsAppNumber(entry) === incoming);
+}
+
 integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req: Request, res: Response) => {
   const tenantId = req.params.tenantId;
   const from = typeof req.body?.From === 'string' ? req.body.From.trim() : '';
@@ -1762,6 +1774,14 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         res.status(200).send(xmlEmptyResponse());
         return;
       }
+    }
+
+    const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
+    const agentConfigData = agentConfigDoc.data() as Record<string, unknown> | undefined;
+    if (isAutoReplySuppressedForNumber(agentConfigData, identity.externalUserId)) {
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlEmptyResponse());
+      return;
     }
 
     if (await isQuestionnaireInProgressForUser({ tenantId, from: identity.externalUserId })) {
@@ -1912,8 +1932,6 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       providerMessageId: repliedToMessageId,
     });
 
-    const agentConfigDoc = await db.collection('agent_config').doc(tenantId).get();
-    const agentConfigData = agentConfigDoc.data() as Record<string, unknown> | undefined;
     const languageDetectionProvider = resolveWhatsAppLanguageDetectionProvider(agentConfigData);
     const conversationDataBeforeMessage = (await conversationRef.get()).data() as Record<string, unknown> | undefined;
     const languageStateBeforeMessage = resolveConversationLanguageState(conversationDataBeforeMessage);
