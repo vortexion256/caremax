@@ -184,9 +184,25 @@ export default function WhatsAppIntegration() {
 
   useEffect(() => {
     if (!tenantId) return;
-    void api<{ campaign: { sessions?: QuestionnaireSession[] } | null }>(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-campaign`)
+    void api<{ campaign: { name?: string; sessions?: QuestionnaireSession[] } | null }>(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-campaign`)
       .then((response) => {
-        if (response.campaign?.sessions) setQuestionnaireSessions(response.campaign.sessions);
+        const campaign = response.campaign;
+        if (!campaign) return;
+        if (Array.isArray(campaign.sessions)) {
+          setQuestionnaireSessions(campaign.sessions);
+          const firstSessionRows = campaign.sessions[0]?.rows ?? [];
+          if (firstSessionRows.length > 0) {
+            setQuestionnaireRows(firstSessionRows.map((row, idx) => ({
+              id: row.id || `q-${idx + 1}`,
+              question: row.question,
+              answer: row.answer ?? '',
+            })));
+            setQuestionUploadText(firstSessionRows.map((row) => row.question).join('\n'));
+          }
+        }
+        if (typeof campaign.name === 'string' && campaign.name.trim()) {
+          setQuestionnaireName(campaign.name);
+        }
       })
       .catch(() => {});
   }, [tenantId]);

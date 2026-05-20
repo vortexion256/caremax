@@ -240,15 +240,20 @@ async function getActiveQuestionnaireSession(params: { tenantId: string; from: s
   const activeSnap = await db.collection(WHATSAPP_QNA_COLLECTION)
     .where('tenantId', '==', params.tenantId)
     .where('status', '==', 'active')
-    .limit(1)
+    .orderBy('updatedAt', 'desc')
+    .limit(20)
     .get();
-  const doc = activeSnap.docs[0];
-  if (!doc) return null;
-  const data = doc.data() as { sessions?: QuestionnaireSession[] };
-  const sessions = Array.isArray(data.sessions) ? data.sessions : [];
-  const idx = sessions.findIndex((session) => session.phone.replace(/^whatsapp:/i, '').trim() === normalizedFrom);
-  if (idx < 0) return null;
-  return { campaignRef: doc.ref, sessions, sessionIndex: idx };
+
+  for (const doc of activeSnap.docs) {
+    const data = doc.data() as { sessions?: QuestionnaireSession[] };
+    const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+    const idx = sessions.findIndex((session) => session.phone.replace(/^whatsapp:/i, '').trim() === normalizedFrom);
+    if (idx >= 0) {
+      return { campaignRef: doc.ref, sessions, sessionIndex: idx };
+    }
+  }
+
+  return null;
 }
 
 async function isQuestionnaireInProgressForUser(params: { tenantId: string; from: string }): Promise<boolean> {
@@ -3400,6 +3405,13 @@ tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign/launch', require
   }
   const data = campaignDoc.data() as { sessions?: QuestionnaireSession[] } | undefined;
   const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
+  const integrationDoc = await db.collection('tenant_integrations').doc(tenantId).get();
+  const integrationData = integrationDoc.data() as { whatsappTwilio?: { connected?: boolean }; whatsappMeta?: { connected?: boolean; phoneNumberId?: string; accessToken?: string } } | undefined;
+  const twilioConnected = Boolean(integrationData?.whatsappTwilio?.connected);
+  const metaPhoneNumberId = typeof integrationData?.whatsappMeta?.phoneNumberId === 'string' ? integrationData.whatsappMeta.phoneNumberId.trim() : '';
+  const metaAccessToken = typeof integrationData?.whatsappMeta?.accessToken === 'string' ? integrationData.whatsappMeta.accessToken.trim() : '';
+  const metaConnected = Boolean(integrationData?.whatsappMeta?.connected && metaPhoneNumberId && metaAccessToken);
+
   const now = new Date().toISOString();
   let launched = 0;
   const results: Array<{ phone: string; status: 'sent' | 'failed' | 'skipped'; reason?: string }> = [];
@@ -3415,11 +3427,35 @@ tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign/launch', require
       continue;
     }
     try {
-      await sendWhatsAppOutboundMessage({
-        tenantId,
-        to: normalizeWhatsAppAddress(session.phone),
-        body: pendingRow.question,
-      });
+      const trimmedPhone = session.phone.trim();
+      const looksLikeTwilioAddress = /^whatsapp:/i.test(trimmedPhone);
+
+      if (looksLikeTwilioAddress) {
+        if (!twilioConnected) {
+          throw new Error('Twilio WhatsApp is not connected for this tenant.');
+        }
+        await sendWhatsAppOutboundMessage({
+          tenantId,
+          to: normalizeWhatsAppAddress(trimmedPhone),
+          body: pendingRow.question,
+        });
+      } else if (metaConnected) {
+        await sendMetaWhatsAppTextMessage({
+          phoneNumberId: metaPhoneNumberId,
+          accessToken: metaAccessToken,
+          to: trimmedPhone,
+          body: pendingRow.question,
+        });
+      } else if (twilioConnected) {
+        await sendWhatsAppOutboundMessage({
+          tenantId,
+          to: normalizeWhatsAppAddress(trimmedPhone),
+          body: pendingRow.question,
+        });
+      } else {
+        throw new Error('No active WhatsApp provider found. Connect Twilio and/or Meta first.');
+      }
+
       session.status = 'in_progress';
       session.startedAt = session.startedAt ?? now;
       session.lastQuestionSent = pendingRow.question;
