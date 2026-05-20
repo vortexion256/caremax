@@ -106,6 +106,7 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [endingTrial, setEndingTrial] = useState(false);
+  const [resettingTrial, setResettingTrial] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [logs, setLogs] = useState<DiagnosticLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
@@ -161,6 +162,22 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
     }
   };
 
+
+
+  const handleResetTrialPackage = async () => {
+    if (!details || resettingTrial) return;
+    setResettingTrial(true);
+    setError(null);
+    try {
+      await api(`/platform/tenants/${tenantId}/trial/reset`, { method: 'PATCH' });
+      const refreshed = await api<TenantDetails>(`/platform/tenants/${tenantId}`);
+      setDetails(refreshed);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to reset trial package');
+    } finally {
+      setResettingTrial(false);
+    }
+  };
 
   const saveTenantSettings = async (updates: {
     showUsageByApiFlow?: boolean;
@@ -368,25 +385,43 @@ export default function TenantDetailsModal({ tenantId, onClose }: Props) {
                 <Metric label="Cost" value={formatUsageCostUgx(details.totals.costUsd)} />
               </div>
 
-              {details.billingStatus?.isTrialPlan && !details.billingStatus.isExpired && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                 <button
-                  onClick={handleEndTrialNow}
-                  disabled={endingTrial}
+                  onClick={handleResetTrialPackage}
+                  disabled={resettingTrial}
                   style={{
                     padding: '8px 14px',
-                    backgroundColor: '#d32f2f',
+                    backgroundColor: '#1565c0',
                     color: 'white',
                     border: 'none',
                     borderRadius: 4,
-                    cursor: endingTrial ? 'not-allowed' : 'pointer',
-                    marginBottom: 12,
+                    cursor: resettingTrial ? 'not-allowed' : 'pointer',
                     fontSize: 13,
                     fontWeight: 600,
                   }}
                 >
-                  {endingTrial ? 'Ending Trial...' : 'End Trial Now'}
+                  {resettingTrial ? 'Resetting Trial...' : 'Switch to Trial & Reset Days'}
                 </button>
-              )}
+
+                {details.billingStatus?.isTrialPlan && !details.billingStatus.isExpired && (
+                  <button
+                    onClick={handleEndTrialNow}
+                    disabled={endingTrial}
+                    style={{
+                      padding: '8px 14px',
+                      backgroundColor: '#d32f2f',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: endingTrial ? 'not-allowed' : 'pointer',
+                      fontSize: 13,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {endingTrial ? 'Ending Trial...' : 'End Trial Now'}
+                  </button>
+                )}
+              </div>
 
 
               <div style={{ marginBottom: 12, padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
