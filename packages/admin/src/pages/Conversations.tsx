@@ -25,11 +25,17 @@ type ConversationItem = {
 };
 
 
+function buildWhatsAppPatientAlias(rawExternalUserId: string): string {
+  const normalized = rawExternalUserId.replace(/^whatsapp:/i, '').replace(/\D/g, '');
+  const lastDigits = normalized.slice(-6).padStart(6, '0');
+  return `PAT-${lastDigits}`;
+}
+
 function formatConversationIdentifier(conv: ConversationItem): string {
   const externalUserId = conv.externalUserId?.trim();
 
   if ((conv.channel === 'whatsapp' || conv.channel === 'whatsapp_meta') && externalUserId) {
-    return externalUserId.replace(/^whatsapp:/i, '');
+    return buildWhatsAppPatientAlias(externalUserId);
   }
 
   if (conv.channel === 'widget' && externalUserId) {
