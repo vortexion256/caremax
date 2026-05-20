@@ -24,6 +24,7 @@ import AutoAgentBrain from './pages/AutoAgentBrain';
 import Integrations from './pages/Integrations';
 import WhatsAppIntegration from './pages/WhatsApp';
 import WhatsAppPatientActivityPage from './pages/WhatsAppPatientActivity';
+import WhatsAppQuestionnaireFlow from './pages/WhatsAppQuestionnaireFlow';
 import Embed from './pages/Embed';
 import PlatformBilling from './pages/PlatformBilling';
 import PlatformPayments from './pages/PlatformPayments';
@@ -217,6 +218,7 @@ export default function App() {
           <Route path="agent-brain" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <AutoAgentBrain />} />
           <Route path="integrations" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <Integrations />} />
           <Route path="whatsapp" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <WhatsAppIntegration />} />
+          <Route path="whatsapp-questionnaire" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <WhatsAppQuestionnaireFlow />} />
           <Route path="whatsapp-patient-activity" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <WhatsAppPatientActivityPage />} />
           <Route path="embed" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <Embed />} />
           <Route path="account" element={userProfile.isDoctor ? <Navigate to="/handoffs" replace /> : <TenantAccount />} />

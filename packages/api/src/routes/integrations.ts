@@ -3336,9 +3336,9 @@ tenantIntegrationsRouter.post('/whatsapp/meta/send-template', requireAuth, requi
 
 tenantIntegrationsRouter.get('/whatsapp/questionnaire-campaign', requireAuth, requireAdmin, async (_req, res) => {
   const tenantId = res.locals.tenantId as string;
-  const snap = await db.collection(WHATSAPP_QNA_COLLECTION).where('tenantId', '==', tenantId).orderBy('createdAt', 'desc').limit(1).get();
-  const doc = snap.docs[0];
-  res.json({ campaign: doc ? { id: doc.id, ...doc.data() } : null });
+  const snap = await db.collection(WHATSAPP_QNA_COLLECTION).where('tenantId', '==', tenantId).orderBy('createdAt', 'desc').get();
+  const campaigns = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  res.json({ campaign: campaigns[0] ?? null, campaigns });
 });
 
 tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign', requireAuth, requireAdmin, async (req, res) => {
@@ -3366,6 +3366,28 @@ tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign', requireAuth, r
   res.status(201).json({ ok: true, campaignId: ref.id, sessions });
 });
 
+
+tenantIntegrationsRouter.delete('/whatsapp/questionnaire-campaign/:campaignId', requireAuth, requireAdmin, async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const campaignId = String(req.params.campaignId || '').trim();
+  if (!campaignId) {
+    res.status(400).json({ error: 'campaignId is required' });
+    return;
+  }
+  const ref = db.collection(WHATSAPP_QNA_COLLECTION).doc(campaignId);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    res.status(404).json({ error: 'Questionnaire campaign not found' });
+    return;
+  }
+  const data = snap.data() as { tenantId?: string } | undefined;
+  if (data?.tenantId !== tenantId) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+  await ref.delete();
+  res.json({ ok: true });
+});
 tenantIntegrationsRouter.get('/whatsapp/questionnaire-campaign/recent-contacts', requireAuth, requireAdmin, async (_req, res) => {
   const tenantId = res.locals.tenantId as string;
   const nowMs = Date.now();
