@@ -125,6 +125,7 @@ export default function WhatsAppIntegration() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [questionUploadText, setQuestionUploadText] = useState('');
+  const [questionnaireRecipientsText, setQuestionnaireRecipientsText] = useState('');
   const [questionnaireName, setQuestionnaireName] = useState('New WhatsApp Questionnaire');
   const [questionnaireRows, setQuestionnaireRows] = useState<QuestionnaireRow[]>([]);
   const [questionnaireSessions, setQuestionnaireSessions] = useState<QuestionnaireSession[]>([]);
@@ -336,7 +337,7 @@ export default function WhatsAppIntegration() {
   };
 
   const startQuestionnaireCampaign = () => {
-    const recipients = Array.from(new Set(metaTemplateSend.recipientsText
+    const recipients = Array.from(new Set(questionnaireRecipientsText
       .split(/[\n,\s]+/)
       .map((value) => value.trim())
       .filter(Boolean)));
@@ -578,6 +579,16 @@ export default function WhatsAppIntegration() {
         <label style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155' }}>
           Upload Questions (one per line)
           <textarea rows={8} value={questionUploadText} onChange={(e) => setQuestionUploadText(e.target.value)} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '10px 12px' }} />
+        </label>
+        <label style={{ display: 'grid', gap: 6, fontSize: 14, color: '#334155' }}>
+          Recipient Numbers for Questionnaire
+          <textarea
+            rows={5}
+            placeholder={'Enter phone numbers separated by commas or new lines\nExample:\n+256753190830\n+256700000001'}
+            value={questionnaireRecipientsText}
+            onChange={(e) => setQuestionnaireRecipientsText(e.target.value)}
+            style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '10px 12px', resize: 'vertical' }}
+          />
         </label>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button type="button" onClick={uploadQuestions} style={{ border: 'none', background: '#2563eb', color: '#fff', borderRadius: 8, padding: '10px 14px', fontWeight: 600 }}>Load Questions</button>
