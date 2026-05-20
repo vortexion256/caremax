@@ -8,7 +8,7 @@ import {
 } from '../services/google-sheets.js';
 import { requireAuth, requireTenantParam, requireAdmin } from '../middleware/auth.js';
 import { bucket, db } from '../config/firebase.js';
-import { activateTenantSubscription } from '../services/billing.js';
+import { activateTenantSubscription, getTenantBillingStatus } from '../services/billing.js';
 import { verifyMarzPayTransaction } from '../services/marzpay.js';
 import { createTenantNotification } from '../services/tenant-notifications.js';
 import { runConfiguredAgent } from '../services/agent-dispatcher.js';
@@ -1659,6 +1659,13 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
       return;
     }
 
+    const billing = await getTenantBillingStatus(tenantId);
+    if (!billing.isActive) {
+      res.set('Content-Type', 'text/xml');
+      res.status(200).send(xmlResponse('Your subscription has expired. Please contact your clinic administrator to renew your package.'));
+      return;
+    }
+
     const configuredSecret = typeof whatsapp.webhookSecret === 'string' ? whatsapp.webhookSecret.trim() : '';
     if (configuredSecret) {
       const suppliedSecret =
@@ -2384,6 +2391,12 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
 
     if (!whatsapp?.connected) {
       res.status(200).json({ ok: true, skipped: 'integration_not_connected' });
+      return;
+    }
+
+    const billing = await getTenantBillingStatus(tenantId);
+    if (!billing.isActive) {
+      res.status(200).json({ ok: true, skipped: 'subscription_expired' });
       return;
     }
 
