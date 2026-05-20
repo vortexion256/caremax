@@ -99,6 +99,7 @@ const primaryNav: NavItem[] = isDoctor ? [
         { path: '/agent-brain', label: 'Auto Brain' },
         { path: '/integrations', label: 'Integrations' },
         { path: '/whatsapp', label: 'WhatsApp Agent' },
+        { path: '/whatsapp-questionnaire', label: 'WhatsApp Questionnaire' },
         { path: '/whatsapp-patient-activity', label: 'WhatsApp Patient Activity' },
         { path: '/patient-profile', label: 'Patient Profile' },
         { path: '/special-messages', label: 'Special Messages' },
