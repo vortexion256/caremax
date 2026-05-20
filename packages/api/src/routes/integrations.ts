@@ -218,14 +218,28 @@ const WHATSAPP_QNA_COLLECTION = 'whatsapp_questionnaire_campaigns';
 type QuestionnaireSessionRow = { id: string; question: string; answer: string };
 type QuestionnaireSession = {
   phone: string;
-  status: 'queued' | 'in_progress' | 'completed';
+  status: 'queued' | 'in_progress' | 'completed' | 'canceled';
   updatedAt: string;
   startedAt?: string;
   lastQuestionSent?: string;
+  awaitingIntroConsent?: boolean;
   userId?: string;
   conversationId?: string;
   rows: QuestionnaireSessionRow[];
 };
+
+const QUESTIONNAIRE_CONSENT_KEYWORDS = {
+  yes: new Set(['yes', 'y', 'ok', 'okay', 'continue', 'proceed', 'start', 'sure']),
+  no: new Set(['no', 'n', 'cancel', 'stop', 'nope']),
+} as const;
+
+function normalizeQuestionnaireConsent(text: string): 'yes' | 'no' | null {
+  const normalized = text.trim().toLowerCase().replace(/[.!?,]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+  if (QUESTIONNAIRE_CONSENT_KEYWORDS.yes.has(normalized)) return 'yes';
+  if (QUESTIONNAIRE_CONSENT_KEYWORDS.no.has(normalized)) return 'no';
+  return null;
+}
 
 function normalizeWhatsAppAddress(value: string): string {
   const trimmed = value.trim();
@@ -276,7 +290,7 @@ async function isQuestionnaireInProgressForUser(params: { tenantId: string; from
   if (!activeSession) return false;
   const session = activeSession.sessions[activeSession.sessionIndex];
   const hasPendingQuestions = session.rows.some((row) => !row.answer.trim());
-  return hasPendingQuestions && session.status !== 'completed';
+  return hasPendingQuestions && session.status !== 'completed' && session.status !== 'canceled';
 }
 async function tryProcessQuestionnaireReply(params: { tenantId: string; from: string; incomingBody: string }): Promise<{ handled: boolean; reply?: string }> {
   if (!params.incomingBody.trim()) return { handled: false };
@@ -284,6 +298,28 @@ async function tryProcessQuestionnaireReply(params: { tenantId: string; from: st
   if (!activeSession) return { handled: false };
   const { campaignRef, sessions, sessionIndex: idx } = activeSession;
   const session = sessions[idx];
+  if (session.status === 'canceled') return { handled: true, reply: 'This questionnaire was canceled. You will not receive more questions.' };
+  if (session.awaitingIntroConsent) {
+    const decision = normalizeQuestionnaireConsent(params.incomingBody);
+    if (decision === 'no') {
+      session.status = 'canceled';
+      session.awaitingIntroConsent = false;
+      session.updatedAt = new Date().toISOString();
+      sessions[idx] = session;
+      await campaignRef.set({ sessions, updatedAt: new Date().toISOString() }, { merge: true });
+      return { handled: true, reply: 'Okay, canceled. You will not receive questionnaire questions.' };
+    }
+    if (decision !== 'yes') {
+      return { handled: true, reply: 'Please reply YES to continue or NO to cancel this questionnaire.' };
+    }
+    session.awaitingIntroConsent = false;
+    session.status = 'in_progress';
+    session.updatedAt = new Date().toISOString();
+    sessions[idx] = session;
+    await campaignRef.set({ sessions, updatedAt: new Date().toISOString() }, { merge: true });
+    const firstUnanswered = session.rows.find((r) => !r.answer.trim());
+    return { handled: true, reply: firstUnanswered?.question ?? 'Thanks. You have completed all questions.' };
+  }
   const rowIdx = session.rows.findIndex((r) => !r.answer.trim());
   if (rowIdx < 0) return { handled: true, reply: 'Thanks. This questionnaire is already complete.' };
   session.rows[rowIdx] = { ...session.rows[rowIdx], answer: params.incomingBody.trim() };
@@ -3119,6 +3155,7 @@ const metaTemplateSendBody = z.object({
 });
 const whatsappQuestionnaireCampaignBody = z.object({
   name: z.string().min(1),
+  introMessage: z.string().min(1),
   recipients: z.array(z.string().min(1)).min(1),
   rows: z.array(z.object({ id: z.string().min(1), question: z.string().min(1) })).min(1),
 });
@@ -3369,12 +3406,14 @@ tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign', requireAuth, r
     .filter(Boolean))).map((phone) => ({
     phone,
     status: 'queued',
+    awaitingIntroConsent: true,
     updatedAt: now,
     rows: parsed.data.rows.map((row) => ({ ...row, answer: '' })),
   }));
   const ref = await db.collection(WHATSAPP_QNA_COLLECTION).add({
     tenantId,
     name: parsed.data.name,
+    introMessage: parsed.data.introMessage,
     status: 'active',
     createdAt: now,
     updatedAt: now,
@@ -3442,8 +3481,9 @@ tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign/launch', require
     res.status(404).json({ error: 'Questionnaire campaign not found' });
     return;
   }
-  const data = campaignDoc.data() as { sessions?: QuestionnaireSession[] } | undefined;
+  const data = campaignDoc.data() as { sessions?: QuestionnaireSession[]; introMessage?: string } | undefined;
   const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
+  const introMessage = typeof data?.introMessage === 'string' ? data.introMessage.trim() : '';
   const integrationDoc = await db.collection('tenant_integrations').doc(tenantId).get();
   const integrationData = integrationDoc.data() as { whatsappTwilio?: { connected?: boolean }; whatsappMeta?: { connected?: boolean; phoneNumberId?: string; accessToken?: string } } | undefined;
   const twilioConnected = Boolean(integrationData?.whatsappTwilio?.connected);
@@ -3466,6 +3506,10 @@ tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign/launch', require
       continue;
     }
     try {
+      const bodyToSend = session.awaitingIntroConsent
+        ? (introMessage || 'Reply YES to continue with this questionnaire or NO to cancel.')
+        : pendingRow.question;
+
       const trimmedPhone = session.phone.trim();
       const looksLikeTwilioAddress = /^whatsapp:/i.test(trimmedPhone);
 
@@ -3476,20 +3520,20 @@ tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign/launch', require
         await sendWhatsAppOutboundMessage({
           tenantId,
           to: normalizeWhatsAppAddress(trimmedPhone),
-          body: pendingRow.question,
+          body: bodyToSend,
         });
       } else if (metaConnected) {
         await sendMetaWhatsAppTextMessage({
           phoneNumberId: metaPhoneNumberId,
           accessToken: metaAccessToken,
           to: trimmedPhone,
-          body: pendingRow.question,
+          body: bodyToSend,
         });
       } else if (twilioConnected) {
         await sendWhatsAppOutboundMessage({
           tenantId,
           to: normalizeWhatsAppAddress(trimmedPhone),
-          body: pendingRow.question,
+          body: bodyToSend,
         });
       } else {
         throw new Error('No active WhatsApp provider found. Connect Twilio and/or Meta first.');
@@ -3497,7 +3541,7 @@ tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign/launch', require
 
       session.status = 'in_progress';
       session.startedAt = session.startedAt ?? now;
-      session.lastQuestionSent = pendingRow.question;
+      session.lastQuestionSent = bodyToSend;
       session.updatedAt = now;
       launched += 1;
       results.push({ phone: session.phone, status: 'sent' });

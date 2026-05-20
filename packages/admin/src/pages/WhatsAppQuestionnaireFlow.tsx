@@ -3,8 +3,8 @@ import { api } from '../api';
 import { useTenant } from '../TenantContext';
 
 type QuestionnaireRow = { id: string; question: string; answer: string };
-type QuestionnaireSession = { phone: string; status: 'queued'|'in_progress'|'completed'; rows: QuestionnaireRow[]; updatedAt: string };
-type QuestionnaireCampaign = { id: string; name?: string; sessions?: QuestionnaireSession[]; createdAt?: string; updatedAt?: string };
+type QuestionnaireSession = { phone: string; status: 'queued'|'in_progress'|'completed'|'canceled'; rows: QuestionnaireRow[]; updatedAt: string };
+type QuestionnaireCampaign = { id: string; name?: string; introMessage?: string; sessions?: QuestionnaireSession[]; createdAt?: string; updatedAt?: string };
 
 export default function WhatsAppQuestionnaireFlow() {
   const { tenantId } = useTenant();
@@ -15,6 +15,7 @@ export default function WhatsAppQuestionnaireFlow() {
   const [questionnaireRecipientsText, setQuestionnaireRecipientsText] = useState('');
   const [questionnaireName, setQuestionnaireName] = useState('New WhatsApp Questionnaire');
   const [questionnaireRows, setQuestionnaireRows] = useState<QuestionnaireRow[]>([]);
+  const [introMessage, setIntroMessage] = useState('');
   const [campaigns, setCampaigns] = useState<QuestionnaireCampaign[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
 
@@ -57,9 +58,10 @@ export default function WhatsAppQuestionnaireFlow() {
     const recipients = Array.from(new Set(questionnaireRecipientsText.split(/[\n,\s]+/).map((v) => v.trim()).filter(Boolean)));
     if (!questionnaireRows.length) { setError('Load questions first.'); return; }
     if (!recipients.length) { setError('Provide recipient numbers first.'); return; }
+    if (!introMessage.trim()) { setError('Set an intro message first.'); return; }
     setSaving(true); setError('');
     try {
-      await api(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-campaign`, { method: 'POST', body: JSON.stringify({ name: questionnaireName, recipients, rows: questionnaireRows.map(({ id, question }) => ({ id, question })) }) });
+      await api(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-campaign`, { method: 'POST', body: JSON.stringify({ name: questionnaireName, introMessage: introMessage.trim(), recipients, rows: questionnaireRows.map(({ id, question }) => ({ id, question })) }) });
       await loadCampaigns();
       setMessage(`Questionnaire workflow "${questionnaireName}" created.`);
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed to create questionnaire workflow'); }
@@ -91,7 +93,7 @@ export default function WhatsAppQuestionnaireFlow() {
 
   const completedCount = useMemo(() => sessions.filter((s) => s.status === 'completed').length, [sessions]);
   const orderedSessions = useMemo(() => {
-    const rank: Record<QuestionnaireSession['status'], number> = { completed: 0, in_progress: 1, queued: 2 };
+    const rank: Record<QuestionnaireSession['status'], number> = { completed: 0, in_progress: 1, queued: 2, canceled: 3 };
     return [...sessions].sort((a, b) => {
       if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status];
       return (b.updatedAt || '').localeCompare(a.updatedAt || '');
@@ -106,6 +108,7 @@ export default function WhatsAppQuestionnaireFlow() {
 
     <div style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: 16, display: 'grid', gap: 12, background: '#f8fafc' }}>
       <label style={{ display: 'grid', gap: 6 }}>Questionnaire Name<input value={questionnaireName} onChange={(e) => setQuestionnaireName(e.target.value)} /></label>
+      <label style={{ display: 'grid', gap: 6 }}>Intro Message (required)<textarea rows={4} value={introMessage} onChange={(e) => setIntroMessage(e.target.value)} placeholder='Example: Reply YES to start the questionnaire, or NO to cancel.' /></label>
       <label style={{ display: 'grid', gap: 6 }}>Upload Questions (one per line)<textarea rows={8} value={questionUploadText} onChange={(e) => setQuestionUploadText(e.target.value)} /></label>
       <label style={{ display: 'grid', gap: 6 }}>Recipients<textarea rows={5} value={questionnaireRecipientsText} onChange={(e) => setQuestionnaireRecipientsText(e.target.value)} /></label>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -123,6 +126,7 @@ export default function WhatsAppQuestionnaireFlow() {
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
               <div>
                 <strong>{campaign.name || 'Untitled Questionnaire'}</strong>
+                <div style={{ color: '#334155', fontSize: 13 }}>Intro: {campaign.introMessage || '-'}</div>
                 <div style={{ color: '#64748b', fontSize: 13 }}>Created: {campaign.createdAt || '-'}</div>
                 <div style={{ color: '#64748b', fontSize: 13 }}>Recipients: {campaign.sessions?.length ?? 0}</div>
               </div>
