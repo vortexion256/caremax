@@ -61,11 +61,20 @@ function isHandoffStatusMetadata(metadata: unknown): boolean {
   return typeof metadata === 'object' && metadata !== null && (metadata as { source?: unknown }).source === 'handoff_status';
 }
 
-function resolveDoctorDisplayLabel(userData: Record<string, unknown> | undefined, fallbackId: string): string {
+function resolveDoctorDisplayLabel(
+  userData: Record<string, unknown> | undefined,
+  fallbackId: string,
+  fallbackEmail?: string,
+): string {
   const displayName = typeof userData?.displayName === 'string' ? userData.displayName.trim() : '';
   if (displayName) return displayName;
+
   const email = typeof userData?.email === 'string' ? userData.email.trim() : '';
   if (email) return email;
+
+  const normalizedFallbackEmail = typeof fallbackEmail === 'string' ? fallbackEmail.trim() : '';
+  if (normalizedFallbackEmail) return normalizedFallbackEmail;
+
   return fallbackId;
 }
 function shouldIncludeDebugTrace(opts: {
@@ -582,7 +591,7 @@ conversationRouter.post('/:conversationId/messages', async (req, res) => {
 conversationRouter.post('/:conversationId/join', requireAuth, requireAdminOrDoctor, async (req, res) => {
   const { conversationId } = req.params;
   const tenantId = res.locals.tenantId as string;
-  const { uid } = res.locals as AuthLocals;
+  const { uid, email } = res.locals as AuthLocals;
   const convRef = db.collection(CONVERSATIONS).doc(conversationId);
   const conv = await convRef.get();
   if (!conv.exists || (conv.data()?.tenantId as string) !== tenantId) {
@@ -605,7 +614,7 @@ conversationRouter.post('/:conversationId/join', requireAuth, requireAdminOrDoct
   });
   const doctorDoc = await db.collection('users').doc(uid).get();
   const doctorData = doctorDoc.data() as Record<string, unknown> | undefined;
-  const doctorLabel = resolveDoctorDisplayLabel(doctorData, uid);
+  const doctorLabel = resolveDoctorDisplayLabel(doctorData, uid, email);
   await db.collection(MESSAGES).add({
     conversationId,
     tenantId,
@@ -637,10 +646,10 @@ conversationRouter.post('/:conversationId/return-to-agent', requireAuth, require
     joinedBy: FieldValue.delete(),
     handoffConfirmationPending: false,
   });
-  const { uid } = res.locals as AuthLocals;
+  const { uid, email } = res.locals as AuthLocals;
   const doctorDoc = await db.collection('users').doc(uid).get();
   const doctorData = doctorDoc.data() as Record<string, unknown> | undefined;
-  const doctorLabel = resolveDoctorDisplayLabel(doctorData, uid);
+  const doctorLabel = resolveDoctorDisplayLabel(doctorData, uid, email);
   await db.collection(MESSAGES).add({
     conversationId,
     tenantId,
