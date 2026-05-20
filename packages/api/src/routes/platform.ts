@@ -418,6 +418,54 @@ platformRouter.patch('/tenants/:tenantId/trial/end', async (req, res) => {
   }
 });
 
+
+platformRouter.patch('/tenants/:tenantId/trial/reset', async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const tenantRef = db.collection('tenants').doc(tenantId);
+    const [tenantDoc, freePlanDoc] = await Promise.all([
+      tenantRef.get(),
+      db.collection('billing_plans').doc('free').get(),
+    ]);
+
+    if (!tenantDoc.exists) {
+      res.status(404).json({ error: 'Tenant not found' });
+      return;
+    }
+
+    const freePlanData = freePlanDoc.data() ?? {};
+    const trialDays = typeof freePlanData.trialDays === 'number' && freePlanData.trialDays > 0
+      ? freePlanData.trialDays
+      : 30;
+
+    const nowMs = Date.now();
+    await tenantRef.set({
+      billingPlanId: 'free',
+      trialUsed: true,
+      trialStartedAt: new Date(nowMs),
+      trialEndsAt: new Date(nowMs + (trialDays * 24 * 60 * 60 * 1000)),
+      subscriptionStartedAt: null,
+      subscriptionEndsAt: null,
+      subscriptionStatus: 'trialing',
+      updatedAt: new Date(nowMs),
+    }, { merge: true });
+
+    await createTenantNotification({
+      tenantId,
+      type: 'subscription_warning',
+      title: 'Trial package reset',
+      message: `Your account was moved to the Free Trial package and trial days were reset to ${trialDays}.`,
+      metadata: { billingPlanId: 'free', changedBy: 'platform_admin', trialDays },
+    });
+
+    const billingStatus = await getTenantBillingStatus(tenantId);
+    res.json({ success: true, billingStatus, trialDays });
+  } catch (e) {
+    console.error('Failed to reset tenant trial package:', e);
+    res.status(500).json({ error: 'Failed to reset tenant trial package' });
+  }
+});
+
 // Helper function to aggregate usage events
 function aggregateUsage(
   docs: FirebaseFirestore.QueryDocumentSnapshot[]
