@@ -16,14 +16,20 @@ export default function WhatsAppQuestionnaireFlow() {
   const [questionnaireName, setQuestionnaireName] = useState('New WhatsApp Questionnaire');
   const [questionnaireRows, setQuestionnaireRows] = useState<QuestionnaireRow[]>([]);
   const [campaigns, setCampaigns] = useState<QuestionnaireCampaign[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
 
-  const selectedCampaign = campaigns[0];
+  const selectedCampaign = useMemo(() => campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? campaigns[0], [campaigns, selectedCampaignId]);
   const sessions = selectedCampaign?.sessions ?? [];
 
   const loadCampaigns = async () => {
     if (!tenantId) return;
     const response = await api<{ campaigns: QuestionnaireCampaign[]; campaign: QuestionnaireCampaign | null }>(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-campaign`);
-    setCampaigns(response.campaigns ?? (response.campaign ? [response.campaign] : []));
+    const nextCampaigns = response.campaigns ?? (response.campaign ? [response.campaign] : []);
+    setCampaigns(nextCampaigns);
+    setSelectedCampaignId((prev) => {
+      if (prev && nextCampaigns.some((campaign) => campaign.id === prev)) return prev;
+      return nextCampaigns[0]?.id ?? '';
+    });
   };
 
   useEffect(() => { void loadCampaigns(); }, [tenantId]);
@@ -84,6 +90,13 @@ export default function WhatsAppQuestionnaireFlow() {
   };
 
   const completedCount = useMemo(() => sessions.filter((s) => s.status === 'completed').length, [sessions]);
+  const orderedSessions = useMemo(() => {
+    const rank: Record<QuestionnaireSession['status'], number> = { completed: 0, in_progress: 1, queued: 2 };
+    return [...sessions].sort((a, b) => {
+      if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status];
+      return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+    });
+  }, [sessions]);
 
   return <div style={{ display: 'grid', gap: 20 }}>
     <div>
@@ -106,14 +119,15 @@ export default function WhatsAppQuestionnaireFlow() {
       <h2 style={{ marginTop: 0 }}>All Questionnaire Workflows</h2>
       {campaigns.length === 0 ? <p style={{ color: '#64748b' }}>No workflows yet.</p> : <div style={{ display: 'grid', gap: 12 }}>
         {campaigns.map((campaign) => (
-          <div key={campaign.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 12 }}>
+          <div key={campaign.id} style={{ border: selectedCampaign?.id === campaign.id ? '2px solid #2563eb' : '1px solid #e2e8f0', borderRadius: 10, padding: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
               <div>
                 <strong>{campaign.name || 'Untitled Questionnaire'}</strong>
                 <div style={{ color: '#64748b', fontSize: 13 }}>Created: {campaign.createdAt || '-'}</div>
                 <div style={{ color: '#64748b', fontSize: 13 }}>Recipients: {campaign.sessions?.length ?? 0}</div>
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type='button' onClick={() => setSelectedCampaignId(campaign.id)}>{selectedCampaign?.id === campaign.id ? 'Viewing Results' : 'View Results'}</button>
                 <button type='button' disabled={saving} onClick={() => launchCampaign(campaign.id)}>Launch</button>
                 <button type='button' disabled={saving} onClick={() => deleteCampaign(campaign.id)} style={{ color: '#b91c1c' }}>Delete</button>
               </div>
@@ -124,11 +138,24 @@ export default function WhatsAppQuestionnaireFlow() {
     </div>
 
     {selectedCampaign && sessions.length > 0 && <div style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: 16, background: '#fff' }}>
-      <h2 style={{ marginTop: 0 }}>Results ({completedCount}/{sessions.length} completed)</h2>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr><th>Phone</th><th>Status</th><th>Q&A</th></tr></thead><tbody>
-          {sessions.map((session) => <tr key={session.phone}><td>{session.phone}</td><td>{session.status}</td><td>{session.rows.map((row) => `${row.question}: ${row.answer || '[pending]'}`).join(' | ')}</td></tr>)}
-        </tbody></table>
+      <h2 style={{ marginTop: 0 }}>{selectedCampaign.name || 'Questionnaire'} Results ({completedCount}/{sessions.length} completed)</h2>
+      <div style={{ display: 'grid', gap: 12 }}>
+        {orderedSessions.map((session) => (
+          <div key={session.phone} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 12, background: session.status === 'completed' ? '#f8fafc' : '#fff' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+              <strong>{session.phone}</strong>
+              <span style={{ textTransform: 'capitalize', fontWeight: 600, color: session.status === 'completed' ? '#047857' : '#b45309' }}>{session.status.replace('_', ' ')}</span>
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {session.rows.map((row) => (
+                <div key={row.id} style={{ borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
+                  <div style={{ fontWeight: 600, color: '#0f172a' }}>{row.question}</div>
+                  <div style={{ color: '#475569' }}>{row.answer || '[pending]'}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>}
 
