@@ -233,9 +233,18 @@ function normalizeWhatsAppAddress(value: string): string {
   return trimmed.startsWith('whatsapp:') ? trimmed : `whatsapp:${trimmed}`;
 }
 
+function normalizeWhatsAppPhoneIdentity(value: string): string {
+  const raw = value.replace(/^whatsapp:/i, '').trim();
+  if (!raw) return '';
+  const hasPlus = raw.startsWith('+');
+  const digitsOnly = raw.replace(/\D/g, '');
+  if (!digitsOnly) return '';
+  return hasPlus ? `+${digitsOnly}` : digitsOnly;
+}
+
 
 async function getActiveQuestionnaireSession(params: { tenantId: string; from: string }): Promise<{ campaignRef: FirebaseFirestore.DocumentReference; sessions: QuestionnaireSession[]; sessionIndex: number } | null> {
-  const normalizedFrom = params.from.replace(/^whatsapp:/i, '').trim();
+  const normalizedFrom = normalizeWhatsAppPhoneIdentity(params.from);
   if (!normalizedFrom) return null;
   const activeSnap = await db.collection(WHATSAPP_QNA_COLLECTION)
     .where('tenantId', '==', params.tenantId)
@@ -247,7 +256,13 @@ async function getActiveQuestionnaireSession(params: { tenantId: string; from: s
   for (const doc of activeSnap.docs) {
     const data = doc.data() as { sessions?: QuestionnaireSession[] };
     const sessions = Array.isArray(data.sessions) ? data.sessions : [];
-    const idx = sessions.findIndex((session) => session.phone.replace(/^whatsapp:/i, '').trim() === normalizedFrom);
+    const idx = sessions.findIndex((session) => {
+      const normalizedSessionPhone = normalizeWhatsAppPhoneIdentity(session.phone);
+      if (!normalizedSessionPhone) return false;
+      return normalizedSessionPhone === normalizedFrom
+        || normalizedSessionPhone === `+${normalizedFrom.replace(/^\+/, '')}`
+        || normalizedSessionPhone.replace(/^\+/, '') === normalizedFrom.replace(/^\+/, '');
+    });
     if (idx >= 0) {
       return { campaignRef: doc.ref, sessions, sessionIndex: idx };
     }
@@ -3349,7 +3364,9 @@ tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign', requireAuth, r
     return;
   }
   const now = new Date().toISOString();
-  const sessions = Array.from(new Set(parsed.data.recipients.map((value) => value.trim()).filter(Boolean))).map((phone) => ({
+  const sessions = Array.from(new Set(parsed.data.recipients
+    .map((value) => normalizeWhatsAppPhoneIdentity(value))
+    .filter(Boolean))).map((phone) => ({
     phone,
     status: 'queued',
     updatedAt: now,
