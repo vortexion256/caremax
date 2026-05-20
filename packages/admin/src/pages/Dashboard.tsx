@@ -14,20 +14,54 @@ type BillingNoticeData = {
     isActive: boolean;
     isTrialPlan: boolean;
     isExpired: boolean;
+    expiredReason?: string | null;
     daysRemaining: number | null;
   };
 };
+
+type TenantNotification = {
+  id: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: number | null;
+};
+
+const BILLING_WARNING_DAYS = 5;
+
+function describeExpiryReason(reason?: string | null): string {
+  switch (reason) {
+    case 'user_token_limit_reached':
+      return 'A user token limit was reached, which expired your package early.';
+    case 'user_spend_limit_reached':
+      return 'A user spend limit was reached, which expired your package early.';
+    case 'package_token_limit_reached':
+      return 'Your package token allocation was depleted before month end.';
+    case 'package_usage_amount_limit_reached':
+      return 'Your package usage amount was depleted before month end.';
+    case 'trial_ended':
+    case 'duration_elapsed':
+      return 'Your billing period ended.';
+    default:
+      return 'Your package has expired and requires renewal.';
+  }
+}
 
 export default function Dashboard() {
   const { isPlatformAdmin, tenantId } = useTenant();
   const { isMobile } = useIsMobile();
   const [billingData, setBillingData] = useState<BillingNoticeData | null>(null);
+  const [tenantNotifications, setTenantNotifications] = useState<TenantNotification[]>([]);
 
   useEffect(() => {
     if (!tenantId || tenantId === 'platform') return;
     api<BillingNoticeData>(`/tenants/${tenantId}/billing`)
       .then((res) => setBillingData(res))
       .catch(() => setBillingData(null));
+
+    api<{ notifications: TenantNotification[] }>(`/tenants/${tenantId}/notifications?limit=5`)
+      .then((res) => setTenantNotifications(res.notifications ?? []))
+      .catch(() => setTenantNotifications([]));
   }, [tenantId]);
 
   if (isPlatformAdmin && tenantId === 'platform') {
@@ -55,6 +89,28 @@ export default function Dashboard() {
     : isExpiredPaidPackage
       ? null
       : 'Manage your package and available upgrade options from billing.';
+
+  const daysRemaining = billing?.daysRemaining ?? null;
+  const shouldWarnExpirySoon = !billing?.isExpired && daysRemaining != null && daysRemaining <= BILLING_WARNING_DAYS;
+  const dashboardAlerts: string[] = [];
+
+  if (billing?.isExpired) {
+    dashboardAlerts.push(`Package expired: ${describeExpiryReason(billing.expiredReason)}`);
+  }
+
+  if (shouldWarnExpirySoon) {
+    dashboardAlerts.push(`Package expiry warning: your current package will expire in ${daysRemaining} day(s).`);
+  }
+
+  if ((billing?.expiredReason ?? '') === 'user_token_limit_reached' || (billing?.expiredReason ?? '') === 'user_spend_limit_reached') {
+    dashboardAlerts.push('User limit reached: at least one user exhausted their assigned package usage limit.');
+  }
+
+  tenantNotifications
+    .filter((notification) => !notification.read)
+    .forEach((notification) => {
+      dashboardAlerts.push(`${notification.title}: ${notification.message}`);
+    });
 
   const agentConfigLinks = [
     { label: 'Agent Settings', description: 'Configure behavior, tone, and goals.', path: '/agent' },
@@ -95,6 +151,26 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+      )}
+
+      {dashboardAlerts.length > 0 && (
+        <section
+          style={{
+            marginBottom: 16,
+            maxWidth: isMobile ? '100%' : 760,
+            borderRadius: 10,
+            border: '1px solid #fed7aa',
+            background: '#fff7ed',
+            padding: '12px 14px',
+          }}
+        >
+          <h2 style={{ margin: '0 0 8px 0', fontSize: 16, color: '#9a3412' }}>Tenant admin notifications</h2>
+          <ul style={{ margin: 0, paddingLeft: 18, color: '#7c2d12', display: 'grid', gap: 6 }}>
+            {dashboardAlerts.map((alert, index) => (
+              <li key={`${alert}-${index}`} style={{ fontSize: 13, lineHeight: 1.4 }}>{alert}</li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <AnalyticsUI isMobile={isMobile} />
