@@ -56,6 +56,18 @@ function resolveAgentHistoryLimit(): number {
   return normalized;
 }
 
+
+function isHandoffStatusMetadata(metadata: unknown): boolean {
+  return typeof metadata === 'object' && metadata !== null && (metadata as { source?: unknown }).source === 'handoff_status';
+}
+
+function resolveDoctorDisplayLabel(userData: Record<string, unknown> | undefined, fallbackId: string): string {
+  const displayName = typeof userData?.displayName === 'string' ? userData.displayName.trim() : '';
+  if (displayName) return displayName;
+  const email = typeof userData?.email === 'string' ? userData.email.trim() : '';
+  if (email) return email;
+  return fallbackId;
+}
 function shouldIncludeDebugTrace(opts: {
   isDebugRequested: boolean;
   isDevWidgetHeader: boolean;
@@ -172,16 +184,21 @@ conversationRouter.get('/:conversationId/messages', async (req, res) => {
     return;
   }
   const snap = await db.collection(MESSAGES).where('conversationId', '==', conversationId).orderBy('createdAt', 'asc').get();
-  const messages = snap.docs.map((d) => {
+  const convData = conv.data() ?? {};
+  const isWhatsAppConversation = convData.channel === 'whatsapp' || convData.channel === 'whatsapp_meta';
+  const messages = snap.docs.flatMap((d) => {
     const data = d.data();
-    return {
+    if (isWhatsAppConversation && isHandoffStatusMetadata(data.metadata)) {
+      return [];
+    }
+    return [{
       messageId: d.id,
       conversationId: data.conversationId,
       role: data.role,
       content: data.content,
       imageUrls: data.imageUrls,
       createdAt: data.createdAt?.toMillis?.() ?? null,
-    };
+    }];
   });
   const convStatus = (conv.data()?.status as string) ?? 'open';
   res.json({ messages, status: convStatus });
@@ -587,19 +604,18 @@ conversationRouter.post('/:conversationId/join', requireAuth, requireAdminOrDoct
     handoffConfirmationPending: false,
   });
   const doctorDoc = await db.collection('users').doc(uid).get();
-  const doctorName = typeof doctorDoc.data()?.displayName === 'string' && doctorDoc.data()?.displayName.trim()
-    ? doctorDoc.data()!.displayName.trim()
-    : uid;
+  const doctorData = doctorDoc.data() as Record<string, unknown> | undefined;
+  const doctorLabel = resolveDoctorDisplayLabel(doctorData, uid);
   await db.collection(MESSAGES).add({
     conversationId,
     tenantId,
     role: 'human_agent',
-    content: `🔔 Dr. ${doctorName} joined handoff at ${new Date().toISOString()}.`,
+    content: `🔔 ${doctorLabel} joined handoff at ${new Date().toISOString()}.`,
     metadata: {
       source: 'handoff_status',
       event: 'doctor_joined_handoff',
       doctorId: uid,
-      doctorName,
+      doctorName: doctorLabel,
     },
     createdAt: FieldValue.serverTimestamp(),
   });
@@ -623,19 +639,18 @@ conversationRouter.post('/:conversationId/return-to-agent', requireAuth, require
   });
   const { uid } = res.locals as AuthLocals;
   const doctorDoc = await db.collection('users').doc(uid).get();
-  const doctorName = typeof doctorDoc.data()?.displayName === 'string' && doctorDoc.data()?.displayName.trim()
-    ? doctorDoc.data()!.displayName.trim()
-    : uid;
+  const doctorData = doctorDoc.data() as Record<string, unknown> | undefined;
+  const doctorLabel = resolveDoctorDisplayLabel(doctorData, uid);
   await db.collection(MESSAGES).add({
     conversationId,
     tenantId,
     role: 'assistant',
-    content: `🔔 Dr. ${doctorName} returned this conversation to AI at ${new Date().toISOString()}.`,
+    content: `🔔 ${doctorLabel} returned this conversation to AI at ${new Date().toISOString()}.`,
     metadata: {
       source: 'handoff_status',
       event: 'returned_to_ai',
       doctorId: uid,
-      doctorName,
+      doctorName: doctorLabel,
     },
     createdAt: FieldValue.serverTimestamp(),
   });
