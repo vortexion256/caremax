@@ -212,6 +212,38 @@ const WHATSAPP_VOICE_NOTE_BITRATE = '16k';
 const WHATSAPP_MAX_IMAGE_COUNT = Number(process.env.WHATSAPP_MAX_IMAGE_COUNT ?? 4);
 const WHATSAPP_MAX_IMAGE_BYTES = Number(process.env.WHATSAPP_MAX_IMAGE_BYTES ?? (8 * 1024 * 1024));
 const WHATSAPP_ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const WHATSAPP_QNA_COLLECTION = 'whatsapp_questionnaire_campaigns';
+
+type QuestionnaireSessionRow = { id: string; question: string; answer: string };
+type QuestionnaireSession = { phone: string; status: 'queued' | 'in_progress' | 'completed'; updatedAt: string; rows: QuestionnaireSessionRow[] };
+
+async function tryProcessQuestionnaireReply(params: { tenantId: string; from: string; incomingBody: string }): Promise<{ handled: boolean; reply?: string }> {
+  const normalizedFrom = params.from.replace(/^whatsapp:/i, '').trim();
+  if (!normalizedFrom || !params.incomingBody.trim()) return { handled: false };
+  const activeSnap = await db.collection(WHATSAPP_QNA_COLLECTION)
+    .where('tenantId', '==', params.tenantId)
+    .where('status', '==', 'active')
+    .limit(1)
+    .get();
+  const doc = activeSnap.docs[0];
+  if (!doc) return { handled: false };
+  const data = doc.data() as { sessions?: QuestionnaireSession[] };
+  const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+  const idx = sessions.findIndex((s) => s.phone.replace(/^whatsapp:/i, '').trim() === normalizedFrom);
+  if (idx < 0) return { handled: false };
+  const session = sessions[idx];
+  const rowIdx = session.rows.findIndex((r) => !r.answer.trim());
+  if (rowIdx < 0) return { handled: true, reply: 'Thanks. This questionnaire is already complete.' };
+  session.rows[rowIdx] = { ...session.rows[rowIdx], answer: params.incomingBody.trim() };
+  const nextIdx = session.rows.findIndex((r) => !r.answer.trim());
+  session.status = nextIdx >= 0 ? 'in_progress' : 'completed';
+  session.updatedAt = new Date().toISOString();
+  sessions[idx] = session;
+  const allDone = sessions.every((s) => s.status === 'completed');
+  await doc.ref.set({ sessions, status: allDone ? 'completed' : 'active', updatedAt: new Date().toISOString() }, { merge: true });
+  if (nextIdx >= 0) return { handled: true, reply: session.rows[nextIdx].question };
+  return { handled: true, reply: 'Thanks. You have completed all questions.' };
+}
 
 function normalizeTextForSunbirdTts(text: string): string {
   const normalized = text
@@ -1701,6 +1733,17 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
     }
 
     if (incomingBody) {
+      const questionnaireFlow = await tryProcessQuestionnaireReply({
+        tenantId,
+        from: identity.externalUserId,
+        incomingBody,
+      });
+      if (questionnaireFlow.handled) {
+        res.set('Content-Type', 'text/xml');
+        res.status(200).send(xmlResponse(questionnaireFlow.reply ?? 'Thank you.'));
+        return;
+      }
+
       const linkedRelayTicketId = repliedToMessageId
         ? await resolveRelayTicketIdFromReplyContext({
           tenantId,
@@ -2554,6 +2597,23 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
             continue;
           }
 
+          if (body) {
+            const questionnaireFlow = await tryProcessQuestionnaireReply({
+              tenantId,
+              from: identity.externalUserId,
+              incomingBody: body,
+            });
+            if (questionnaireFlow.handled) {
+              await sendMetaWhatsAppTextMessage({
+                phoneNumberId,
+                accessToken,
+                to: identity.externalUserId,
+                body: questionnaireFlow.reply ?? 'Thank you.',
+              });
+              continue;
+            }
+          }
+
           const linkedRelayTicketId = repliedToMessageId
             ? await resolveRelayTicketIdFromReplyContext({
               tenantId,
@@ -2973,6 +3033,11 @@ const metaTemplateSendBody = z.object({
     });
   }
 });
+const whatsappQuestionnaireCampaignBody = z.object({
+  name: z.string().min(1),
+  recipients: z.array(z.string().min(1)).min(1),
+  rows: z.array(z.object({ id: z.string().min(1), question: z.string().min(1) })).min(1),
+});
 
 function maskSecret(secret: string): string {
   if (secret.length <= 4) return '*'.repeat(secret.length);
@@ -3194,6 +3259,38 @@ tenantIntegrationsRouter.post('/whatsapp/meta/send-template', requireAuth, requi
     const details = error instanceof Error ? error.message : 'Unknown send error';
     res.status(502).json({ error: 'Failed to send Meta WhatsApp template', details });
   }
+});
+
+tenantIntegrationsRouter.get('/whatsapp/questionnaire-campaign', requireAuth, requireAdmin, async (_req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const snap = await db.collection(WHATSAPP_QNA_COLLECTION).where('tenantId', '==', tenantId).orderBy('createdAt', 'desc').limit(1).get();
+  const doc = snap.docs[0];
+  res.json({ campaign: doc ? { id: doc.id, ...doc.data() } : null });
+});
+
+tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign', requireAuth, requireAdmin, async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const parsed = whatsappQuestionnaireCampaignBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+  const now = new Date().toISOString();
+  const sessions = Array.from(new Set(parsed.data.recipients.map((value) => value.trim()).filter(Boolean))).map((phone) => ({
+    phone,
+    status: 'queued',
+    updatedAt: now,
+    rows: parsed.data.rows.map((row) => ({ ...row, answer: '' })),
+  }));
+  const ref = await db.collection(WHATSAPP_QNA_COLLECTION).add({
+    tenantId,
+    name: parsed.data.name,
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+    sessions,
+  });
+  res.status(201).json({ ok: true, campaignId: ref.id, sessions });
 });
 
 tenantIntegrationsRouter.delete('/whatsapp/meta', requireAuth, requireAdmin, async (_req, res) => {

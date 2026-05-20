@@ -166,6 +166,15 @@ export default function WhatsAppIntegration() {
     void loadConfig();
   }, [tenantId]);
 
+  useEffect(() => {
+    if (!tenantId) return;
+    void api<{ campaign: { sessions?: QuestionnaireSession[] } | null }>(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-campaign`)
+      .then((response) => {
+        if (response.campaign?.sessions) setQuestionnaireSessions(response.campaign.sessions);
+      })
+      .catch(() => {});
+  }, [tenantId]);
+
   const onSubmitTwilio = async (event: FormEvent) => {
     event.preventDefault();
     if (!tenantId) return;
@@ -336,7 +345,7 @@ export default function WhatsAppIntegration() {
     setError('');
   };
 
-  const startQuestionnaireCampaign = () => {
+  const startQuestionnaireCampaign = async () => {
     const recipients = Array.from(new Set(questionnaireRecipientsText
       .split(/[\n,\s]+/)
       .map((value) => value.trim())
@@ -351,13 +360,13 @@ export default function WhatsAppIntegration() {
       return;
     }
 
-    const now = new Date().toISOString();
-    setQuestionnaireSessions(recipients.map((phone) => ({
-      phone,
-      status: 'queued',
-      updatedAt: now,
-      rows: questionnaireRows.map((row) => ({ ...row })),
-    })));
+    setSaving(true);
+    const response = await api<{ sessions: QuestionnaireSession[] }>(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-campaign`, {
+      method: 'POST',
+      body: JSON.stringify({ name: questionnaireName, recipients, rows: questionnaireRows.map(({ id, question }) => ({ id, question })) }),
+    });
+    setQuestionnaireSessions(response.sessions);
+    setSaving(false);
     setMessage(`Questionnaire campaign "${questionnaireName}" prepared for ${recipients.length} phone number(s). Send your template to begin conversations on WhatsApp.`);
     setError('');
   };
