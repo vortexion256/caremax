@@ -16,6 +16,16 @@ export default function HandoffQueue() {
   const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
+  const toPatientAlias = (userId: string, conversationId: string) => {
+    const seed = `${userId}:${conversationId}`;
+    let hash = 0;
+    for (let i = 0; i < seed.length; i += 1) {
+      hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    }
+    const suffix = hash.toString(36).toUpperCase().padStart(6, '0').slice(0, 6);
+    return `PAT-${suffix}`;
+  };
+
   useEffect(() => {
     if (!tenantId) return;
     setLoading(true);
@@ -99,7 +109,9 @@ export default function HandoffQueue() {
               {list.map((h) => (
                 <tr key={h.conversationId} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <td style={{ padding: '16px 20px', fontFamily: 'monospace', color: '#64748b' }}>{h.conversationId.slice(0, 8)}...</td>
-                  <td style={{ padding: '16px 20px', color: '#1e293b', fontWeight: 500 }}>{h.userId}</td>
+                  <td style={{ padding: '16px 20px', color: '#1e293b', fontWeight: 600 }}>
+                    {toPatientAlias(h.userId, h.conversationId)}
+                  </td>
                   <td style={{ padding: '16px 20px' }}>
                     <span style={{ 
                       padding: '4px 8px', 
