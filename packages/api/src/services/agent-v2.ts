@@ -100,7 +100,6 @@ const TRIAGE_STATE_LABELS: Record<TriageState, string> = {
 };
 
 const QUICK_ADVICE_SYMPTOM_REGEX = /\b(cough|cold|flu|headache|fever|diarrhea|diarrhoea|vomiting|nausea|stomach(?:\s+ache)?|abdominal pain|runny nose|sore throat|constipation|rash|allergy|back pain|body aches?)\b/i;
-const HIGH_RISK_TRIAGE_REGEX = /\b(chest pain|difficulty breathing|shortness of breath|can't breathe|seizure|faint(?:ed|ing)?|passed out|stroke|weakness on one side|confused|confusion|pregnant|pregnancy|newborn|infant|baby|blood in (?:stool|vomit|urine)|black stool|severe dehydration|cannot keep fluids down|can't keep fluids down|not passing urine|suicidal|overdose|poison|anaphylaxis)\b/i;
 const RESPIRATORY_TRIAGE_REGEX = /\b(cough|cold|flu|fever|runny nose|blocked nose|sore throat|throat pain|breathing|shortness of breath|wheeze|chest congestion)\b/i;
 const GI_TRIAGE_REGEX = /\b(diarrhea|diarrhoea|vomit|vomiting|nausea|stomach|abdominal|tummy|constipation|bloated|food poisoning)\b/i;
 const URINARY_TRIAGE_REGEX = /\b(urine|urinary|pee|burning urination|painful urination|frequent urination|uti|kidney)\b/i;
@@ -378,7 +377,6 @@ function shouldFastTrackV3Advice(
 
   const symptomSummary = triageState.symptomSummary ?? combinedUserText;
   if (!symptomSummary || !QUICK_ADVICE_SYMPTOM_REGEX.test(symptomSummary)) return false;
-  if (HIGH_RISK_TRIAGE_REGEX.test(combinedUserText)) return false;
 
   const normalizedHistory = combinedUserText.toLowerCase();
   const moderateOrWorse = /\b(severe|very bad|worst|unbearable|can't manage|cannot manage|8\/10|9\/10|10\/10|eight\/10|nine\/10|ten\/10)\b/.test(normalizedHistory);
