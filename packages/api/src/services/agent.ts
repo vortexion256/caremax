@@ -17,7 +17,6 @@ import { normalizeWhatsAppExternalUserId } from './user-identity.js';
 import { getHealthProfile, logVitals } from './health-tools.js';
 import {
   isExplicitHumanRequest,
-  isImmediateEmergencyHandoffSituation,
   isUnhelpfulAssistantReply,
   shouldTriggerRepeatedFailureHandoff,
 } from './handoff-policy.js';
@@ -123,6 +122,7 @@ function formatExistingRecordsForPrompt(records: { recordId: string; title: stri
 
 /** When the model includes this at the end of its reply, we escalate to a human. Enables indirect "I want a person" and "couldn't help after repeat" detection. */
 const HANDOFF_MARKER = '[HANDOFF]';
+const REQUEST_HANDOFF_TOOL = 'request_handoff';
 
 const REMINDER_RELATED_TURN_REGEX = /\b(reminder|remind|upcoming|scheduled|schedule|delete|remove|cancel|edit|change|update)\b/i;
 
@@ -481,10 +481,7 @@ export async function runAgent(
     : '';
 
   const escalationInstruction = `
-Escalation to a human: When EITHER of the following is true, you MUST end your reply with exactly "${HANDOFF_MARKER}" on a new line (the user will not see this; the system will connect them to a care team member).
-1) The user clearly and explicitly asks to speak to a human, a real person, the care team, or a live agent.
-2) The situation appears urgent or safety-sensitive and a human should review it promptly.
-3) You have already failed to resolve the same issue after 3 to 5 consecutive turns, especially if your recent replies were uncertain, repetitive, or unhelpful. In that case escalate instead of continuing the loop.`;
+Escalation to a human: when escalation is needed, call the ${REQUEST_HANDOFF_TOOL} tool instead of adding any hidden marker to your text response.`;
   const followUpHint =
     shouldTriggerRepeatedFailureHandoff(history) && lastReplyWasUnhelpfulOrUncertain(history)
       ? ` The user has sent another message after you previously could not fully help. You MUST end your reply with "${HANDOFF_MARKER}" to escalate to a human.`
@@ -492,10 +489,9 @@ Escalation to a human: When EITHER of the following is true, you MUST end your r
 
   const lastUserContent = history.filter((m) => m.role === 'user').pop()?.content ?? '';
   const userWantsHuman = isExplicitHumanRequest(lastUserContent);
-  const immediateEmergencyHandoff = isImmediateEmergencyHandoffSituation(lastUserContent);
   const repeatedFailureHandoff = shouldTriggerRepeatedFailureHandoff(history);
 
-  if (userWantsHuman || immediateEmergencyHandoff || repeatedFailureHandoff) {
+  if (userWantsHuman || repeatedFailureHandoff) {
     const handoffMessage =
       `I've requested that a care team member join this chat now. Because this may be an emergency, call 911 immediately, stop activity, and ask someone nearby to stay with you.`;
     return { text: handoffMessage, requestHandoff: true };
@@ -1119,6 +1115,18 @@ First-turn identity rules:
       return JSON.stringify(result);
     },
   });
+  let handoffRequestedByTool = false;
+  const requestHandoffTool = new DynamicStructuredTool({
+    name: REQUEST_HANDOFF_TOOL,
+    description: 'Request a human handoff for this conversation when the user asks for a person or urgent human review is needed.',
+    schema: z.object({
+      reason: z.string().optional(),
+    }),
+    func: async ({ reason }) => {
+      handoffRequestedByTool = true;
+      return JSON.stringify({ success: true, requestHandoff: true, reason: reason ?? null });
+    },
+  });
 
 
   const tools: unknown[] = [];
@@ -1127,6 +1135,7 @@ First-turn identity rules:
   if (config.xPersonProfileEnabled) tools.push(xPersonProfileTool);
   if (config.xPersonProfileEnabled) tools.push(sendNextOfKinMessageTool);
   tools.push(getCurrentDateTimeTool, logVitalsTool, getHealthProfileTool);
+  tools.push(requestHandoffTool);
   if (options?.channel === 'whatsapp' || options?.channel === 'whatsapp_meta') {
     tools.push(sendWhatsAppMessageToContactTool, setReminderTool, listUserRemindersTool, getUpcomingRemindersTool, editReminderTool, deleteReminderTool);
   }
@@ -1690,6 +1699,7 @@ Provide a clear, user-friendly response based on these results.`,
     : text;
   const finalText = textWithoutMarker || 'I could not generate a response. Please try rephrasing.';
   const requestHandoff =
+    handoffRequestedByTool ||
     markerPresent ||
     /speak with (a )?(care )?(coordinator|team|human|agent)/i.test(text) ||
     /recommend.*(speaking|talking) to/i.test(text);

@@ -65,6 +65,7 @@ export type AgentResult = {
 };
 
 const HANDOFF_MARKER = '[HANDOFF]';
+const REQUEST_HANDOFF_TOOL = 'request_handoff';
 const HUMAN_HANDOFF_INTENT_CONFIDENCE_THRESHOLD = 0.9;
 const REMINDER_RELATED_TURN_REGEX = /\b(reminder|remind|upcoming|scheduled|schedule|delete|remove|cancel|edit|change|update)\b/i;
 
@@ -1031,7 +1032,6 @@ async function runAgentRuntime(
     const highConfidenceIntentHandoff =
       intent.intent === 'request_human'
       && intent.confidence >= HUMAN_HANDOFF_INTENT_CONFIDENCE_THRESHOLD;
-    const immediateEmergencyHandoff = isImmediateEmergencyHandoffSituation(latestUserMessage);
     const urgentHandoff = isUrgentHandoffSituation(latestUserMessage);
     const wantsHumanHandoff =
       explicitHumanRequest
@@ -1047,7 +1047,6 @@ async function runAgentRuntime(
       highConfidenceIntentHandoff,
       handoffIntentConfidenceThreshold: HUMAN_HANDOFF_INTENT_CONFIDENCE_THRESHOLD,
       intentConfidence: intent.confidence,
-      immediateEmergencyHandoff,
       urgentHandoff,
       repeatedFailureHandoff,
     });
@@ -1068,13 +1067,11 @@ async function runAgentRuntime(
     }
 
     // Early exit for human handoff
-    if (wantsHumanHandoff || immediateEmergencyHandoff || repeatedFailureHandoff) {
+    if (wantsHumanHandoff || repeatedFailureHandoff) {
       logAgentFlow(variant, 'handoff', {
         reason: wantsHumanHandoff
           ? 'intent_requested_human'
-          : immediateEmergencyHandoff
-            ? 'immediate_emergency_case'
-            : 'repeated_failed_turns',
+          : 'repeated_failed_turns',
       });
       return {
         text: "I've requested that a care team member join this chat now. Because this may be an emergency, call 911 immediately, stop activity, and ask someone nearby to stay with you.",
@@ -1475,7 +1472,7 @@ async function runAgentRuntime(
     }
 
     systemContent += `How you should think: ${config.thinkingInstructions}\n\n`;
-    systemContent += `Escalation: End your reply with "${HANDOFF_MARKER}" only when the user clearly asks for a human, the situation is urgent and needs human review, or the same issue has remained unresolved after 3 to 5 consecutive turns.\n`;
+    systemContent += `Escalation: When a human handoff is needed, call ${REQUEST_HANDOFF_TOOL}. Do not append hidden markers to your text response.\n`;
 
     // ========================================================================
     // STEP 5: PREPARE MESSAGES (Optimized conversation history)
@@ -1507,6 +1504,17 @@ async function runAgentRuntime(
       ),
     });
     tools.push(getCurrentDateTimeTool);
+    let handoffRequestedByTool = false;
+    const requestHandoffTool = new DynamicStructuredTool({
+      name: REQUEST_HANDOFF_TOOL,
+      description: 'Request that a human agent joins this conversation.',
+      schema: z.object({ reason: z.string().optional() }),
+      func: async ({ reason }) => {
+        handoffRequestedByTool = true;
+        return JSON.stringify({ success: true, requestHandoff: true, reason: reason ?? null });
+      },
+    });
+    tools.push(requestHandoffTool);
 
     // RAG tools
     if (config.ragEnabled) {
@@ -1922,6 +1930,14 @@ Follow this plan step by step. Execute each step in order.`;
         const toolMessages: ToolMessage[] = [];
         
         for (const tc of toolCalls) {
+          if (tc.name === REQUEST_HANDOFF_TOOL) {
+            handoffRequestedByTool = true;
+            toolMessages.push(new ToolMessage({
+              content: JSON.stringify({ success: true, requestHandoff: true, action: REQUEST_HANDOFF_TOOL }),
+              tool_call_id: tc.id,
+            }));
+            continue;
+          }
           // Orchestrator executes deterministically
           const toolArgs = { ...(tc.args ?? {}) };
           if (tc.name === 'set_reminder' && options?.channel) {
@@ -2335,6 +2351,7 @@ Provide a clear, user-friendly response based on these results.`,
       : text;
 
     const requestHandoff =
+      handoffRequestedByTool ||
       markerPresent ||
       wantsHumanHandoff ||
       urgentHandoff ||
