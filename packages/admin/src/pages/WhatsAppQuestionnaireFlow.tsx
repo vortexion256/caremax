@@ -6,6 +6,15 @@ type QuestionnaireRow = { id: string; question: string; answer: string };
 type QuestionnaireSession = { phone: string; status: 'queued'|'in_progress'|'completed'|'canceled'; rows: QuestionnaireRow[]; updatedAt: string };
 type QuestionnaireCampaign = { id: string; name?: string; introMessage?: string; sessions?: QuestionnaireSession[]; createdAt?: string; updatedAt?: string };
 
+const INTRO_MESSAGE_SUFFIX = 'Please reply YES to proceed or No to Cancel';
+
+const buildIntroMessage = (rawIntroMessage: string) => {
+  const trimmed = rawIntroMessage.trim();
+  if (!trimmed) return '';
+  if (trimmed.includes(INTRO_MESSAGE_SUFFIX)) return trimmed;
+  return `${trimmed} -- ${INTRO_MESSAGE_SUFFIX}`;
+};
+
 export default function WhatsAppQuestionnaireFlow() {
   const { tenantId } = useTenant();
   const [saving, setSaving] = useState(false);
@@ -58,10 +67,11 @@ export default function WhatsAppQuestionnaireFlow() {
     const recipients = Array.from(new Set(questionnaireRecipientsText.split(/[\n,\s]+/).map((v) => v.trim()).filter(Boolean)));
     if (!questionnaireRows.length) { setError('Load questions first.'); return; }
     if (!recipients.length) { setError('Provide recipient numbers first.'); return; }
-    if (!introMessage.trim()) { setError('Set an intro message first.'); return; }
+    const finalIntroMessage = buildIntroMessage(introMessage);
+    if (!finalIntroMessage) { setError('Set an intro message first.'); return; }
     setSaving(true); setError('');
     try {
-      await api(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-campaign`, { method: 'POST', body: JSON.stringify({ name: questionnaireName, introMessage: introMessage.trim(), recipients, rows: questionnaireRows.map(({ id, question }) => ({ id, question })) }) });
+      await api(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-campaign`, { method: 'POST', body: JSON.stringify({ name: questionnaireName, introMessage: finalIntroMessage, recipients, rows: questionnaireRows.map(({ id, question }) => ({ id, question })) }) });
       await loadCampaigns();
       setMessage(`Questionnaire workflow "${questionnaireName}" created.`);
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed to create questionnaire workflow'); }
