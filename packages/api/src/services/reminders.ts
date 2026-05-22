@@ -40,7 +40,7 @@ export type ReminderRecord = {
   ownerNotifiedAt?: FirebaseFirestore.FieldValue;
   ownerNotifyError?: string;
   error?: string;
-  source?: 'manual' | 'auto_followup';
+  source?: 'manual' | 'auto_followup' | 'auto_questionnaire';
 };
 
 function normalizeReminderMessage(message: string): string {
@@ -340,6 +340,55 @@ export async function dispatchDueReminders(options?: {
 
       if (!data.tenantId || !recipientExternalUserId || !data.message) {
         throw new Error('Reminder data is incomplete.');
+      }
+
+      if (data.source === 'auto_questionnaire') {
+        const campaignId = typeof data.message === 'string' && data.message.startsWith('auto_questionnaire:')
+          ? data.message.slice('auto_questionnaire:'.length).trim()
+          : '';
+        if (!campaignId) throw new Error('Missing questionnaire campaign id for auto trigger reminder.');
+        const campaignRef = db.collection('whatsapp_questionnaire_campaigns').doc(campaignId);
+        const campaignSnap = await campaignRef.get();
+        if (!campaignSnap.exists) throw new Error('Questionnaire campaign not found.');
+        const campaignData = campaignSnap.data() as { tenantId?: string; sessions?: Array<{ phone: string; status: string; awaitingIntroConsent?: boolean; rows: Array<{ question: string; answer: string }>; startedAt?: string; lastQuestionSent?: string; updatedAt?: string }>; introMessage?: string } | undefined;
+        if (campaignData?.tenantId !== data.tenantId) throw new Error('Questionnaire campaign tenant mismatch.');
+        const sessions = Array.isArray(campaignData?.sessions) ? campaignData.sessions : [];
+        const normalizedTarget = recipientExternalUserId.replace(/^\+/, '');
+        const idx = sessions.findIndex((s) => s.phone.replace(/^\+/, '') === normalizedTarget);
+        const nowIso = new Date().toISOString();
+        const introMessage = typeof campaignData?.introMessage === 'string' ? campaignData.introMessage.trim() : '';
+        let bodyToSend = '';
+        if (idx >= 0) {
+          const session = sessions[idx]!;
+          const pending = session.rows.find((r) => !r.answer.trim());
+          if (!pending || session.status === 'completed' || session.status === 'canceled') throw new Error('Questionnaire already completed.');
+          bodyToSend = session.awaitingIntroConsent ? `${introMessage || 'Reply YES to continue with this questionnaire or NO to cancel.'}\n\nReply with Yes to proceed or No to cancel` : pending.question;
+          session.status = 'in_progress';
+          session.startedAt = session.startedAt ?? nowIso;
+          session.lastQuestionSent = bodyToSend;
+          session.updatedAt = nowIso;
+          sessions[idx] = session;
+        } else {
+          throw new Error('Questionnaire session for this phone was not preconfigured.');
+        }
+
+        await sendWhatsAppOutboundMessage({
+          tenantId: data.tenantId,
+          to: recipientExternalUserId,
+          body: bodyToSend,
+          preferredChannel: channel,
+        });
+        await campaignRef.set({ sessions, updatedAt: nowIso }, { merge: true });
+        await doc.ref.update({
+          status: 'sent',
+          sentAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          dispatchLockId: FieldValue.delete(),
+          dispatchLockedAt: FieldValue.delete(),
+          error: FieldValue.delete(),
+        });
+        sent += 1;
+        continue;
       }
 
       const shouldRelayNokReply =

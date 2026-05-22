@@ -1867,6 +1867,7 @@ integrationsCallbackRouter.post('/twilio/whatsapp/webhook/:tenantId', async (req
         res.status(200).send(xmlResponse(questionnaireFlow.reply ?? 'Thank you.'));
         return;
       }
+      await scheduleQuestionnaireAutoTrigger({ tenantId, externalUserId: identity.externalUserId });
 
       const linkedRelayTicketId = repliedToMessageId
         ? await resolveRelayTicketIdFromReplyContext({
@@ -2744,6 +2745,7 @@ integrationsCallbackRouter.post('/meta/whatsapp/webhook/:tenantId', async (req: 
               continue;
             }
           }
+          await scheduleQuestionnaireAutoTrigger({ tenantId, externalUserId: identity.externalUserId });
 
           const linkedRelayTicketId = repliedToMessageId
             ? await resolveRelayTicketIdFromReplyContext({
@@ -3174,6 +3176,43 @@ const whatsappQuestionnaireCampaignBody = z.object({
 const questionnaireLaunchBody = z.object({
   campaignId: z.string().optional(),
 });
+const questionnaireAutoTriggerConfigBody = z.object({
+  enabled: z.boolean(),
+  campaignId: z.string().min(1),
+  inactivityMinutes: z.number().int().min(1).max(120).optional(),
+});
+
+async function scheduleQuestionnaireAutoTrigger(params: { tenantId: string; externalUserId: string }): Promise<void> {
+  const tenantSnap = await db.collection('tenant_integrations').doc(params.tenantId).get();
+  const config = tenantSnap.data()?.whatsappQuestionnaireAutoTrigger as { enabled?: boolean; campaignId?: string; inactivityMinutes?: number } | undefined;
+  if (!config?.enabled || !config.campaignId) return;
+  const normalizedPhone = normalizeWhatsAppPhoneIdentity(params.externalUserId);
+  if (!normalizedPhone) return;
+  const existing = await db.collection('reminders')
+    .where('tenantId', '==', params.tenantId)
+    .where('status', '==', 'pending')
+    .where('source', '==', 'auto_questionnaire')
+    .where('externalUserId', '==', normalizedPhone)
+    .limit(20)
+    .get();
+  await Promise.all(existing.docs.map((doc) => doc.ref.update({ status: 'cancelled', updatedAt: FieldValue.serverTimestamp() })));
+
+  await db.collection('reminders').add({
+    tenantId: params.tenantId,
+    externalUserId: normalizedPhone,
+    targetExternalUserId: normalizedPhone,
+    targetType: 'self',
+    channel: 'whatsapp',
+    message: `auto_questionnaire:${config.campaignId}`,
+    dueAt: Timestamp.fromDate(new Date(Date.now() + (Math.max(1, Number(config.inactivityMinutes ?? 3)) * 60_000))),
+    timezone: 'UTC',
+    status: 'pending',
+    source: 'auto_questionnaire',
+    metadata: { campaignId: config.campaignId },
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+}
 
 function maskSecret(secret: string): string {
   if (secret.length <= 4) return '*'.repeat(secret.length);
@@ -3402,6 +3441,33 @@ tenantIntegrationsRouter.get('/whatsapp/questionnaire-campaign', requireAuth, re
   const snap = await db.collection(WHATSAPP_QNA_COLLECTION).where('tenantId', '==', tenantId).orderBy('createdAt', 'desc').get();
   const campaigns = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
   res.json({ campaign: campaigns[0] ?? null, campaigns });
+});
+
+tenantIntegrationsRouter.get('/whatsapp/questionnaire-auto-trigger', requireAuth, requireAdmin, async (_req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const doc = await db.collection('tenant_integrations').doc(tenantId).get();
+  const config = doc.data()?.whatsappQuestionnaireAutoTrigger ?? { enabled: false, campaignId: '', inactivityMinutes: 3 };
+  res.json({ config });
+});
+
+tenantIntegrationsRouter.put('/whatsapp/questionnaire-auto-trigger', requireAuth, requireAdmin, async (req, res) => {
+  const tenantId = res.locals.tenantId as string;
+  const parsed = questionnaireAutoTriggerConfigBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid body', details: parsed.error.flatten() });
+    return;
+  }
+  await db.collection('tenant_integrations').doc(tenantId).set({
+    tenantId,
+    whatsappQuestionnaireAutoTrigger: {
+      enabled: parsed.data.enabled,
+      campaignId: parsed.data.campaignId.trim(),
+      inactivityMinutes: parsed.data.inactivityMinutes ?? 3,
+      updatedAt: new Date().toISOString(),
+    },
+    updatedAt: new Date().toISOString(),
+  }, { merge: true });
+  res.json({ ok: true });
 });
 
 tenantIntegrationsRouter.post('/whatsapp/questionnaire-campaign', requireAuth, requireAdmin, async (req, res) => {

@@ -5,6 +5,7 @@ import { useTenant } from '../TenantContext';
 type QuestionnaireRow = { id: string; question: string; answer: string };
 type QuestionnaireSession = { phone: string; status: 'queued'|'in_progress'|'completed'|'canceled'; rows: QuestionnaireRow[]; updatedAt: string };
 type QuestionnaireCampaign = { id: string; name?: string; introMessage?: string; sessions?: QuestionnaireSession[]; createdAt?: string; updatedAt?: string };
+type AutoTriggerConfig = { enabled: boolean; campaignId: string; inactivityMinutes: number };
 
 const INTRO_MESSAGE_SUFFIX = 'Please reply YES to proceed or No to Cancel';
 
@@ -27,6 +28,7 @@ export default function WhatsAppQuestionnaireFlow() {
   const [introMessage, setIntroMessage] = useState('');
   const [campaigns, setCampaigns] = useState<QuestionnaireCampaign[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
+  const [autoTriggerConfig, setAutoTriggerConfig] = useState<AutoTriggerConfig>({ enabled: false, campaignId: '', inactivityMinutes: 3 });
 
   const selectedCampaign = useMemo(() => campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? campaigns[0], [campaigns, selectedCampaignId]);
   const sessions = selectedCampaign?.sessions ?? [];
@@ -43,6 +45,12 @@ export default function WhatsAppQuestionnaireFlow() {
   };
 
   useEffect(() => { void loadCampaigns(); }, [tenantId]);
+  useEffect(() => {
+    if (!tenantId) return;
+    void api<{ config: AutoTriggerConfig }>(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-auto-trigger`)
+      .then((res) => setAutoTriggerConfig(res.config ?? { enabled: false, campaignId: '', inactivityMinutes: 3 }))
+      .catch(() => undefined);
+  }, [tenantId]);
 
   const loadRecentContacts = async () => {
     if (!tenantId) return;
@@ -110,10 +118,39 @@ export default function WhatsAppQuestionnaireFlow() {
     });
   }, [sessions]);
 
+  const saveAutoTrigger = async () => {
+    if (!tenantId) return;
+    if (!autoTriggerConfig.campaignId.trim()) { setError('Select a questionnaire workflow for auto trigger.'); return; }
+    setSaving(true); setError('');
+    try {
+      await api(`/tenants/${tenantId}/integrations/whatsapp/questionnaire-auto-trigger`, {
+        method: 'PUT',
+        body: JSON.stringify(autoTriggerConfig),
+      });
+      setMessage('Auto-trigger settings saved.');
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to save auto-trigger settings'); }
+    finally { setSaving(false); }
+  };
+
   return <div style={{ display: 'grid', gap: 20 }}>
     <div>
       <h1 style={{ margin: 0, fontSize: 28, color: '#0f172a' }}>WhatsApp Questionnaire Flow Builder</h1>
       <p style={{ marginTop: 8, color: '#475569' }}>Create workflows, launch them, view results, and delete old workflows.</p>
+    </div>
+
+    <div style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: 16, background: '#fff', display: 'grid', gap: 10 }}>
+      <h2 style={{ margin: 0 }}>Auto Trigger after Inactivity</h2>
+      <label><input type='checkbox' checked={autoTriggerConfig.enabled} onChange={(e) => setAutoTriggerConfig((prev) => ({ ...prev, enabled: e.target.checked }))} /> Enable auto-launch after no user messages</label>
+      <label style={{ display: 'grid', gap: 6 }}>Inactivity minutes
+        <input type='number' min={1} max={120} value={autoTriggerConfig.inactivityMinutes} onChange={(e) => setAutoTriggerConfig((prev) => ({ ...prev, inactivityMinutes: Number(e.target.value || 3) }))} />
+      </label>
+      <label style={{ display: 'grid', gap: 6 }}>Workflow to auto-launch
+        <select value={autoTriggerConfig.campaignId} onChange={(e) => setAutoTriggerConfig((prev) => ({ ...prev, campaignId: e.target.value }))}>
+          <option value=''>Select workflow...</option>
+          {campaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name || campaign.id}</option>)}
+        </select>
+      </label>
+      <button type='button' disabled={saving} onClick={saveAutoTrigger}>Save Auto Trigger Settings</button>
     </div>
 
     <div style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: 16, display: 'grid', gap: 12, background: '#f8fafc' }}>
