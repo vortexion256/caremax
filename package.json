@@ -17,5 +17,8 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.62.4"
   }
 }

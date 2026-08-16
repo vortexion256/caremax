@@ -1,5 +1,10 @@
 .landing-shell {
-  --landing-header-offset: 112px;
+  --landing-header-offset: 88px;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --blue: #0ea5e9;
+  --navy: #071a33;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -47,12 +52,11 @@ main {
   z-index: 100;
   margin: 0;
   width: 100%;
-  background: transparent !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  border: 0;
-  box-shadow: none;
-  border-radius: 0;
+  background: rgba(7, 26, 51, 0.78) !important;
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 12px 36px rgba(2, 6, 23, 0.16);
 }
 
 .landing-header-content,
@@ -67,6 +71,7 @@ main {
   position: relative;
   z-index: 1;
   width: 100%;
+  min-height: 88px;
   background: transparent !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
@@ -140,16 +145,16 @@ main {
   overflow: hidden;
   isolation: isolate;
   margin-top: 0;
-  min-height: 100vh;
-  padding: calc(92px + var(--landing-header-offset)) 0 72px;
+  min-height: 720px;
+  padding: calc(104px + var(--landing-header-offset)) 0 96px;
   background: url('/assets/tech_bg.png') center/cover no-repeat;
 }
 .hero-section::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(2, 6, 23, 0.48), rgba(15, 23, 42, 0.54)),
-    radial-gradient(circle at center, rgba(15, 23, 42, 0.24), rgba(15, 23, 42, 0.42));
+  background: linear-gradient(180deg, rgba(7, 26, 51, 0.72), rgba(7, 26, 51, 0.84)),
+    radial-gradient(circle at 70% 35%, rgba(14, 165, 233, 0.2), transparent 38%);
   z-index: 0;
   pointer-events: none;
 }
@@ -196,13 +201,14 @@ main {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  min-height: calc(100vh - 260px);
+  justify-content: center;
+  min-height: 520px;
   padding-top: 0;
 }
 .hero-content h2 {
-  margin: 0 0 20px;
-  font-size: clamp(38px, 8vw, 70px);
+  max-width: 840px;
+  margin: 0 0 22px;
+  font-size: clamp(44px, 7vw, 76px);
   line-height: 1.06;
   letter-spacing: -0.04em;
   color: #f8fbff;
@@ -217,14 +223,30 @@ main {
   -webkit-text-stroke: 1px rgba(186, 230, 253, 0.8);
 }
 .hero-content p {
-  max-width: 860px;
+  max-width: 700px;
   margin: 0 auto 36px;
-  font-size: clamp(17px, 2.5vw, 22px);
+  font-size: clamp(17px, 2.1vw, 20px);
   color: rgba(248, 250, 252, 0.98);
   text-shadow:
     0 6px 20px rgba(2, 6, 23, 0.58),
     0 0 12px rgba(15, 23, 42, 0.32);
 }
+
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+  margin-bottom: 24px;
+  border: 1px solid rgba(125, 211, 252, 0.38);
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.1);
+  color: #bae6fd;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.eyebrow-dot { width: 7px; height: 7px; border-radius: 50%; background: #67e8f9; box-shadow: 0 0 0 4px rgba(103, 232, 249, 0.14); }
 
 .hero-badge {
   display: inline-flex;
@@ -270,12 +292,12 @@ main {
   color: #eff6ff;
 }
 
-.surface-section { padding: 72px 0; background: #fff; border-top: 1px solid #e2e8f0; }
+.surface-section { padding: 92px 0; background: #fff; border-top: 1px solid var(--line); }
 .platform-pricing-flow {
-  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
 }
 .platform-highlights-section { background: transparent; }
-.section-title { margin: 0 0 10px; font-size: clamp(28px, 5vw, 42px); letter-spacing: -0.03em; }
+.section-title { margin: 0 0 12px; color: var(--ink); font-size: clamp(30px, 4.5vw, 44px); letter-spacing: -0.04em; }
 .section-subtitle { margin: 0 auto; max-width: 760px; color: #64748b; font-size: 19px; }
 
 .landing-features-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 20px; }
@@ -313,7 +335,7 @@ main {
     inset 0 1px 0 rgba(255, 255, 255, 0.86),
     0 20px 36px -22px rgba(14, 116, 144, 0.45);
 }
-.feature-icon { font-size: 34px; margin-bottom: 14px; }
+.feature-icon { display: grid; place-items: center; width: 46px; height: 46px; margin-bottom: 20px; border-radius: 14px; background: #e0f2fe; font-size: 24px; }
 .feature-title { margin: 0 0 8px; font-size: 20px; }
 .feature-description { margin: 0; color: #64748b; font-size: 15px; line-height: 1.65; }
 
@@ -334,14 +356,16 @@ main {
   border-color: #0284c7;
   box-shadow: 0 16px 32px -18px rgba(2, 132, 199, 0.55);
 }
+.pricing-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .pricing-card h4 { margin: 0; font-size: 22px; }
+.pricing-badge { padding: 5px 9px; border-radius: 999px; background: #e0f2fe; color: #0369a1; font-size: 11px; font-weight: 800; white-space: nowrap; text-transform: uppercase; letter-spacing: .05em; }
 .price { margin: 0; font-size: 34px; font-weight: 800; letter-spacing: -0.03em; }
 .price span { font-size: 14px; color: #64748b; font-weight: 600; margin-left: 6px; }
 .price-description { margin: 0; color: #64748b; min-height: 72px; }
 .price-trial { margin: -8px 0 0; color: #0f766e; font-size: 13px; font-weight: 600; }
 .pricing-btn { margin-top: auto; padding: 12px 14px; background: #0f172a; color: white; }
 
-.landing-footer { padding: 40px 0; background: #fff; border-top: 1px solid #e2e8f0; }
+.landing-footer { padding: 48px 0; background: #fff; border-top: 1px solid var(--line); }
 .footer-brand-block { display: flex; flex-direction: column; gap: 6px; }
 .footer-brand { font-weight: 700; font-size: 18px; }
 .footer-details { margin: 0; color: #64748b; font-size: 14px; }
@@ -441,7 +465,7 @@ main {
 
 @media (max-width: 767px) {
   .landing-shell {
-    --landing-header-offset: 96px;
+    --landing-header-offset: 76px;
   }
 
   .landing-header {
@@ -463,13 +487,22 @@ main {
     padding: 10px 14px;
   }
 
+  .landing-header-content { min-height: 76px; }
+
   .hero-section {
-    min-height: 100svh;
-    padding-top: calc(88px + var(--landing-header-offset));
+    min-height: 680px;
+    padding-top: calc(78px + var(--landing-header-offset));
   }
 
   .hero-content {
-    min-height: calc(100svh - 240px);
+    min-height: 510px;
     padding-top: 0;
   }
+
+  .hero-content h2 { font-size: clamp(42px, 12vw, 60px); }
+  .hero-content p { font-size: 17px; line-height: 1.65; }
+  .surface-section { padding: 68px 0; }
+  .pricing-section { padding: 68px 0 78px; }
+  .footer-content { align-items: flex-start; }
+  .footer-links { gap: 12px; }
 }

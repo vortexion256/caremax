@@ -241,13 +241,14 @@ export default function Landing() {
         <section className={`hero-section${publicContent.enableLandingVanta ? ' vanta-enabled' : ''}`}>
           {publicContent.enableLandingVanta && <div ref={heroVantaRef} className="hero-vanta-bg" />}
           <div className="landing-container hero-content animate-fade-in">
-            <div className="hero-badge">Healthcare AI • Secure • Scalable</div>
+            <div className="hero-eyebrow"><span className="eyebrow-dot" /> Healthcare AI for modern care teams</div>
             <h2>
-              AI Clinical Triage <br />
-              <span>and Personal Health Guidance for Modern Care</span>
+              Smarter triage.
+              <br />
+              <span>More human care.</span>
             </h2>
             <p>
-              CareMax helps patients understand symptoms, get safe guidance, and reach the right care faster through clinically-aware AI conversations.
+              CareMax helps healthcare teams understand patient needs earlier, guide people to the right next step, and keep clinicians focused on the care that matters most.
             </p>
             <div className="hero-actions">
               <button onClick={() => navigate('/signup')} disabled={loading} className="cta-primary">Start Free Trial</button>
@@ -266,7 +267,7 @@ export default function Landing() {
               <div className="landing-features-grid animate-fade-in delay-2">
                 {capabilities.map((item) => (
                   <div key={item.title} className="feature-card">
-                    <div className="feature-icon">{item.icon}</div>
+                    <div className="feature-icon" aria-hidden="true">{item.icon}</div>
                     <h4 className="feature-title">{item.title}</h4>
                     <p className="feature-description">{item.description}</p>
                   </div>
@@ -300,7 +301,7 @@ export default function Landing() {
                 <div className="pricing-grid">
                   {displayPlans.map((pkg, idx) => (
                     <div key={pkg.id} className={`pricing-card${idx === 1 ? ' highlighted' : ''}`}>
-                      <h4>{pkg.name}</h4>
+                      <div className="pricing-card-heading"><h4>{pkg.name}</h4>{idx === 1 && <span className="pricing-badge">Most popular</span>}</div>
                       <p className="price">
                         {pkg.priceUgx <= 0 ? 'Free' : formatUgx(pkg.priceUgx)}
                         <span>{pkg.priceUgx > 0 ? '/month' : '/limited time'}</span>
